@@ -1,0 +1,13 @@
+{
+  "appId": "com.pillsync.app",
+  "appName": "PillSync",
+  "webDir": "out",
+  "bundledWebRuntime": false,
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_icon_config_sample",
+      "iconColor": "#14B8A6",
+      "sound": "alarm.wav"
+    }
+  }
+}

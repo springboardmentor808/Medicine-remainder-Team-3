@@ -1,0 +1,86 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-5678-90ef-1234-567890abcdef",
+		"name": "AI Intelligent Medicine Reminder API",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Health Check",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:8000/health",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"health"
+					]
+				}
+			}
+		},
+		{
+			"name": "Login (JWT HttpOnly Cookie)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"username\": \"testuser\",\n  \"password\": \"secret123\"\n}"
+				},
+				"url": {
+					"raw": "http://localhost:8000/api/v1/auth/login",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"api",
+						"v1",
+						"auth",
+						"login"
+					]
+				}
+			}
+		},
+		{
+			"name": "Trigger Reminder (Twilio/SendGrid)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"medicine_name\": \"Amoxicillin 500mg\",\n  \"dosage\": \"1 Capsule\",\n  \"recipient\": \"user@example.com\",\n  \"channel\": \"email\"\n}"
+				},
+				"url": {
+					"raw": "http://localhost:8000/api/v1/send-reminder",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"api",
+						"v1",
+						"send-reminder"
+					]
+				}
+			}
+		}
+	]
+}
