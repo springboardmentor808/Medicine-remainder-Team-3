@@ -14,6 +14,8 @@ from app.core.config import settings
 from app.core.database import engine
 from app.api.v1.auth import router as auth_router
 from app.api.v1.users import router as users_router
+from app.api.v1.ocr import router as ocr_router
+from app.api.v1.refill import router as refill_router
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +75,8 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
+app.include_router(ocr_router, prefix="/api/v1/ocr", tags=["OCR Scanner"])
+app.include_router(refill_router, prefix="/api/v1/refill", tags=["Refill AI"])
 
 
 # ---------------------------------------------------------------------------

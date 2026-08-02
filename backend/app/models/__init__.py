@@ -9,6 +9,7 @@ from app.models.user import User, UserRole
 from app.models.medicine import Medicine
 from app.models.schedule import Schedule
 from app.models.caregiver_patient import caregiver_patients
+from app.models.refill import Refill
 
 __all__ = [
     "User",
@@ -16,4 +17,5 @@ __all__ = [
     "Medicine",
     "Schedule",
     "caregiver_patients",
+    "Refill",
 ]
