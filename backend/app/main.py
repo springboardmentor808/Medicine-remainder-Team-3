@@ -2,7 +2,7 @@
 PillSync — FastAPI Application Entrypoint.
 
 Configures the FastAPI app with CORS middleware, API routers,
-database lifecycle events, and health check endpoints.
+database lifecycle events (PostgreSQL, Redis, MongoDB), and health check endpoints.
 """
 
 from contextlib import asynccontextmanager
@@ -10,14 +10,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import settings
-from app.core.database import engine
+from app.api.v1.adherence import router as adherence_router
 from app.api.v1.auth import router as auth_router
-from app.api.v1.users import router as users_router
+from app.api.v1.medicines import router as medicines_router
 from app.api.v1.ocr import router as ocr_router
 from app.api.v1.refill import router as refill_router
-from app.api.v1.medicines import router as medicines_router
-from app.api.v1.adherence import router as adherence_router
+from app.api.v1.users import router as users_router
+from app.core.config import settings
+from app.core.database import engine
+from app.core.mongodb import connect_mongodb, disconnect_mongodb
+from app.core.redis import connect_redis, disconnect_redis
 
 
 # ---------------------------------------------------------------------------
@@ -27,19 +29,39 @@ from app.api.v1.adherence import router as adherence_router
 async def lifespan(app: FastAPI):
     """
     Manages application lifecycle:
-    - Startup: Verify database connectivity.
-    - Shutdown: Dispose database engine connections.
+    - Startup: Verify database connectivity (Postgres, Redis, MongoDB).
+    - Shutdown: Dispose database connections gracefully.
     """
     # Startup
     print(f"[PillSync] [{settings.ENVIRONMENT}] Starting on port {settings.PORT}...")
-    print(f"[PillSync] Database: {settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}")
+    print(f"[PillSync] PostgreSQL: {settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}")
     print(f"[PillSync] JWT Algorithm: {settings.ALGORITHM}, Access TTL: {settings.ACCESS_TOKEN_EXPIRE_MINUTES}min")
+
+    # Connect Redis (with fallback for standalone dev)
+    try:
+        await connect_redis()
+    except Exception as redis_err:
+        print(f"[PillSync] Redis connection deferred: {redis_err}")
+
+    # Connect MongoDB (with fallback for standalone dev)
+    try:
+        await connect_mongodb()
+    except Exception as mongo_err:
+        print(f"[PillSync] MongoDB connection deferred: {mongo_err}")
 
     yield  # Application runs here
 
     # Shutdown
     print("[PillSync] Shutting down... closing database connections.")
     await engine.dispose()
+    try:
+        await disconnect_redis()
+    except Exception:
+        pass
+    try:
+        await disconnect_mongodb()
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
