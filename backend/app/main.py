@@ -17,6 +17,7 @@ from app.api.v1.users import router as users_router
 from app.api.v1.ocr import router as ocr_router
 from app.api.v1.refill import router as refill_router
 from app.api.v1.medicines import router as medicines_router
+from app.api.v1.adherence import router as adherence_router
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +80,7 @@ app.include_router(users_router, prefix="/api/v1")
 app.include_router(ocr_router, prefix="/api/v1/ocr", tags=["OCR Scanner"])
 app.include_router(refill_router, prefix="/api/v1/refill", tags=["Refill AI"])
 app.include_router(medicines_router, prefix="/api/v1")
+app.include_router(adherence_router, prefix="/api/v1")
 
 
 # ---------------------------------------------------------------------------
