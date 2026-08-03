@@ -2,7 +2,7 @@
 PillSync Refill Prediction Pydantic Schemas.
 
 Defines request/response validation models for the AI Refill
-Prediction Engine endpoints.
+Prediction Engine endpoints and nearby pharmacy discovery.
 """
 
 import uuid
@@ -10,6 +10,8 @@ from datetime import date, datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field
+
+from app.schemas.pharmacy_schema import PharmacyResponse
 
 
 # ===================================================================
@@ -19,9 +21,6 @@ from pydantic import BaseModel, Field
 class RefillPredictionRequest(BaseModel):
     """
     POST /api/v1/refill/update-stock — Update pill stock for a medicine.
-
-    Used when the user manually records their current pill count
-    to recalculate the refill prediction.
     """
 
     medicine_id: uuid.UUID = Field(
@@ -56,8 +55,9 @@ class RefillPredictionResponse(BaseModel):
     """
     Response for refill prediction queries.
 
-    Returns the computed refill date, remaining days, and
-    a low-stock warning flag.
+    Returns the computed refill date, remaining days, low-stock flag,
+    and optional nearby pharmacies fetched via OpenStreetMap when GPS
+    coordinates are supplied or when stock is low.
     """
 
     medicine_id: uuid.UUID = Field(
@@ -92,6 +92,10 @@ class RefillPredictionResponse(BaseModel):
     low_stock_threshold: int = Field(
         ...,
         description="Configured low-stock threshold in days",
+    )
+    nearby_pharmacies: Optional[list[PharmacyResponse]] = Field(
+        default=[],
+        description="Nearby pharmacies from OpenStreetMap when stock is low or GPS is supplied",
     )
     created_at: Optional[datetime] = Field(
         None,
