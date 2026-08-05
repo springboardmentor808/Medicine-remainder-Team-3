@@ -64,6 +64,16 @@ class RefreshTokenRequest(BaseModel):
     )
 
 
+class ChangePasswordRequest(BaseModel):
+    """POST /api/v1/auth/change-password — Change user password."""
+    current_password: str = Field(
+        ..., min_length=8, description="Current password",
+    )
+    new_password: str = Field(
+        ..., min_length=8, description="New password (min 8 characters)",
+    )
+
+
 class UserUpdateRequest(BaseModel):
     """PUT /api/v1/users/profile — Update user profile."""
     full_name: Optional[str] = Field(

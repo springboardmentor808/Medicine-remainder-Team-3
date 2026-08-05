@@ -19,7 +19,7 @@ from app.api.v1.refill import router as refill_router
 from app.api.v1.reminders import router as reminders_router
 from app.api.v1.users import router as users_router
 from app.core.config import settings
-from app.core.database import engine
+from app.core.database import engine, init_db
 from app.core.mongodb import connect_mongodb, disconnect_mongodb
 from app.core.redis import connect_redis, disconnect_redis
 
@@ -38,6 +38,12 @@ async def lifespan(app: FastAPI):
     print(f"[PillSync] [{settings.ENVIRONMENT}] Starting on port {settings.PORT}...")
     print(f"[PillSync] PostgreSQL: {settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}")
     print(f"[PillSync] JWT Algorithm: {settings.ALGORITHM}, Access TTL: {settings.ACCESS_TOKEN_EXPIRE_MINUTES}min")
+
+    # Initialize DB tables / check connection
+    try:
+        await init_db()
+    except Exception as db_err:
+        print(f"[PillSync] DB initialization warning: {db_err}")
 
     # Connect Redis (with fallback for standalone dev)
     try:

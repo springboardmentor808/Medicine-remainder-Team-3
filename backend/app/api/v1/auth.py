@@ -20,8 +20,10 @@ from app.core.security import (
 )
 from app.models.user import User
 from app.schemas.auth_schema import (
+    ChangePasswordRequest,
     LoginRequest,
     LoginResponse,
+    MessageResponse,
     RefreshTokenRequest,
     RegisterRequest,
     RegisterResponse,
@@ -242,3 +244,31 @@ async def get_me(
         is_active=current_user.is_active,
         created_at=current_user.created_at.isoformat(),
     )
+
+
+# ===================================================================
+# POST /api/v1/auth/change-password
+# ===================================================================
+@router.post(
+    "/change-password",
+    response_model=MessageResponse,
+    summary="Change current user password",
+    description="Allows authenticated user to update password by verifying current password.",
+)
+async def change_password(
+    payload: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Change authenticated user password."""
+    if not verify_password(payload.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect.",
+        )
+
+    current_user.hashed_password = hash_password(payload.new_password)
+    await db.commit()
+    await db.refresh(current_user)
+
+    return MessageResponse(message="Password changed successfully.")
