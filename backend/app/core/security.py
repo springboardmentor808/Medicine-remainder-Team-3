@@ -12,7 +12,7 @@ import uuid
 import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
+from jose import JWTError, jwt  # type: ignore[import-untyped]
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -116,7 +116,7 @@ def decode_token(token: str) -> dict:
             settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM],
         )
-        return payload
+        return dict(payload)
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
