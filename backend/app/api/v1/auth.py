@@ -145,8 +145,12 @@ async def login(
     else:
         try:
             form = await request.form()
-            username = form.get("username")
-            password = form.get("password")
+            u_val = form.get("username")
+            p_val = form.get("password")
+            if isinstance(u_val, str):
+                username = u_val
+            if isinstance(p_val, str):
+                password = p_val
         except Exception:
             try:
                 body = await request.json()
