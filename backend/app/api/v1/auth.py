@@ -5,7 +5,7 @@ Handles user registration, login, token refresh, and current user profile.
 All passwords are bcrypt-hashed. Tokens are JWT with access + refresh pattern.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -113,25 +113,65 @@ async def register(
     "/login",
     response_model=LoginResponse,
     summary="User login",
-    description="Authenticate with username and password to receive JWT tokens.",
+    description="Authenticate with username/email and password. Supports both JSON body and Form Data (Swagger Authorize popup).",
 )
 async def login(
-    payload: LoginRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Authenticate user credentials and issue JWT token pair.
 
-    - Looks up user by username.
+    - Accepts JSON body (`{"username": "...", "password": "..."}`) OR Form Data (Swagger Authorize popup).
+    - Looks up user by username OR email.
     - Verifies bcrypt password hash.
     - Returns access + refresh tokens.
     """
+    username: str | None = None
+    password: str | None = None
+
+    content_type = request.headers.get("content-type", "")
+
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            username = body.get("username")
+            password = body.get("password")
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid JSON payload.",
+            )
+    else:
+        try:
+            form = await request.form()
+            username = form.get("username")
+            password = form.get("password")
+        except Exception:
+            try:
+                body = await request.json()
+                username = body.get("username")
+                password = body.get("password")
+            except Exception:
+                pass
+
+    if not username or not password:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Fields 'username' and 'password' are required.",
+        )
+
     result = await db.execute(
-        select(User).where(User.username == payload.username)
+        select(User).where(
+            or_(
+                User.username == username,
+                User.email == username,
+            )
+        )
     )
     user = result.scalar_one_or_none()
 
-    if user is None or not verify_password(payload.password, user.hashed_password):
+    if user is None or not verify_password(password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password.",
