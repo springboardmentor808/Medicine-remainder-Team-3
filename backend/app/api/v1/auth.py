@@ -135,7 +135,7 @@ async def login(
     if "application/json" in content_type:
         try:
             body = await request.json()
-            username = body.get("username")
+            username = body.get("username") or body.get("email")
             password = body.get("password")
         except Exception:
             raise HTTPException(
@@ -145,7 +145,7 @@ async def login(
     else:
         try:
             form = await request.form()
-            u_val = form.get("username")
+            u_val = form.get("username") or form.get("email")
             p_val = form.get("password")
             if isinstance(u_val, str):
                 username = u_val
@@ -154,7 +154,7 @@ async def login(
         except Exception:
             try:
                 body = await request.json()
-                username = body.get("username")
+                username = body.get("username") or body.get("email")
                 password = body.get("password")
             except Exception:
                 pass
