@@ -1,1 +1,871 @@
-// TODO: Admin User Management Page Implementation
+'use client';
+
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import Link from 'next/link';
+import {
+  Search,
+  UserCog,
+  ShieldOff,
+  KeyRound,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  MoreVertical,
+  Users,
+  UserCheck,
+  UserX,
+  ArrowUpDown,
+  Download,
+  Bell,
+  CheckCircle2,
+  XCircle,
+  RefreshCw,
+  ShieldCheck,
+} from 'lucide-react';
+import Card from '@/components/ui/Card';
+import Badge from '@/components/ui/Badge';
+import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
+import Modal from '@/components/ui/Modal';
+// TODO: import { adminAPI } from '@/lib/api';
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const PAGE_SIZE = 10;
+
+const ROLES = ['patient', 'caregiver', 'admin'];
+
+const ROLE_META = {
+  patient:   { label: 'Patient',   variant: 'patient',   icon: 'person' },
+  caregiver: { label: 'Caregiver', variant: 'caregiver', icon: 'favorite' },
+  admin:     { label: 'Admin',     variant: 'admin',     icon: 'shield_person' },
+};
+
+const STATUS_META = {
+  active:    { label: 'Active',    variant: 'taken',  Icon: CheckCircle2 },
+  suspended: { label: 'Suspended', variant: 'missed', Icon: XCircle },
+};
+
+// ── Mock Data (replace with adminAPI.getUsers()) ──────────────────────────────
+
+function makeUser(id, name, email, role, joinedDate, status) {
+  return { id, name, email, role, joinedDate, status };
+}
+
+const ALL_USERS = [
+  makeUser('u-001', 'Eleanor Martinez', 'eleanor.m@email.com', 'patient',   '2025-03-12', 'active'),
+  makeUser('u-002', 'Robert Chen',      'robert.c@email.com',  'patient',   '2025-04-05', 'active'),
+  makeUser('u-003', 'Dr. Sarah Kim',    'sarah.k@pillsync.io', 'caregiver', '2025-01-20', 'active'),
+  makeUser('u-004', 'James Wilson',     'james.w@email.com',   'patient',   '2025-06-18', 'suspended'),
+  makeUser('u-005', 'Patricia Thompson','pat.t@email.com',     'caregiver', '2025-02-14', 'active'),
+  makeUser('u-006', 'David Anderson',   'david.a@email.com',   'patient',   '2025-07-01', 'active'),
+  makeUser('u-007', 'Margaret Davis',   'margaret.d@email.com','patient',   '2024-11-30', 'active'),
+  makeUser('u-008', 'Kevin Patel',      'kevin.p@pillsync.io', 'admin',     '2024-09-01', 'active'),
+  makeUser('u-009', 'Linda Carter',     'linda.c@email.com',   'caregiver', '2025-05-22', 'suspended'),
+  makeUser('u-010', 'Mark Stevens',     'mark.s@email.com',    'patient',   '2025-08-03', 'active'),
+  makeUser('u-011', 'Priya Nair',       'priya.n@email.com',   'patient',   '2025-03-29', 'active'),
+  makeUser('u-012', 'Tom Bradley',      'tom.b@pillsync.io',   'admin',     '2024-08-15', 'active'),
+  makeUser('u-013', 'Ananya Roy',       'ananya.r@email.com',  'caregiver', '2025-06-11', 'active'),
+  makeUser('u-014', 'George Fuller',    'george.f@email.com',  'patient',   '2025-07-19', 'suspended'),
+  makeUser('u-015', 'Sofia Rossi',      'sofia.r@email.com',   'patient',   '2025-04-28', 'active'),
+  makeUser('u-016', 'Ali Hassan',       'ali.h@email.com',     'patient',   '2025-01-05', 'active'),
+  makeUser('u-017', 'Mei Tanaka',       'mei.t@email.com',     'caregiver', '2025-08-01', 'active'),
+  makeUser('u-018', 'Carlos Diaz',      'carlos.d@email.com',  'patient',   '2025-05-15', 'active'),
+];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function getInitials(name = '') {
+  return name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+}
+
+function formatDate(iso) {
+  return new Date(iso).toLocaleDateString('en-US', {
+    day: 'numeric', month: 'short', year: 'numeric',
+  });
+}
+
+const AVATAR_COLORS = [
+  'bg-primary text-on-primary',
+  'bg-tertiary text-on-tertiary',
+  'bg-secondary text-on-secondary',
+  'bg-primary-container text-on-primary-container',
+];
+
+function avatarColor(id) {
+  const idx = parseInt(id.replace(/\D/g, ''), 10) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[idx];
+}
+
+// ── Action Menu (per-row popover) ─────────────────────────────────────────────
+
+function ActionMenu({ user, onEditRole, onToggleStatus, onResetPassword }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    function handle(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, [open]);
+
+  const isSuspended = user.status === 'suspended';
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="p-1.5 rounded-full text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        aria-label={`Actions for ${user.name}`}
+        aria-expanded={open}
+        aria-haspopup="menu"
+      >
+        <MoreVertical className="w-4 h-4" />
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className={[
+            'absolute right-0 z-30 mt-1 w-52',
+            'bg-surface-container-lowest rounded-lg shadow-modal border border-outline-variant/40',
+            'py-1 animate-fade-in',
+          ].join(' ')}
+        >
+          {/* Edit Role */}
+          <button
+            role="menuitem"
+            onClick={() => { setOpen(false); onEditRole(user); }}
+            className="w-full flex items-center gap-sm px-md py-sm text-caption text-on-surface hover:bg-surface-container-low transition-colors"
+          >
+            <UserCog className="w-4 h-4 text-primary shrink-0" />
+            Edit Role
+          </button>
+
+          {/* Activate / Deactivate */}
+          <button
+            role="menuitem"
+            onClick={() => { setOpen(false); onToggleStatus(user); }}
+            className={[
+              'w-full flex items-center gap-sm px-md py-sm text-caption transition-colors',
+              isSuspended
+                ? 'text-tertiary hover:bg-tertiary/8'
+                : 'text-secondary hover:bg-secondary/8',
+            ].join(' ')}
+          >
+            {isSuspended
+              ? <UserCheck className="w-4 h-4 shrink-0" />
+              : <ShieldOff className="w-4 h-4 shrink-0" />
+            }
+            {isSuspended ? 'Reactivate Account' : 'Suspend Account'}
+          </button>
+
+          <hr className="my-1 border-outline-variant/40" />
+
+          {/* Reset Password */}
+          <button
+            role="menuitem"
+            onClick={() => { setOpen(false); onResetPassword(user); }}
+            className="w-full flex items-center gap-sm px-md py-sm text-caption text-on-surface hover:bg-surface-container-low transition-colors"
+          >
+            <KeyRound className="w-4 h-4 text-on-surface-variant shrink-0" />
+            Reset Password
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Role Edit Modal ───────────────────────────────────────────────────────────
+
+function RoleEditModal({ user, isOpen, onClose, onSave }) {
+  const [selectedRole, setSelectedRole] = useState(user?.role ?? 'patient');
+  const [loading, setLoading] = useState(false);
+
+  // Sync when modal opens for a different user
+  useEffect(() => {
+    if (user) setSelectedRole(user.role);
+  }, [user]);
+
+  const hasChanged = selectedRole !== user?.role;
+
+  async function handleSave() {
+    setLoading(true);
+    try {
+      // TODO: await adminAPI.updateRole({ userId: user.id, role: selectedRole });
+      await new Promise((r) => setTimeout(r, 900)); // mock delay
+      onSave({ userId: user.id, newRole: selectedRole });
+      onClose();
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!user) return null;
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Edit User Role"
+      description={`Changing role for ${user.name} (${user.email})`}
+      size="sm"
+    >
+      <div className="space-y-md">
+        {/* Current user info */}
+        <div className="flex items-center gap-md p-sm rounded-lg bg-surface-container-low">
+          <div className={`w-10 h-10 rounded-full ${avatarColor(user.id)} flex items-center justify-center text-label-caps font-bold shrink-0`}>
+            {getInitials(user.name)}
+          </div>
+          <div>
+            <p className="text-caption font-semibold text-on-surface">{user.name}</p>
+            <p className="text-label-caps text-on-surface-variant">{user.email}</p>
+          </div>
+        </div>
+
+        {/* Role selector */}
+        <div>
+          <p className="text-label-caps font-semibold text-on-surface uppercase tracking-wider mb-sm">
+            Select New Role
+          </p>
+          <div className="space-y-xs">
+            {ROLES.map((role) => {
+              const meta = ROLE_META[role];
+              const isSelected = selectedRole === role;
+              const isCurrent  = role === user.role;
+
+              return (
+                <button
+                  key={role}
+                  onClick={() => setSelectedRole(role)}
+                  className={[
+                    'w-full flex items-center justify-between gap-md p-sm rounded-lg border-2 transition-all text-left',
+                    isSelected
+                      ? 'border-primary bg-primary/5'
+                      : 'border-outline-variant/40 hover:border-outline-variant hover:bg-surface-container-low',
+                  ].join(' ')}
+                >
+                  <div className="flex items-center gap-sm">
+                    <div className={[
+                      'w-9 h-9 rounded-full flex items-center justify-center shrink-0',
+                      isSelected ? 'bg-primary/15' : 'bg-surface-container',
+                    ].join(' ')}>
+                      <span
+                        className={`material-symbols-outlined text-[18px] ${isSelected ? 'text-primary' : 'text-on-surface-variant'}`}
+                        style={{ fontVariationSettings: "'FILL' 1" }}
+                      >
+                        {meta.icon}
+                      </span>
+                    </div>
+                    <div>
+                      <p className={`text-caption font-semibold ${isSelected ? 'text-primary' : 'text-on-surface'}`}>
+                        {meta.label}
+                      </p>
+                      {isCurrent && (
+                        <p className="text-label-caps text-on-surface-variant">Current role</p>
+                      )}
+                    </div>
+                  </div>
+                  {/* Radio indicator */}
+                  <div className={[
+                    'w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0',
+                    isSelected ? 'border-primary' : 'border-outline-variant',
+                  ].join(' ')}>
+                    {isSelected && <div className="w-2 h-2 rounded-full bg-primary" />}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Warning for admin promotion */}
+        {selectedRole === 'admin' && user.role !== 'admin' && (
+          <div className="flex items-start gap-xs p-sm rounded-lg bg-secondary/8 border border-secondary/20">
+            <ShieldCheck className="w-4 h-4 text-secondary shrink-0 mt-0.5" />
+            <p className="text-label-caps text-secondary">
+              Granting Admin access gives full system privileges. Ensure this is intentional and approved.
+            </p>
+          </div>
+        )}
+
+        <Modal.Footer>
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleSave}
+            loading={loading}
+            disabled={!hasChanged}
+            leftIcon={<UserCog className="w-4 h-4" />}
+          >
+            Save Role
+          </Button>
+        </Modal.Footer>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Reset Password Confirm Modal ──────────────────────────────────────────────
+
+function ResetPasswordModal({ user, isOpen, onClose, onConfirm }) {
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+  const [tempPass, setTempPass] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) { setDone(false); setTempPass(''); }
+  }, [isOpen]);
+
+  async function handleConfirm() {
+    setLoading(true);
+    try {
+      // TODO: const res = await adminAPI.resetUserPassword({ userId: user.id });
+      await new Promise((r) => setTimeout(r, 1000));
+      setTempPass('PillSync#' + Math.random().toString(36).slice(2, 8).toUpperCase());
+      setDone(true);
+      onConfirm?.(user.id);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!user) return null;
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Reset Password"
+      size="sm"
+    >
+      {done ? (
+        <div className="text-center py-md space-y-md">
+          <div className="w-14 h-14 rounded-full bg-tertiary/15 flex items-center justify-center mx-auto">
+            <KeyRound className="w-7 h-7 text-tertiary" />
+          </div>
+          <div>
+            <p className="text-caption font-bold text-on-surface">Password Reset Successfully</p>
+            <p className="text-label-caps text-on-surface-variant mt-1">
+              Share this temporary password with {user.name}. They will be prompted to change it on next login.
+            </p>
+          </div>
+          <div className="font-mono text-body-sm font-bold text-primary bg-primary/8 rounded-md px-md py-sm border border-primary/20 tracking-widest select-all">
+            {tempPass}
+          </div>
+          <Modal.Footer align="center">
+            <Button variant="primary" size="sm" onClick={onClose}>Done</Button>
+          </Modal.Footer>
+        </div>
+      ) : (
+        <div className="space-y-md">
+          <div className="flex items-center gap-md p-sm rounded-lg bg-secondary/8 border border-secondary/20">
+            <KeyRound className="w-5 h-5 text-secondary shrink-0" />
+            <p className="text-caption text-on-surface">
+              A temporary password will be generated for{' '}
+              <span className="font-semibold">{user.name}</span>.
+              Their current password will be invalidated immediately.
+            </p>
+          </div>
+          <Modal.Footer>
+            <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+            <Button
+              variant="danger"
+              size="sm"
+              loading={loading}
+              onClick={handleConfirm}
+              leftIcon={<KeyRound className="w-4 h-4" />}
+            >
+              Reset Password
+            </Button>
+          </Modal.Footer>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
+export default function AdminUsersPage() {
+  // ── Filter state ──────────────────────────────────────────────────────────
+  const [search, setSearch]         = useState('');
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sortField, setSortField]   = useState('name');
+  const [sortDir, setSortDir]       = useState('asc');
+  const [page, setPage]             = useState(1);
+
+  // ── Modal state ───────────────────────────────────────────────────────────
+  const [roleModal, setRoleModal]     = useState({ open: false, user: null });
+  const [resetModal, setResetModal]   = useState({ open: false, user: null });
+
+  // ── User data (local state — replace with SWR/fetch) ─────────────────────
+  const [users, setUsers] = useState(ALL_USERS);
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
+
+  const handleEditRole = useCallback((user) => {
+    setRoleModal({ open: true, user });
+  }, []);
+
+  const handleToggleStatus = useCallback((user) => {
+    // TODO: await adminAPI.deactivateUser / activateUser
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.id === user.id
+          ? { ...u, status: u.status === 'active' ? 'suspended' : 'active' }
+          : u
+      )
+    );
+  }, []);
+
+  const handleResetPassword = useCallback((user) => {
+    setResetModal({ open: true, user });
+  }, []);
+
+  const handleRoleSaved = useCallback(({ userId, newRole }) => {
+    setUsers((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
+    );
+  }, []);
+
+  const handleSort = useCallback((field) => {
+    setSortField((prev) => {
+      if (prev === field) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      else { setSortDir('asc'); }
+      return field;
+    });
+    setPage(1);
+  }, []);
+
+  // ── Filtered + sorted + paginated data ────────────────────────────────────
+
+  const filtered = useMemo(() => {
+    let list = users;
+
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(
+        (u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
+      );
+    }
+    if (roleFilter !== 'all')   list = list.filter((u) => u.role === roleFilter);
+    if (statusFilter !== 'all') list = list.filter((u) => u.status === statusFilter);
+
+    list = [...list].sort((a, b) => {
+      const av = a[sortField] ?? '';
+      const bv = b[sortField] ?? '';
+      return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+    });
+
+    return list;
+  }, [users, search, roleFilter, statusFilter, sortField, sortDir]);
+
+  const totalPages  = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage    = Math.min(page, totalPages);
+  const pageSlice   = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  // Stats
+  const totalActive    = users.filter((u) => u.status === 'active').length;
+  const totalSuspended = users.filter((u) => u.status === 'suspended').length;
+  const totalAdmins    = users.filter((u) => u.role === 'admin').length;
+
+  // Sort header helper
+  function SortIcon({ field }) {
+    if (sortField !== field) return <ArrowUpDown className="w-3 h-3 opacity-40" />;
+    return (
+      <ChevronDown
+        className={`w-3 h-3 text-primary transition-transform ${sortDir === 'desc' ? 'rotate-180' : ''}`}
+      />
+    );
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* ── Navigation ────────────────────────────────────────────────── */}
+      <nav className="sticky top-0 z-40 w-full bg-surface-container-lowest/80 backdrop-blur-md border-b border-outline-variant/40">
+        <div className="max-w-7xl mx-auto px-gutter flex items-center justify-between h-16">
+          {/* Breadcrumb */}
+          <div className="flex items-center gap-xs text-caption text-on-surface-variant">
+            <Link href="/" className="hover:text-primary transition-colors font-semibold text-primary flex items-center gap-1">
+              <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>
+                medical_services
+              </span>
+              PillSync
+            </Link>
+            <ChevronRight className="w-3.5 h-3.5" />
+            <Link href="/dashboard/admin" className="hover:text-primary transition-colors">Admin</Link>
+            <ChevronRight className="w-3.5 h-3.5" />
+            <span className="text-on-surface font-semibold">User Management</span>
+          </div>
+
+          <div className="flex items-center gap-sm">
+            <Badge variant="admin" size="xs">Admin</Badge>
+            <Link href="/notifications">
+              <button className="relative p-2 rounded-full text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors" aria-label="Notifications">
+                <Bell className="w-5 h-5" />
+              </button>
+            </Link>
+          </div>
+        </div>
+      </nav>
+
+      <main className="max-w-7xl mx-auto px-gutter py-lg space-y-lg">
+
+        {/* ── Page Header ─────────────────────────────────────────────── */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-md">
+          <div>
+            <h1 className="text-headline-sm font-bold text-on-surface">User Management</h1>
+            <p className="text-caption text-on-surface-variant mt-0.5">
+              Manage roles, status and passwords for all {users.length} platform users.
+            </p>
+          </div>
+          <div className="flex items-center gap-sm">
+            <Button variant="outline" size="sm" leftIcon={<Download className="w-4 h-4" />}>
+              Export CSV
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              leftIcon={<RefreshCw className="w-4 h-4" />}
+              onClick={() => window.location.reload()}
+            >
+              Refresh
+            </Button>
+          </div>
+        </div>
+
+        {/* ── Summary Stat Pills ───────────────────────────────────────── */}
+        <div className="flex flex-wrap gap-sm">
+          {[
+            { icon: Users,     label: 'Total Users',  value: users.length,    color: 'primary' },
+            { icon: UserCheck, label: 'Active',        value: totalActive,     color: 'tertiary' },
+            { icon: UserX,     label: 'Suspended',     value: totalSuspended,  color: 'secondary' },
+            { icon: ShieldCheck,label: 'Admins',       value: totalAdmins,     color: 'primary' },
+          ].map(({ icon: Icon, label, value, color }) => (
+            <div
+              key={label}
+              className={`flex items-center gap-xs px-md py-xs rounded-full border bg-${color}/8 border-${color}/20`}
+            >
+              <Icon className={`w-4 h-4 text-${color}`} />
+              <span className={`text-label-caps font-bold text-${color}`}>{value}</span>
+              <span className="text-label-caps text-on-surface-variant">{label}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* ── 1. Search & Filter Bar ───────────────────────────────────── */}
+        <Card variant="flat" padding="md">
+          <div className="flex flex-col md:flex-row gap-sm">
+            {/* Search */}
+            <div className="flex-1">
+              <Input
+                type="search"
+                placeholder="Search by name or email…"
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                clearable
+                onClear={() => { setSearch(''); setPage(1); }}
+              />
+            </div>
+
+            {/* Role filter */}
+            <div className="relative">
+              <select
+                value={roleFilter}
+                onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}
+                className="h-touch-target pl-md pr-10 rounded-md border border-outline-variant bg-surface-container-lowest text-caption text-on-surface appearance-none focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer"
+              >
+                <option value="all">All Roles</option>
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>{ROLE_META[r].label}</option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant pointer-events-none" />
+            </div>
+
+            {/* Status filter */}
+            <div className="relative">
+              <select
+                value={statusFilter}
+                onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+                className="h-touch-target pl-md pr-10 rounded-md border border-outline-variant bg-surface-container-lowest text-caption text-on-surface appearance-none focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer"
+              >
+                <option value="all">All Statuses</option>
+                <option value="active">Active</option>
+                <option value="suspended">Suspended</option>
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant pointer-events-none" />
+            </div>
+          </div>
+
+          {/* Active filter chips */}
+          {(search || roleFilter !== 'all' || statusFilter !== 'all') && (
+            <div className="flex flex-wrap items-center gap-xs mt-sm">
+              <span className="text-label-caps text-on-surface-variant">Filters:</span>
+              {search && (
+                <Badge variant="primary" size="sm" removable onRemove={() => setSearch('')}>
+                  "{search}"
+                </Badge>
+              )}
+              {roleFilter !== 'all' && (
+                <Badge variant="primary" size="sm" removable onRemove={() => setRoleFilter('all')}>
+                  Role: {ROLE_META[roleFilter]?.label}
+                </Badge>
+              )}
+              {statusFilter !== 'all' && (
+                <Badge variant="primary" size="sm" removable onRemove={() => setStatusFilter('all')}>
+                  Status: {statusFilter}
+                </Badge>
+              )}
+              <button
+                onClick={() => { setSearch(''); setRoleFilter('all'); setStatusFilter('all'); setPage(1); }}
+                className="text-label-caps text-error hover:underline"
+              >
+                Clear all
+              </button>
+            </div>
+          )}
+        </Card>
+
+        {/* ── 2. User Data Table ───────────────────────────────────────── */}
+        <Card variant="default" padding="none" className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left min-w-[700px]">
+              <thead>
+                <tr className="border-b border-outline-variant/40 bg-surface-container-low">
+                  {/* Avatar col */}
+                  <th className="py-sm px-md w-12" />
+
+                  {/* Name */}
+                  <th className="py-sm px-md">
+                    <button
+                      onClick={() => handleSort('name')}
+                      className="flex items-center gap-1 text-label-caps font-semibold text-on-surface-variant uppercase tracking-wider hover:text-primary transition-colors"
+                    >
+                      Full Name <SortIcon field="name" />
+                    </button>
+                  </th>
+
+                  {/* Email — hidden on small screens */}
+                  <th className="py-sm px-md hidden lg:table-cell">
+                    <span className="text-label-caps font-semibold text-on-surface-variant uppercase tracking-wider">
+                      Email
+                    </span>
+                  </th>
+
+                  {/* Role */}
+                  <th className="py-sm px-md">
+                    <button
+                      onClick={() => handleSort('role')}
+                      className="flex items-center gap-1 text-label-caps font-semibold text-on-surface-variant uppercase tracking-wider hover:text-primary transition-colors"
+                    >
+                      Role <SortIcon field="role" />
+                    </button>
+                  </th>
+
+                  {/* Joined */}
+                  <th className="py-sm px-md hidden md:table-cell">
+                    <button
+                      onClick={() => handleSort('joinedDate')}
+                      className="flex items-center gap-1 text-label-caps font-semibold text-on-surface-variant uppercase tracking-wider hover:text-primary transition-colors"
+                    >
+                      Joined <SortIcon field="joinedDate" />
+                    </button>
+                  </th>
+
+                  {/* Status */}
+                  <th className="py-sm px-md">
+                    <button
+                      onClick={() => handleSort('status')}
+                      className="flex items-center gap-1 text-label-caps font-semibold text-on-surface-variant uppercase tracking-wider hover:text-primary transition-colors"
+                    >
+                      Status <SortIcon field="status" />
+                    </button>
+                  </th>
+
+                  {/* Actions */}
+                  <th className="py-sm px-md text-right">
+                    <span className="text-label-caps font-semibold text-on-surface-variant uppercase tracking-wider">
+                      Actions
+                    </span>
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-outline-variant/20">
+                {pageSlice.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-xl text-center">
+                      <Users className="w-10 h-10 mx-auto text-on-surface-variant/40 mb-sm" />
+                      <p className="text-caption text-on-surface-variant">No users match your filters.</p>
+                      <button
+                        onClick={() => { setSearch(''); setRoleFilter('all'); setStatusFilter('all'); }}
+                        className="text-caption text-primary hover:underline mt-xs"
+                      >
+                        Clear filters
+                      </button>
+                    </td>
+                  </tr>
+                ) : (
+                  pageSlice.map((user) => {
+                    const rm = ROLE_META[user.role] ?? ROLE_META.patient;
+                    const sm = STATUS_META[user.status] ?? STATUS_META.active;
+                    const SIcon = sm.Icon;
+
+                    return (
+                      <tr
+                        key={user.id}
+                        className="group hover:bg-surface-container-low/60 transition-colors"
+                      >
+                        {/* Avatar */}
+                        <td className="py-sm px-md">
+                          <div className={`w-9 h-9 rounded-full ${avatarColor(user.id)} flex items-center justify-center text-label-caps font-bold shrink-0`}>
+                            {getInitials(user.name)}
+                          </div>
+                        </td>
+
+                        {/* Name */}
+                        <td className="py-sm px-md">
+                          <p className="text-caption font-semibold text-on-surface">{user.name}</p>
+                          <p className="text-label-caps text-on-surface-variant lg:hidden truncate max-w-[140px]">{user.email}</p>
+                        </td>
+
+                        {/* Email */}
+                        <td className="py-sm px-md hidden lg:table-cell">
+                          <p className="text-caption text-on-surface-variant">{user.email}</p>
+                        </td>
+
+                        {/* Role */}
+                        <td className="py-sm px-md">
+                          <Badge variant={rm.variant} size="sm">
+                            {rm.label}
+                          </Badge>
+                        </td>
+
+                        {/* Joined */}
+                        <td className="py-sm px-md hidden md:table-cell">
+                          <span className="text-caption text-on-surface-variant">
+                            {formatDate(user.joinedDate)}
+                          </span>
+                        </td>
+
+                        {/* Status */}
+                        <td className="py-sm px-md">
+                          <div className="flex items-center gap-1">
+                            <SIcon className={`w-3.5 h-3.5 ${user.status === 'active' ? 'text-tertiary' : 'text-error'}`} />
+                            <Badge variant={sm.variant} size="xs">{sm.label}</Badge>
+                          </div>
+                        </td>
+
+                        {/* 3. Actions */}
+                        <td className="py-sm px-md text-right">
+                          <ActionMenu
+                            user={user}
+                            onEditRole={handleEditRole}
+                            onToggleStatus={handleToggleStatus}
+                            onResetPassword={handleResetPassword}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination footer */}
+          <div className="border-t border-outline-variant/40 px-md py-sm flex flex-col sm:flex-row items-center justify-between gap-sm">
+            <p className="text-label-caps text-on-surface-variant">
+              Showing{' '}
+              <span className="font-semibold text-on-surface">
+                {filtered.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1}–
+                {Math.min(safePage * PAGE_SIZE, filtered.length)}
+              </span>{' '}
+              of <span className="font-semibold text-on-surface">{filtered.length}</span> users
+            </p>
+
+            <div className="flex items-center gap-xs">
+              <Button
+                variant="outline"
+                size="sm"
+                leftIcon={<ChevronLeft className="w-4 h-4" />}
+                disabled={safePage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                Prev
+              </Button>
+
+              {/* Page number pills */}
+              <div className="flex items-center gap-1">
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 1)
+                  .reduce((acc, p, idx, arr) => {
+                    if (idx > 0 && p - arr[idx - 1] > 1) acc.push('…');
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((p, i) =>
+                    p === '…' ? (
+                      <span key={`ellipsis-${i}`} className="text-caption text-on-surface-variant px-1">…</span>
+                    ) : (
+                      <button
+                        key={p}
+                        onClick={() => setPage(p)}
+                        className={[
+                          'w-8 h-8 rounded-md text-caption font-semibold transition-colors',
+                          p === safePage
+                            ? 'bg-primary text-on-primary'
+                            : 'text-on-surface-variant hover:bg-surface-container',
+                        ].join(' ')}
+                      >
+                        {p}
+                      </button>
+                    )
+                  )}
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                rightIcon={<ChevronRight className="w-4 h-4" />}
+                disabled={safePage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        </Card>
+      </main>
+
+      {/* ── 4. Role Edit Modal ───────────────────────────────────────── */}
+      <RoleEditModal
+        user={roleModal.user}
+        isOpen={roleModal.open}
+        onClose={() => setRoleModal({ open: false, user: null })}
+        onSave={handleRoleSaved}
+      />
+
+      {/* Reset Password Modal */}
+      <ResetPasswordModal
+        user={resetModal.user}
+        isOpen={resetModal.open}
+        onClose={() => setResetModal({ open: false, user: null })}
+        onConfirm={(id) => console.log('Password reset for:', id)}
+      />
+    </div>
+  );
+}
