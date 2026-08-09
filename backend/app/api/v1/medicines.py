@@ -56,9 +56,11 @@ def _compute_days_until_empty(medicine) -> float | None:
 
 def _to_response(medicine) -> MedicineResponse:
     """Convert a Medicine ORM instance to its response schema."""
+    med_id = uuid.UUID(str(medicine.id)) if isinstance(medicine.id, (str, uuid.UUID)) else medicine.id
+    u_id = uuid.UUID(str(medicine.user_id)) if isinstance(medicine.user_id, (str, uuid.UUID)) else medicine.user_id
     return MedicineResponse(
-        id=medicine.id,
-        user_id=medicine.user_id,
+        id=med_id,
+        user_id=u_id,
         name=medicine.name,
         disease_category=medicine.disease_category,
         dosage=medicine.dosage,
@@ -81,7 +83,10 @@ async def _get_owned_medicine(db, medicine_id, current_user):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Medicine with id '{medicine_id}' not found.",
         )
-    if medicine.user_id != current_user.id:
+    # Normalize UUID comparison — handles both Postgres (UUID objects) and SQLite (hex strings)
+    med_uid = str(uuid.UUID(str(medicine.user_id))).lower()
+    cur_uid = str(uuid.UUID(str(current_user.id))).lower()
+    if med_uid != cur_uid:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have access to this medicine.",

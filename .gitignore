@@ -61,6 +61,11 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
+# Database files
+*.db
+*.sqlite3
+*.sqlite
+
 # IDE & System
 .DS_Store
 *.pem

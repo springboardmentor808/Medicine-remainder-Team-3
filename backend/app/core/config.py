@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
     POSTGRES_URL: str = (
-        "postgresql+asyncpg://postgres:postgrespassword@localhost:5432/med_db"
+        "sqlite+aiosqlite:///./pillsync_dev.db"
     )
     POSTGRES_URL_SYNC: str = (
         "postgresql://postgres:postgrespassword@localhost:5432/med_db"

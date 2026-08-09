@@ -68,26 +68,72 @@ def calculate_refill_prediction(
 
 async def get_medicine_by_id(
     db: AsyncSession,
-    medicine_id: uuid.UUID,
+    medicine_id: uuid.UUID | str,
 ) -> Medicine | None:
     """Fetch a medicine record by its primary key."""
+    if isinstance(medicine_id, str):
+        try:
+            medicine_id = uuid.UUID(medicine_id)
+        except ValueError:
+            return None
+
     result = await db.execute(
         select(Medicine).where(Medicine.id == medicine_id)
     )
-    return result.scalar_one_or_none()
+    med = result.scalar_one_or_none()
+
+    if med is None:
+        from sqlalchemy import or_, cast, String
+        med_str = str(medicine_id)
+        med_hex = medicine_id.hex
+        result = await db.execute(
+            select(Medicine).where(
+                or_(
+                    cast(Medicine.id, String) == med_str,
+                    cast(Medicine.id, String) == med_hex,
+                )
+            )
+        )
+        med = result.scalar_one_or_none()
+
+    return med
 
 
 async def get_refill_by_medicine(
     db: AsyncSession,
-    medicine_id: uuid.UUID,
+    medicine_id: uuid.UUID | str,
 ) -> Refill | None:
     """Fetch the latest refill record for a given medicine."""
+    if isinstance(medicine_id, str):
+        try:
+            medicine_id = uuid.UUID(medicine_id)
+        except ValueError:
+            return None
+
     result = await db.execute(
         select(Refill)
         .where(Refill.medicine_id == medicine_id)
         .order_by(Refill.created_at.desc())
     )
-    return result.scalar_one_or_none()
+    refill = result.scalar_one_or_none()
+
+    if refill is None:
+        from sqlalchemy import or_, cast, String
+        med_str = str(medicine_id)
+        med_hex = medicine_id.hex
+        result = await db.execute(
+            select(Refill)
+            .where(
+                or_(
+                    cast(Refill.medicine_id, String) == med_str,
+                    cast(Refill.medicine_id, String) == med_hex,
+                )
+            )
+            .order_by(Refill.created_at.desc())
+        )
+        refill = result.scalar_one_or_none()
+
+    return refill
 
 
 async def create_or_update_refill(
