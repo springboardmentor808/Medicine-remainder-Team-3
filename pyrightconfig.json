@@ -1,0 +1,9 @@
+{
+  "pythonPath": "backend/.venv/Scripts/python.exe",
+  "venvPath": "backend",
+  "venv": ".venv",
+  "extraPaths": [
+    "backend",
+    "backend/.venv/Lib/site-packages"
+  ]
+}

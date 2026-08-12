@@ -1,0 +1,50 @@
+# ============================================
+# PillSync Backend Dependencies
+# FastAPI + SQLAlchemy 2.0 Async + Alembic
+# ============================================
+
+# --- Core Framework ---
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+
+# --- ORM & Migrations ---
+sqlalchemy[asyncio]>=2.0.30
+alembic>=1.13.0
+
+# --- PostgreSQL Drivers ---
+psycopg2-binary>=2.9.9
+asyncpg>=0.29.0
+
+# --- MongoDB (Phase 2+: OCR metadata, prescriptions) ---
+pymongo>=4.6.0
+motor>=3.3.0
+
+# --- Redis (Sessions, Caching, Rate Limiting) ---
+redis>=5.0.0
+
+# --- AI & Vision (Phase 3+: OCR, NLP) ---
+opencv-python-headless>=4.9.0
+spacy>=3.7.0
+pytesseract>=0.3.10
+openai>=1.14.0
+
+# --- Authentication & Security ---
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.9
+
+# --- Pydantic Settings & Validation ---
+pydantic-settings>=2.2.0
+email-validator>=2.1.0
+
+# --- Notifications (Phase 4+: SMS, Email) ---
+twilio>=9.0.0
+sendgrid>=6.11.0
+
+# --- Testing ---
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+httpx>=0.27.0
+
+# --- Utilities ---
+python-dotenv>=1.0.0
