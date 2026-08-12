@@ -107,8 +107,8 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
-app.include_router(ocr_router, prefix="/api/v1/ocr", tags=["OCR Scanner"])
-app.include_router(refill_router, prefix="/api/v1/refill", tags=["Refill AI"])
+app.include_router(ocr_router, prefix="/api/v1", tags=["OCR Scanner"])
+app.include_router(refill_router, prefix="/api/v1", tags=["Refill AI"])
 app.include_router(medicines_router, prefix="/api/v1")
 app.include_router(adherence_router, prefix="/api/v1")
 app.include_router(reminders_router, prefix="/api/v1")

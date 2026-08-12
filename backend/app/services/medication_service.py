@@ -52,13 +52,37 @@ async def create_medicine(
 
 async def get_medicine_by_id(
     db: AsyncSession,
-    medicine_id: uuid.UUID,
+    medicine_id: uuid.UUID | str,
 ) -> Medicine | None:
     """Fetch a medicine record by primary key."""
+    if isinstance(medicine_id, str):
+        try:
+            medicine_id = uuid.UUID(medicine_id)
+        except ValueError:
+            return None
+
+    # Try direct UUID comparison first (works for both Postgres and SQLite)
     result = await db.execute(
         select(Medicine).where(Medicine.id == medicine_id)
     )
-    return result.scalar_one_or_none()
+    med = result.scalar_one_or_none()
+
+    # Fallback: try string comparison for SQLite which stores UUIDs as hex
+    if med is None:
+        from sqlalchemy import or_, cast, String
+        med_str = str(medicine_id)
+        med_hex = medicine_id.hex
+        result = await db.execute(
+            select(Medicine).where(
+                or_(
+                    cast(Medicine.id, String) == med_str,
+                    cast(Medicine.id, String) == med_hex,
+                )
+            )
+        )
+        med = result.scalar_one_or_none()
+
+    return med
 
 
 # ---------------------------------------------------------------------------

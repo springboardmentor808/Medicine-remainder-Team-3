@@ -71,7 +71,9 @@ async def get_refill_prediction(
         )
 
     # Check ownership
-    if medicine.user_id != current_user.id:
+    med_uid = str(uuid.UUID(str(medicine.user_id))).lower()
+    cur_uid = str(uuid.UUID(str(current_user.id))).lower()
+    if med_uid != cur_uid:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have access to this medicine.",

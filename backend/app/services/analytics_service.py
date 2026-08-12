@@ -198,23 +198,57 @@ async def get_caregiver_patient_analytics(
     Returns:
         List of patient compliance dicts.
     """
-    # Fetch assigned patients
-    patients = caregiver.assigned_patients or []
+    # Query the association table directly to avoid SQLite UUID relationship issues
+    from app.models.caregiver_patient import caregiver_patients
+    from sqlalchemy import cast, String
+
+    try:
+        # Try relationship first (works on Postgres)
+        patients = caregiver.assigned_patients or []
+    except Exception:
+        patients = []
+
+    # If relationship returned empty, try direct query
+    if not patients:
+        try:
+            result = await db.execute(
+                select(caregiver_patients.c.patient_id).where(
+                    caregiver_patients.c.caregiver_id == caregiver.id
+                )
+            )
+            patient_ids = [row[0] for row in result.fetchall()]
+
+            if patient_ids:
+                result = await db.execute(
+                    select(User).where(User.id.in_(patient_ids))
+                )
+                patients = list(result.scalars().all())
+        except Exception:
+            patients = []
+
     analytics_list = []
 
     for patient in patients:
-        summary = await get_adherence_summary(db, patient.id, days=30)
-        stock = await get_stock_health(db, patient.id)
+        try:
+            summary = await get_adherence_summary(db, patient.id, days=30)
+            stock = await get_stock_health(db, patient.id)
 
-        analytics_list.append({
-            "patient_id": str(patient.id),
-            "patient_name": patient.full_name,
-            "username": patient.username,
-            "adherence_percentage": summary["adherence_percentage"],
-            "consistency_grade": summary["consistency_grade"],
-            "total_medicines": stock["total_medicines"],
-            "low_stock_count": stock["low_stock_count"],
-            "out_of_stock_count": stock["out_of_stock_count"],
-        })
+            analytics_list.append({
+                "patient_id": str(patient.id),
+                "patient_name": patient.full_name,
+                "username": patient.username,
+                "adherence_percentage": summary["adherence_percentage"],
+                "consistency_grade": summary["consistency_grade"],
+                "total_medicines": stock["total_medicines"],
+                "low_stock_count": stock["low_stock_count"],
+                "out_of_stock_count": stock["out_of_stock_count"],
+            })
+        except Exception as e:
+            analytics_list.append({
+                "patient_id": str(patient.id),
+                "patient_name": getattr(patient, "full_name", "Unknown"),
+                "username": getattr(patient, "username", "unknown"),
+                "error": str(e),
+            })
 
     return analytics_list
