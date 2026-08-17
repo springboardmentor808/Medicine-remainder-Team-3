@@ -390,6 +390,22 @@ function PatientDashboardInner() {
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [schedule, setSchedule] = useState(INITIAL_SCHEDULE);
+  const [currentUser, setCurrentUser] = useState(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('pillsync_user');
+        if (stored) {
+          setCurrentUser(JSON.parse(stored));
+        }
+      } catch (err) {
+        console.error('Failed to parse pillsync_user', err);
+      }
+    }
+  }, []);
+
+  const displayName = currentUser?.full_name || currentUser?.name || currentUser?.username || 'Patient';
 
   // ── Derived Stats ──────────────────────────────────────────────────────────
   const compliance = useMemo(() => {
@@ -551,7 +567,7 @@ function PatientDashboardInner() {
                 {/* Greeting */}
                 <div>
                   <p className="text-on-primary/70 text-caption">{getGreeting()}</p>
-                  <h1 className="text-headline-sm font-bold mt-0.5">Rahul Kumar</h1>
+                  <h1 className="text-headline-sm font-bold mt-0.5">{displayName}</h1>
                   <div className="flex items-center gap-xs mt-1.5 text-on-primary/70">
                     <Calendar className="w-3.5 h-3.5" />
                     <span className="text-caption">{formatDate()}</span>

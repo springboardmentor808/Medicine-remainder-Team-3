@@ -168,6 +168,7 @@ function getGreeting() {
 
 export default function CaregiverDashboardPage() {
   // State
+  const [currentUser, setCurrentUser] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
@@ -176,6 +177,19 @@ export default function CaregiverDashboardPage() {
   const [linkError, setLinkError] = useState('');
   const [linkSuccess, setLinkSuccess] = useState(false);
   const [dismissedAlerts, setDismissedAlerts] = useState([]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('pillsync_user');
+        if (stored) setCurrentUser(JSON.parse(stored));
+      } catch (e) {
+        console.error('Failed to parse user', e);
+      }
+    }
+  }, []);
+
+  const displayName = currentUser?.full_name || currentUser?.name || currentUser?.username || 'Dr. Sarah Chen';
 
   // Derived data
   const patients = MOCK_PATIENTS; // TODO: replace with useSWR / useEffect fetch
@@ -324,7 +338,7 @@ export default function CaregiverDashboardPage() {
                   {getGreeting()}, Caregiver
                 </p>
                 <h1 className="text-headline-sm md:text-headline-md font-bold mt-1 tracking-tight">
-                  Dr. Sarah Chen
+                  {displayName}
                 </h1>
                 <p className="text-on-primary/70 text-caption mt-1">
                   Clinical Director · {new Date().toLocaleDateString('en-US', {
