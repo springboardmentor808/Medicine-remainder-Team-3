@@ -8,7 +8,11 @@ FROM node:20-alpine AS base
 FROM base AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm config set fetch-retries 5 \
+    && npm config set fetch-retry-mintimeout 20000 \
+    && npm config set fetch-retry-maxtimeout 120000 \
+    && npm config set fetch-timeout 300000 \
+    && (npm ci --legacy-peer-deps || npm install --legacy-peer-deps)
 
 # Rebuild the source code only when needed
 FROM base AS builder
