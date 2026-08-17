@@ -30,6 +30,7 @@ export default function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [serverError, setServerError] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
+  const [devOtp, setDevOtp] = useState('');
 
   // ── Step 1 — Send OTP ─────────────────────────────────────────────────
   const handleEmailSubmit = async (e) => {
@@ -41,7 +42,10 @@ export default function ForgotPasswordPage() {
     setLoading(true);
     setServerError('');
     try {
-      await authAPI.forgotPassword({ email: email.trim() });
+      const res = await authAPI.forgotPassword({ email: email.trim() });
+      if (res?.data?.debug_otp) {
+        setDevOtp(res.data.debug_otp);
+      }
       setStep(STEPS.OTP);
       startResendCooldown();
     } catch (err) {
@@ -112,7 +116,10 @@ export default function ForgotPasswordPage() {
     setLoading(true);
     setServerError('');
     try {
-      await authAPI.resendOtp({ email });
+      const res = await authAPI.forgotPassword({ email: email.trim() });
+      if (res?.data?.debug_otp) {
+        setDevOtp(res.data.debug_otp);
+      }
       startResendCooldown();
       setOtp(['', '', '', '', '', '']);
     } catch (err) {
@@ -259,6 +266,13 @@ export default function ForgotPasswordPage() {
                   <span className="font-semibold text-on-surface">{email}</span>
                 </p>
               </div>
+
+              {devOtp && (
+                <div className="mb-md p-3 rounded-lg bg-tertiary-container/30 border border-tertiary/40 text-on-surface text-caption text-center">
+                  <span className="font-semibold text-tertiary">🔑 Your OTP Code:</span>{' '}
+                  <span className="font-mono font-bold tracking-widest text-title-sm ml-1 text-primary">{devOtp}</span>
+                </div>
+              )}
 
               {/* OTP boxes */}
               <div

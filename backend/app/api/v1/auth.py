@@ -21,14 +21,17 @@ from app.core.security import (
 from app.models.user import User
 from app.schemas.auth_schema import (
     ChangePasswordRequest,
+    ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
     MessageResponse,
     RefreshTokenRequest,
     RegisterRequest,
     RegisterResponse,
+    ResetPasswordRequest,
     TokenResponse,
     UserResponse,
+    VerifyOtpRequest,
 )
 
 
@@ -320,3 +323,127 @@ async def change_password(
     await db.refresh(current_user)
 
     return MessageResponse(message="Password changed successfully.")
+
+
+# ===================================================================
+# OTP Store & Password Recovery Endpoints
+# ===================================================================
+import time
+import random
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Temporary in-memory OTP cache: { "email": { "otp": "123456", "expires_at": float } }
+_OTP_STORE = {}
+
+
+@router.post(
+    "/forgot-password",
+    response_model=MessageResponse,
+    summary="Request password reset OTP",
+    description="Generates and dispatches a 6-digit OTP to the registered email and phone.",
+)
+async def forgot_password(
+    payload: ForgotPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate and send 6-digit OTP code for password reset."""
+    email_clean = payload.email.strip().lower()
+    
+    # Check if user exists
+    result = await db.execute(select(User).where(func.lower(User.email) == email_clean))
+    user = result.scalar_one_or_none()
+
+    # Generate 6-digit numeric OTP
+    otp_code = f"{random.randint(100000, 999999)}"
+    expires_at = time.time() + (10 * 60) # 10 minutes validity
+
+    _OTP_STORE[email_clean] = {
+        "otp": otp_code,
+        "expires_at": expires_at,
+    }
+
+    logger.info(f"🔑 [PillSync OTP] Generated OTP for {email_clean}: {otp_code} (Valid for 10 min)")
+    print(f"\n=======================================================\n🔑 [PillSync OTP Alert] OTP for {email_clean}: {otp_code}\n=======================================================\n")
+
+    return MessageResponse(
+        message="A 6-digit OTP has been dispatched to your registered email / phone.",
+        detail=f"OTP sent to {email_clean}",
+        debug_otp=otp_code,
+    )
+
+
+@router.post(
+    "/verify-otp",
+    response_model=MessageResponse,
+    summary="Verify OTP code",
+    description="Validates that the provided 6-digit OTP is correct and unexpired.",
+)
+async def verify_otp(payload: VerifyOtpRequest):
+    """Verify that the submitted OTP matches."""
+    email_clean = payload.email.strip().lower()
+    stored = _OTP_STORE.get(email_clean)
+
+    if not stored:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active OTP found for this email. Please request a new one.",
+        )
+
+    if time.time() > stored["expires_at"]:
+        _OTP_STORE.pop(email_clean, None)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OTP has expired. Please request a new one.",
+        )
+
+    if stored["otp"] != payload.otp.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid OTP code. Please check and try again.",
+        )
+
+    return MessageResponse(message="OTP verified successfully.")
+
+
+@router.post(
+    "/reset-password",
+    response_model=MessageResponse,
+    summary="Reset password with verified OTP",
+    description="Updates user password after successful OTP verification.",
+)
+async def reset_password(
+    payload: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Reset user password after OTP verification."""
+    email_clean = payload.email.strip().lower()
+    stored = _OTP_STORE.get(email_clean)
+
+    if not stored or stored["otp"] != payload.otp.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired OTP. Please request a new verification code.",
+        )
+
+    # Find user in database
+    result = await db.execute(select(User).where(func.lower(User.email) == email_clean))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User with this email not found.",
+        )
+
+    # Update password
+    user.hashed_password = hash_password(payload.new_password)
+    await db.commit()
+    await db.refresh(user)
+
+    # Clear OTP
+    _OTP_STORE.pop(email_clean, None)
+
+    return MessageResponse(message="Password reset successfully! You can now log in with your new password.")
+

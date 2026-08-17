@@ -143,3 +143,23 @@ class MessageResponse(BaseModel):
     """Generic message response."""
     message: str
     detail: Optional[str] = None
+    debug_otp: Optional[str] = None
+
+
+class ForgotPasswordRequest(BaseModel):
+    """Request to send password reset OTP."""
+    email: EmailStr = Field(..., description="Registered email address")
+
+
+class VerifyOtpRequest(BaseModel):
+    """Request to verify 6-digit OTP."""
+    email: EmailStr = Field(..., description="Registered email address")
+    otp: str = Field(..., min_length=4, max_length=10, description="6-digit OTP code")
+
+
+class ResetPasswordRequest(BaseModel):
+    """Request to reset password using verified OTP / token."""
+    email: EmailStr = Field(..., description="Registered email address")
+    otp: str = Field(..., description="Verified OTP code")
+    new_password: str = Field(..., min_length=8, max_length=128, description="New password")
+

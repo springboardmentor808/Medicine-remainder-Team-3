@@ -553,8 +553,11 @@ export default function MedicinesPage() {
       <AddMedicineModal
         isOpen={isAddOpen}
         onClose={() => setIsAddOpen(false)}
-        onSuccess={() => {
+        onSuccess={(newMed) => {
           setToast({ type: 'success', message: 'Medicine added successfully!' });
+          if (newMed) {
+            setMedicines((prev) => [newMed, ...(Array.isArray(prev) ? prev : [])]);
+          }
           fetchMedicines();
         }}
       />
