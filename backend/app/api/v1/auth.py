@@ -6,7 +6,7 @@ All passwords are bcrypt-hashed. Tokens are JWT with access + refresh pattern.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -83,6 +83,7 @@ async def register(
 
     db.add(new_user)
     await db.flush()  # Flush to get the generated UUID
+    await db.commit()
     await db.refresh(new_user)
 
     # Generate tokens
@@ -159,7 +160,8 @@ async def login(
             except Exception:
                 pass
 
-    if not username or not password:
+    username_clean = (username or "").strip()
+    if not username_clean or not password:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Fields 'username' and 'password' are required.",
@@ -168,8 +170,10 @@ async def login(
     result = await db.execute(
         select(User).where(
             or_(
-                User.username == username,
-                User.email == username,
+                func.lower(User.username) == func.lower(username_clean),
+                func.lower(User.email) == func.lower(username_clean),
+                User.username == username_clean,
+                User.email == username_clean,
             )
         )
     )
