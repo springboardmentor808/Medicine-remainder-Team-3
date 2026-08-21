@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import Badge from '@/components/ui/Badge';
+import Image from 'next/image';
 
 /**
  * Landing Page — PillSync
@@ -81,11 +81,7 @@ const STATS = [
   { value: '24/7',  label: 'Support',     icon: 'support_agent' },
 ];
 
-const TODAY_MEDS = [
-  { name: 'Amoxicillin 500mg',  time: '08:00 AM', status: 'taken',   type: 'Antibiotic' },
-  { name: 'Metformin 850mg',    time: '01:30 PM', status: 'pending', type: 'Diabetes' },
-  { name: 'Atorvastatin 20mg',  time: '09:00 PM', status: 'upcoming',type: 'Cholesterol' },
-];
+
 
 export default function LandingPage() {
   return (
@@ -178,108 +174,37 @@ export default function LandingPage() {
                   <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
                 </Link>
               </div>
-
-              {/* Role quick-select */}
-              <div>
-                <p className="text-label-caps text-on-surface-variant uppercase tracking-wider mb-xs">
-                  I am a:
-                </p>
-                <div className="flex flex-wrap gap-xs">
-                  {ROLES.map(({ value, icon, title, desc, color }) => (
-                    <Link
-                      key={value}
-                      href={`/select-role`}
-                      className={[
-                        'group flex items-center gap-xs px-sm py-xs rounded-full border border-outline-variant/50',
-                        'hover:border-primary/40 hover:shadow-sm transition-all',
-                        'text-caption font-medium text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                      ].join(' ')}
-                    >
-                      <span className={`material-symbols-outlined text-[16px] ${color.split(' ')[1]}`}>{icon}</span>
-                      {title}
-                    </Link>
-                  ))}
-                </div>
-              </div>
             </div>
 
-            {/* Hero — Today's Schedule Card (preview) */}
-            <div className="relative">
-              {/* Floating card */}
-              <div className="bg-surface-container-lowest rounded-lg shadow-modal border border-outline-variant/30 p-card-padding space-y-md">
-                {/* Card header */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-label-caps text-on-surface-variant uppercase tracking-wider">
-                      Today&apos;s Schedule
-                    </p>
-                    <h2 className="text-headline-sm font-bold text-on-surface mt-0.5">
-                      {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-                    </h2>
-                  </div>
-                  {/* Mini adherence ring */}
-                  <div className="relative w-14 h-14">
-                    <svg width="56" height="56" viewBox="0 0 56 56" className="rotate-[-90deg]" aria-hidden="true">
-                      <circle cx="28" cy="28" r="22" stroke="#e7eeff" strokeWidth="5" fill="none" />
-                      <circle
-                        cx="28" cy="28" r="22"
-                        stroke="#006947" strokeWidth="5" fill="none"
-                        strokeLinecap="round"
-                        strokeDasharray="138.2"
-                        strokeDashoffset="138.2 * 0.33"
-                        style={{ strokeDashoffset: 138.2 * 0.33 }}
-                      />
-                    </svg>
-                    <span className="absolute inset-0 flex items-center justify-center text-label-caps font-bold text-tertiary">
-                      67%
-                    </span>
-                  </div>
+            {/* Hero — Product Illustration Banner */}
+            <div className="relative flex items-center justify-center">
+              {/* Decorative backdrop blur / glow */}
+              <div className="absolute -inset-4 bg-gradient-to-tr from-primary/20 via-tertiary/15 to-secondary/10 rounded-3xl blur-2xl opacity-70 pointer-events-none" />
+
+              {/* Main Image Container */}
+              <div className="relative rounded-2xl overflow-hidden border border-outline-variant/40 bg-surface-container-lowest shadow-modal group">
+                <Image
+                  src="/hero-banner.jpg"
+                  alt="PillSync AI Smart Medicine Tracker Illustration"
+                  width={600}
+                  height={450}
+                  priority
+                  unoptimized
+                  className="w-full h-auto object-cover transform group-hover:scale-[1.02] transition-transform duration-500 ease-out"
+                />
+
+                {/* Floating micro feature badges */}
+                <div className="absolute top-4 left-4 bg-surface-container-lowest/90 backdrop-blur-md rounded-full shadow-elevated border border-outline-variant/30 px-3 py-1.5 flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-primary text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>
+                    verified
+                  </span>
+                  <span className="text-caption font-semibold text-on-surface">AI Powered OCR</span>
                 </div>
 
-                {/* Medicine list */}
-                <div className="space-y-xs">
-                  {TODAY_MEDS.map((med) => (
-                    <div
-                      key={med.name}
-                      className="flex items-center gap-sm p-sm rounded-md bg-surface border border-outline-variant/30 hover:bg-surface-container-low transition-colors"
-                    >
-                      <div
-                        className={[
-                          'w-9 h-9 rounded-full flex items-center justify-center shrink-0',
-                          med.status === 'taken'
-                            ? 'bg-tertiary/15 text-tertiary'
-                            : med.status === 'pending'
-                            ? 'bg-secondary/15 text-secondary'
-                            : 'bg-surface-container text-on-surface-variant',
-                        ].join(' ')}
-                      >
-                        <span className="material-symbols-outlined text-[18px]">medication</span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-body-sm font-semibold text-on-surface truncate">{med.name}</p>
-                        <p className="text-caption text-on-surface-variant">{med.type} · {med.time}</p>
-                      </div>
-                      <Badge variant={med.status} size="sm">
-                        {med.status}
-                      </Badge>
-                    </div>
-                  ))}
+                <div className="absolute bottom-4 right-4 bg-surface-container-lowest/90 backdrop-blur-md rounded-full shadow-elevated border border-outline-variant/30 px-3 py-1.5 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-tertiary animate-pulse" />
+                  <span className="text-caption font-semibold text-tertiary">Smart Scheduling</span>
                 </div>
-
-                {/* Quick action */}
-                <button
-                  className="w-full h-touch-target flex items-center justify-center gap-xs rounded-md bg-primary text-on-primary text-caption font-semibold hover:bg-primary-container transition-colors"
-                  onClick={() => {}}
-                >
-                  <span className="material-symbols-outlined text-[18px]">add_circle</span>
-                  Add Medicine
-                </button>
-              </div>
-
-              {/* Floating alert badge */}
-              <div className="absolute -top-3 -right-3 bg-surface-container-lowest rounded-full shadow-elevated border border-outline-variant/30 px-sm py-xs flex items-center gap-xs">
-                <span className="w-2 h-2 rounded-full bg-secondary animate-pulse" />
-                <span className="text-caption font-semibold text-secondary">Low Stock</span>
               </div>
             </div>
           </div>

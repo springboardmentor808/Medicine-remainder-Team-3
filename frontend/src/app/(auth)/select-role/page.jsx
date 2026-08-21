@@ -73,11 +73,11 @@ export default function SelectRolePage() {
             <span className="inline-block text-label-caps text-primary uppercase tracking-widest mb-xs font-semibold">
               Welcome
             </span>
-            <h1 className="text-headline-md font-bold text-on-surface mb-xs">
-              Who are you?
+            <h1 className="text-headline-md font-bold text-on-surface mb-xs flex items-center justify-center gap-1">
+              Who are you? <span className="text-error font-bold" title="Required">*</span>
             </h1>
             <p className="text-body-sm text-on-surface-variant">
-              Select your role to personalize your experience.
+              Select your role to personalize your experience. <span className="text-error text-caption font-semibold">*Required</span>
             </p>
           </div>
 

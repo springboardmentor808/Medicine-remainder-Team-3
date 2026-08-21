@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { authAPI } from '@/lib/api';
 import Input from '@/components/ui/Input';
@@ -10,24 +10,32 @@ import Button from '@/components/ui/Button';
 /**
  * Register Page — PillSync
  * Design: Stitch screen "Registration - Step 1" (036684dd96a64b4f9e626397481ed04e)
- * Full-width centered registration form.
+ * Full-width centered registration form with role pre-configured from onboarding.
  */
 
-export default function RegisterPage() {
+function RegisterFormContent() {
   const router = useRouter();
-  const [step, setStep] = useState(1); // 1 = Account info, 2 = OTP verify
+  const searchParams = useSearchParams();
   const [form, setForm] = useState({
     name: '',
     email: '',
     phone: '',
     password: '',
     confirmPassword: '',
-    role: '',
+    role: 'patient',
     agree: false,
   });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [serverError, setServerError] = useState('');
+
+  useEffect(() => {
+    const roleParam =
+      searchParams?.get('role') ||
+      (typeof window !== 'undefined' ? sessionStorage.getItem('pillsync_selected_role') : null) ||
+      'patient';
+    setForm((prev) => ({ ...prev, role: roleParam }));
+  }, [searchParams]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -58,8 +66,6 @@ export default function RegisterPage() {
       errs.confirmPassword = 'Please confirm your password';
     else if (form.password !== form.confirmPassword)
       errs.confirmPassword = 'Passwords do not match';
-    if (!form.role)
-      errs.role = 'Please select your role';
     if (!form.agree)
       errs.agree = 'You must accept the terms to continue';
     return errs;
@@ -76,7 +82,7 @@ export default function RegisterPage() {
         email: form.email.trim(),
         phone: form.phone.trim(),
         password: form.password,
-        role: form.role,
+        role: form.role || 'patient',
       });
       router.push(`/login?registered=1&email=${encodeURIComponent(form.email)}`);
     } catch (err) {
@@ -105,27 +111,6 @@ export default function RegisterPage() {
     'bg-tertiary',
     'bg-tertiary',
   ][passStrength];
-
-  const ROLES = [
-    {
-      value: 'patient',
-      icon: 'person',
-      title: 'Patient',
-      desc: 'I am managing my own care',
-    },
-    {
-      value: 'caregiver',
-      icon: 'favorite',
-      title: 'Caregiver',
-      desc: 'I manage care for someone else',
-    },
-    {
-      value: 'admin',
-      icon: 'shield_person',
-      title: 'Admin',
-      desc: 'I manage facility operations',
-    },
-  ];
 
   return (
     <main className="relative min-h-screen flex items-center justify-center p-md py-xl">
@@ -273,61 +258,6 @@ export default function RegisterPage() {
                 leftIcon={<span className="material-symbols-outlined text-[20px]">lock_reset</span>}
               />
 
-              {/* Role selection */}
-              <div>
-                <p className="text-label-caps font-semibold text-on-surface uppercase tracking-wider mb-xs">
-                  I am a <span className="text-error">*</span>
-                </p>
-                <div
-                  role="radiogroup"
-                  aria-label="Select your role"
-                  className="grid grid-cols-3 gap-xs"
-                >
-                  {ROLES.map(({ value, icon, title, desc }) => (
-                    <label
-                      key={value}
-                      className={[
-                        'relative cursor-pointer rounded-md border-2 p-sm transition-all duration-200',
-                        'flex flex-col items-center text-center gap-xs',
-                        'hover:border-primary/40 hover:bg-primary/4',
-                        'focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-1',
-                        form.role === value
-                          ? 'border-primary bg-primary/8 shadow-sm'
-                          : 'border-outline-variant bg-surface',
-                      ].join(' ')}
-                    >
-                      <input
-                        type="radio"
-                        name="role"
-                        value={value}
-                        checked={form.role === value}
-                        onChange={handleChange}
-                        className="sr-only"
-                      />
-                      <div
-                        className={[
-                          'w-10 h-10 rounded-full flex items-center justify-center transition-colors',
-                          form.role === value
-                            ? 'bg-primary text-on-primary'
-                            : 'bg-surface-container text-on-surface-variant',
-                        ].join(' ')}
-                      >
-                        <span className="material-symbols-outlined text-[22px]">{icon}</span>
-                      </div>
-                      <div>
-                        <p className="text-caption font-semibold text-on-surface">{title}</p>
-                        <p className="text-[11px] text-on-surface-variant leading-tight mt-0.5 hidden sm:block">
-                          {desc}
-                        </p>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-                {errors.role && (
-                  <p role="alert" className="text-caption text-error mt-xs">{errors.role}</p>
-                )}
-              </div>
-
               {/* Terms */}
               <div>
                 <div className="flex items-start gap-xs">
@@ -377,5 +307,13 @@ export default function RegisterPage() {
         </p>
       </div>
     </main>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-on-surface-variant">Loading...</div>}>
+      <RegisterFormContent />
+    </Suspense>
   );
 }
