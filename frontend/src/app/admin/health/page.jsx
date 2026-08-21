@@ -33,6 +33,7 @@ import {
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
+import DashboardLayout from '@/components/dashboard/DashboardLayout';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -545,46 +546,9 @@ export default function AdminHealthPage() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-background">
-
-      {/* ── Navigation ────────────────────────────────────────────────── */}
-      <nav className="sticky top-0 z-40 w-full bg-surface-container-lowest/80 backdrop-blur-md border-b border-outline-variant/40">
-        <div className="max-w-7xl mx-auto px-gutter flex items-center justify-between h-16">
-          {/* Breadcrumb */}
-          <div className="flex items-center gap-xs text-caption text-on-surface-variant">
-            <Link href="/" className="hover:text-primary transition-colors text-primary font-semibold flex items-center gap-1">
-              <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                medical_services
-              </span>
-              PillSync
-            </Link>
-            <ChevronRight className="w-3.5 h-3.5" />
-            <Link href="/dashboard/admin" className="hover:text-primary transition-colors">Admin</Link>
-            <ChevronRight className="w-3.5 h-3.5" />
-            <span className="text-on-surface font-semibold">System Health</span>
-          </div>
-
-          {/* Nav right */}
-          <div className="flex items-center gap-sm">
-            {/* Auto-refresh countdown */}
-            <div className="hidden sm:flex items-center gap-1.5 px-sm py-1 rounded-full bg-surface-container border border-outline-variant/50 text-label-caps text-on-surface-variant">
-              <RefreshCw className="w-3 h-3 animate-spin-slow" />
-              Refresh in {countdown}s
-            </div>
-            <Badge variant="admin" size="xs">Admin</Badge>
-            <Link href="/notifications">
-              <button className="relative p-2 rounded-full text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors" aria-label="Notifications">
-                <Bell className="w-5 h-5" />
-                {openIncidents > 0 && (
-                  <span className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-error border-2 border-surface-container-lowest animate-pulse" />
-                )}
-              </button>
-            </Link>
-          </div>
-        </div>
-      </nav>
-
-      <main className="max-w-7xl mx-auto px-gutter py-lg space-y-lg">
+    <DashboardLayout>
+      <div className="min-h-screen bg-background">
+        <main className="max-w-7xl mx-auto px-gutter py-lg space-y-lg">
 
         {/* ── Page Header ─────────────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-md">
@@ -838,6 +802,7 @@ export default function AdminHealthPage() {
           </p>
         </div>
       </main>
-    </div>
+      </div>
+    </DashboardLayout>
   );
 }

@@ -34,6 +34,7 @@ import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Modal from '@/components/ui/Modal';
+import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
 import SupportTicketForm from '@/components/forms/SupportTicketForm';
 
@@ -263,53 +264,54 @@ function HelpPageInner() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* ── Emergency Disclaimer Banner ───────────────────────────── */}
-      <div className="bg-[#EF4444] text-white">
-        <div className="max-w-4xl mx-auto px-gutter py-sm">
-          <div className="flex items-center justify-between gap-sm">
-            <div className="flex items-center gap-sm">
-              <AlertTriangle className="w-5 h-5 flex-shrink-0 animate-pulse" />
-              <p className="text-body-sm font-semibold">
-                <span className="hidden sm:inline">Medical Emergency? </span>
-                This app is NOT a substitute for professional medical advice.
-              </p>
+    <DashboardLayout>
+      <div className="min-h-screen bg-background">
+        {/* ── Emergency Disclaimer Banner ───────────────────────────── */}
+        <div className="bg-[#EF4444] text-white">
+          <div className="max-w-4xl mx-auto px-gutter py-sm">
+            <div className="flex items-center justify-between gap-sm">
+              <div className="flex items-center gap-sm">
+                <AlertTriangle className="w-5 h-5 flex-shrink-0 animate-pulse" />
+                <p className="text-body-sm font-semibold">
+                  <span className="hidden sm:inline">Medical Emergency? </span>
+                  This app is NOT a substitute for professional medical advice.
+                </p>
+              </div>
+              <a
+                href="tel:108"
+                className="flex items-center gap-1 px-md py-xs rounded-full bg-white/20 hover:bg-white/30 text-white font-bold text-body-sm transition-colors flex-shrink-0"
+              >
+                <Phone className="w-4 h-4" />
+                Call 108
+              </a>
             </div>
-            <a
-              href="tel:108"
-              className="flex items-center gap-1 px-md py-xs rounded-full bg-white/20 hover:bg-white/30 text-white font-bold text-body-sm transition-colors flex-shrink-0"
-            >
-              <Phone className="w-4 h-4" />
-              Call 108
-            </a>
           </div>
         </div>
-      </div>
 
-      {/* ── Header ─────────────────────────────────────────────────── */}
-      <header className="bg-gradient-primary text-on-primary">
-        <div className="max-w-4xl mx-auto px-gutter py-lg">
-          {/* Back Nav */}
-          <div className="flex items-center justify-between mb-md">
-            <Link
-              href="/dashboard/patient"
-              className="flex items-center gap-xs text-on-primary/80 hover:text-on-primary transition-colors text-body-sm"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              Dashboard
-            </Link>
-          </div>
+        {/* ── Header ─────────────────────────────────────────────────── */}
+        <header className="bg-gradient-primary text-on-primary">
+          <div className="max-w-4xl mx-auto px-gutter py-lg">
+            {/* Back Nav */}
+            <div className="flex items-center justify-between mb-md">
+              <Link
+                href="/dashboard/patient"
+                className="flex items-center gap-xs text-on-primary/80 hover:text-on-primary transition-colors text-body-sm"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Dashboard
+              </Link>
+            </div>
 
-          {/* Title */}
-          <div className="flex items-center gap-sm mb-lg">
-            <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center backdrop-blur-sm">
-              <HelpCircle className="w-6 h-6" />
+            {/* Title */}
+            <div className="flex items-center gap-sm mb-lg">
+              <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center backdrop-blur-sm">
+                <HelpCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h1 className="text-headline-sm font-bold">Help & Support</h1>
+                <p className="text-body-sm text-on-primary/70">FAQs, Guides & Support Tickets</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-headline-sm font-bold">Help & Support</h1>
-              <p className="text-body-sm text-on-primary/70">FAQs, Guides & Support Tickets</p>
-            </div>
-          </div>
 
           {/* Search Bar */}
           <div className="relative">
@@ -568,7 +570,8 @@ function HelpPageInner() {
           </Card>
         )}
       </main>
-    </div>
+      </div>
+    </DashboardLayout>
   );
 }
 

@@ -26,6 +26,7 @@ import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Modal from '@/components/ui/Modal';
+import DashboardLayout from '@/components/dashboard/DashboardLayout';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -332,39 +333,9 @@ export default function NotificationsPage() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-background">
-
-      {/* ── Navigation ────────────────────────────────────────────────── */}
-      <nav className="sticky top-0 z-40 w-full bg-surface-container-lowest/80 backdrop-blur-md border-b border-outline-variant/40">
-        <div className="max-w-7xl mx-auto px-gutter flex items-center justify-between h-16">
-          <div className="flex items-center gap-xs text-caption text-on-surface-variant">
-            <Link href="/" className="hover:text-primary transition-colors text-primary font-semibold flex items-center gap-1">
-              <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                medical_services
-              </span>
-              PillSync
-            </Link>
-            <ChevronRight className="w-3.5 h-3.5" />
-            <span className="text-on-surface font-semibold">Notifications</span>
-          </div>
-
-          <div className="flex items-center gap-sm">
-            <Button
-              variant="primary"
-              size="sm"
-              leftIcon={<Megaphone className="w-4 h-4" />}
-              onClick={() => setBroadcastOpen(true)}
-            >
-              Broadcast
-            </Button>
-            <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center">
-              <span className="text-on-primary text-label-caps font-bold">SA</span>
-            </div>
-          </div>
-        </div>
-      </nav>
-
-      <main className="max-w-7xl mx-auto px-gutter py-lg space-y-lg">
+    <DashboardLayout>
+      <div className="min-h-screen bg-background">
+        <main className="max-w-7xl mx-auto px-gutter py-lg space-y-lg">
 
         {/* ── Page Header ──────────────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-md">
@@ -732,6 +703,7 @@ export default function NotificationsPage() {
         isOpen={broadcastOpen}
         onClose={() => setBroadcastOpen(false)}
       />
-    </div>
+      </div>
+    </DashboardLayout>
   );
 }

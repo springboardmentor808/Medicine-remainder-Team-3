@@ -7,6 +7,7 @@ import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Toast from '@/components/ui/Toast';
 import Modal from '@/components/ui/Modal';
+import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { medicineAPI, refillAPI } from '@/lib/api';
 
 const DEFAULT_FALLBACK_MEDS = [
@@ -125,7 +126,8 @@ export default function RefillPage() {
   const criticalMeds = medicines.filter((m) => m.current_stock <= 3);
 
   return (
-    <main className="min-h-screen bg-surface p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+    <DashboardLayout>
+      <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       {toast && (
         <Toast
           type={toast.type}
@@ -387,6 +389,7 @@ export default function RefillPage() {
           </form>
         </Modal>
       )}
-    </main>
+      </div>
+    </DashboardLayout>
   );
 }

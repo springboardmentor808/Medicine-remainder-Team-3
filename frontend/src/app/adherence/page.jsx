@@ -27,6 +27,8 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import AdherenceRing from '@/components/ui/AdherenceRing';
+import DashboardLayout from '@/components/dashboard/DashboardLayout';
+import { exportAPI } from '@/lib/api';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -148,31 +150,41 @@ function AdherencePageInner() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* ── Header ─────────────────────────────────────────────────── */}
-      <header className="bg-gradient-primary text-on-primary">
-        <div className="max-w-4xl mx-auto px-gutter py-lg">
-          {/* Back Nav */}
-          <div className="flex items-center justify-between mb-md">
-            <Link
-              href="/dashboard/patient"
-              className="flex items-center gap-xs text-on-primary/80 hover:text-on-primary transition-colors text-body-sm"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              Dashboard
-            </Link>
-          </div>
+    <DashboardLayout>
+      <div className="min-h-screen bg-background">
+        {/* ── Header ─────────────────────────────────────────────────── */}
+        <header className="bg-gradient-primary text-on-primary">
+          <div className="max-w-4xl mx-auto px-gutter py-lg">
+            {/* Back Nav + Export Action */}
+            <div className="flex items-center justify-between mb-md">
+              <Link
+                href="/dashboard/patient"
+                className="flex items-center gap-xs text-on-primary/80 hover:text-on-primary transition-colors text-body-sm"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Dashboard
+              </Link>
 
-          {/* Title */}
-          <div className="flex items-center gap-sm mb-lg">
-            <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center backdrop-blur-sm">
-              <BarChart3 className="w-6 h-6" />
+              <button
+                onClick={() => exportAPI.adherenceCSV()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs font-semibold backdrop-blur-sm transition-all"
+                title="Download adherence history as CSV"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export CSV
+              </button>
             </div>
-            <div>
-              <h1 className="text-headline-sm font-bold">Adherence Reports</h1>
-              <p className="text-body-sm text-on-primary/70">Track your medication compliance</p>
+
+            {/* Title */}
+            <div className="flex items-center gap-sm mb-lg">
+              <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center backdrop-blur-sm">
+                <BarChart3 className="w-6 h-6" />
+              </div>
+              <div>
+                <h1 className="text-headline-sm font-bold">Adherence Reports</h1>
+                <p className="text-body-sm text-on-primary/70">Track your medication compliance</p>
+              </div>
             </div>
-          </div>
 
           {/* Period Selector */}
           <div className="flex gap-xs bg-white/10 rounded-lg p-1 backdrop-blur-sm">
@@ -447,7 +459,8 @@ function AdherencePageInner() {
           </div>
         </Card>
       </main>
-    </div>
+      </div>
+    </DashboardLayout>
   );
 }
 

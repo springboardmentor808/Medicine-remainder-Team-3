@@ -27,7 +27,8 @@ import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Modal from '@/components/ui/Modal';
-// TODO: import { adminAPI } from '@/lib/api';
+import DashboardLayout from '@/components/dashboard/DashboardLayout';
+import { exportAPI } from '@/lib/api';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -492,36 +493,9 @@ export default function AdminUsersPage() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* ── Navigation ────────────────────────────────────────────────── */}
-      <nav className="sticky top-0 z-40 w-full bg-surface-container-lowest/80 backdrop-blur-md border-b border-outline-variant/40">
-        <div className="max-w-7xl mx-auto px-gutter flex items-center justify-between h-16">
-          {/* Breadcrumb */}
-          <div className="flex items-center gap-xs text-caption text-on-surface-variant">
-            <Link href="/" className="hover:text-primary transition-colors font-semibold text-primary flex items-center gap-1">
-              <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                medical_services
-              </span>
-              PillSync
-            </Link>
-            <ChevronRight className="w-3.5 h-3.5" />
-            <Link href="/dashboard/admin" className="hover:text-primary transition-colors">Admin</Link>
-            <ChevronRight className="w-3.5 h-3.5" />
-            <span className="text-on-surface font-semibold">User Management</span>
-          </div>
-
-          <div className="flex items-center gap-sm">
-            <Badge variant="admin" size="xs">Admin</Badge>
-            <Link href="/notifications">
-              <button className="relative p-2 rounded-full text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors" aria-label="Notifications">
-                <Bell className="w-5 h-5" />
-              </button>
-            </Link>
-          </div>
-        </div>
-      </nav>
-
-      <main className="max-w-7xl mx-auto px-gutter py-lg space-y-lg">
+    <DashboardLayout>
+      <div className="min-h-screen bg-background">
+        <main className="max-w-7xl mx-auto px-gutter py-lg space-y-lg">
 
         {/* ── Page Header ─────────────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-md">
@@ -532,7 +506,12 @@ export default function AdminUsersPage() {
             </p>
           </div>
           <div className="flex items-center gap-sm">
-            <Button variant="outline" size="sm" leftIcon={<Download className="w-4 h-4" />}>
+            <Button
+              variant="outline"
+              size="sm"
+              leftIcon={<Download className="w-4 h-4" />}
+              onClick={() => exportAPI.allCSV()}
+            >
               Export CSV
             </Button>
             <Button
@@ -866,6 +845,7 @@ export default function AdminUsersPage() {
         onClose={() => setResetModal({ open: false, user: null })}
         onConfirm={(id) => console.log('Password reset for:', id)}
       />
-    </div>
+      </div>
+    </DashboardLayout>
   );
 }

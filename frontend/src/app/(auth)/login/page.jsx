@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { authAPI } from '@/lib/api';
 import Input from '@/components/ui/Input';
@@ -13,12 +13,25 @@ import Button from '@/components/ui/Button';
  * Split-layout: Left hero panel + Right auth card
  */
 
-export default function LoginPage() {
+function LoginFormContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [form, setForm] = useState({ email: '', password: '', remember: false });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [serverError, setServerError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+
+  useEffect(() => {
+    const isRegistered = searchParams?.get('registered');
+    const emailParam = searchParams?.get('email');
+    if (emailParam) {
+      setForm((prev) => ({ ...prev, email: emailParam }));
+    }
+    if (isRegistered === '1') {
+      setSuccessMessage('Account created successfully! Please sign in with your credentials.');
+    }
+  }, [searchParams]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -185,6 +198,19 @@ export default function LoginPage() {
             </p>
           </div>
 
+          {/* Registration success message */}
+          {successMessage && (
+            <div
+              role="status"
+              className="mb-md p-sm rounded-md bg-tertiary/10 border border-tertiary/30 flex items-start gap-xs text-tertiary"
+            >
+              <span className="material-symbols-outlined text-tertiary text-[18px] shrink-0 mt-0.5" style={{ fontVariationSettings: "'FILL' 1" }}>
+                check_circle
+              </span>
+              <p className="text-caption font-semibold">{successMessage}</p>
+            </div>
+          )}
+
           {/* Server error */}
           {serverError && (
             <div
@@ -314,5 +340,13 @@ export default function LoginPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-on-surface-variant">Loading...</div>}>
+      <LoginFormContent />
+    </Suspense>
   );
 }
