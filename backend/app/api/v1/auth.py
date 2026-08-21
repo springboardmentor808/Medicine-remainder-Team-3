@@ -1,15 +1,22 @@
 """
 PillSync Authentication Router.
 
-Handles user registration, login, token refresh, and current user profile.
+Handles user registration, login, token refresh, current user profile,
+password recovery (OTP + reset link), and logout.
 All passwords are bcrypt-hashed. Tokens are JWT with access + refresh pattern.
 """
+
+import time
+import random
+import logging
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -33,9 +40,18 @@ from app.schemas.auth_schema import (
     UserResponse,
     VerifyOtpRequest,
 )
+from app.services.email_service import (
+    send_otp_email,
+    send_password_reset_link,
+    send_welcome_email,
+)
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+# Temporary in-memory OTP cache: { "email": { "otp": "123456", "expires_at": float } }
+_OTP_STORE = {}
 
 
 # ===================================================================
@@ -58,6 +74,7 @@ async def register(
     - Validates username and email uniqueness.
     - Hashes the password with bcrypt.
     - Issues JWT access and refresh tokens.
+    - Sends welcome email.
     """
     # Check for existing username or email
     existing = await db.execute(
@@ -93,6 +110,12 @@ async def register(
     token_data = {"sub": str(new_user.id), "role": new_user.role}
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
+
+    # Send welcome email (non-blocking, don't fail registration if email fails)
+    try:
+        await send_welcome_email(new_user.email, new_user.full_name)
+    except Exception as e:
+        logger.warning(f"[Auth] Welcome email failed for {new_user.email}: {e}")
 
     return RegisterResponse(
         user=UserResponse(
@@ -216,6 +239,24 @@ async def login(
 
 
 # ===================================================================
+# POST /api/v1/auth/logout
+# ===================================================================
+@router.post(
+    "/logout",
+    response_model=MessageResponse,
+    summary="User logout",
+    description="Invalidate the current session. Client should clear stored tokens.",
+)
+async def logout():
+    """
+    Logout endpoint.
+    Since JWTs are stateless, the client is responsible for clearing tokens.
+    This endpoint acknowledges the logout request.
+    """
+    return MessageResponse(message="Logged out successfully.")
+
+
+# ===================================================================
 # POST /api/v1/auth/refresh
 # ===================================================================
 @router.post(
@@ -225,17 +266,35 @@ async def login(
     description="Exchange a valid refresh token for a new access token.",
 )
 async def refresh_token(
-    payload: RefreshTokenRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Issue a new access token using a valid refresh token.
 
-    - Validates the refresh token signature and expiry.
-    - Verifies the user still exists and is active.
-    - Returns a new access token (refresh token remains unchanged).
+    Accepts refresh_token from JSON body or Authorization header.
     """
-    token_payload = decode_token(payload.refresh_token)
+    # Try to get refresh token from JSON body first
+    refresh_tok = None
+    try:
+        body = await request.json()
+        refresh_tok = body.get("refresh_token")
+    except Exception:
+        pass
+
+    # Fallback: try Authorization header
+    if not refresh_tok:
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            refresh_tok = auth_header[7:]
+
+    if not refresh_tok:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="refresh_token is required in body or Authorization header.",
+        )
+
+    token_payload = decode_token(refresh_tok)
 
     if token_payload.get("type") != "refresh":
         raise HTTPException(
@@ -250,7 +309,6 @@ async def refresh_token(
             detail="Invalid token payload.",
         )
 
-    import uuid
     result = await db.execute(
         select(User).where(User.id == uuid.UUID(user_id))
     )
@@ -268,7 +326,7 @@ async def refresh_token(
 
     return TokenResponse(
         access_token=new_access,
-        refresh_token=payload.refresh_token,
+        refresh_token=refresh_tok,
     )
 
 
@@ -326,52 +384,57 @@ async def change_password(
 
 
 # ===================================================================
-# OTP Store & Password Recovery Endpoints
+# OTP & Password Recovery Endpoints
 # ===================================================================
-import time
-import random
-import logging
-
-logger = logging.getLogger(__name__)
-
-# Temporary in-memory OTP cache: { "email": { "otp": "123456", "expires_at": float } }
-_OTP_STORE = {}
-
 
 @router.post(
     "/forgot-password",
     response_model=MessageResponse,
     summary="Request password reset OTP",
-    description="Generates and dispatches a 6-digit OTP to the registered email and phone.",
+    description="Generates and dispatches a 6-digit OTP to the registered email. Also sends a password reset link.",
 )
 async def forgot_password(
     payload: ForgotPasswordRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate and send 6-digit OTP code for password reset."""
+    """Generate and send 6-digit OTP code + reset link for password reset."""
     email_clean = payload.email.strip().lower()
-    
+
     # Check if user exists
     result = await db.execute(select(User).where(func.lower(User.email) == email_clean))
     user = result.scalar_one_or_none()
 
     # Generate 6-digit numeric OTP
     otp_code = f"{random.randint(100000, 999999)}"
-    expires_at = time.time() + (10 * 60) # 10 minutes validity
+    expires_at = time.time() + (10 * 60)  # 10 minutes validity
 
     _OTP_STORE[email_clean] = {
         "otp": otp_code,
         "expires_at": expires_at,
     }
 
-    logger.info(f"🔑 [PillSync OTP] Generated OTP for {email_clean}: {otp_code} (Valid for 10 min)")
-    print(f"\n=======================================================\n🔑 [PillSync OTP Alert] OTP for {email_clean}: {otp_code}\n=======================================================\n")
+    # Send OTP email
+    try:
+        await send_otp_email(email_clean, otp_code, purpose="password_reset")
+    except Exception as e:
+        logger.warning(f"[Auth] OTP email send failed: {e}")
 
-    return MessageResponse(
-        message="A 6-digit OTP has been dispatched to your registered email / phone.",
+    # Also send reset link with OTP as token
+    try:
+        await send_password_reset_link(email_clean, otp_code)
+    except Exception as e:
+        logger.warning(f"[Auth] Reset link email send failed: {e}")
+
+    response = MessageResponse(
+        message="A 6-digit OTP has been dispatched to your registered email. You can also use the reset link sent to your email.",
         detail=f"OTP sent to {email_clean}",
-        debug_otp=otp_code,
     )
+
+    # Only include debug_otp in development mode
+    if settings.DEBUG:
+        response.debug_otp = otp_code
+
+    return response
 
 
 @router.post(
@@ -405,6 +468,42 @@ async def verify_otp(payload: VerifyOtpRequest):
         )
 
     return MessageResponse(message="OTP verified successfully.")
+
+
+@router.post(
+    "/resend-otp",
+    response_model=MessageResponse,
+    summary="Resend OTP code",
+    description="Generates and dispatches a new 6-digit OTP to the registered email.",
+)
+async def resend_otp(payload: ForgotPasswordRequest):
+    """Resend OTP to the provided email."""
+    email_clean = payload.email.strip().lower()
+
+    # Generate new OTP
+    otp_code = f"{random.randint(100000, 999999)}"
+    expires_at = time.time() + (10 * 60)
+
+    _OTP_STORE[email_clean] = {
+        "otp": otp_code,
+        "expires_at": expires_at,
+    }
+
+    # Send via email
+    try:
+        await send_otp_email(email_clean, otp_code, purpose="password_reset")
+    except Exception as e:
+        logger.warning(f"[Auth] Resend OTP email failed: {e}")
+
+    response = MessageResponse(
+        message="A new OTP has been sent to your email.",
+        detail=f"OTP resent to {email_clean}",
+    )
+
+    if settings.DEBUG:
+        response.debug_otp = otp_code
+
+    return response
 
 
 @router.post(
@@ -446,4 +545,3 @@ async def reset_password(
     _OTP_STORE.pop(email_clean, None)
 
     return MessageResponse(message="Password reset successfully! You can now log in with your new password.")
-

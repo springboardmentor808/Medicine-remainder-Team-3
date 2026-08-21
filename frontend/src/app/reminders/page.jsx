@@ -30,6 +30,7 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
+import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
 import { playWebAudioAlarm } from '@/lib/alarm_service';
 
@@ -177,7 +178,8 @@ function RemindersPageInner() {
 
   // ── Render ──────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-background">
+    <DashboardLayout>
+      <div className="min-h-screen bg-background">
       {/* ── Header ─────────────────────────────────────────────────── */}
       <header className="bg-gradient-primary text-on-primary">
         <div className="max-w-4xl mx-auto px-gutter py-lg">
@@ -539,7 +541,8 @@ function RemindersPageInner() {
           </div>
         </Modal>
       )}
-    </div>
+      </div>
+    </DashboardLayout>
   );
 }
 

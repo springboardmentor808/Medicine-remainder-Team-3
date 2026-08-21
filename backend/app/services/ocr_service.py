@@ -13,7 +13,6 @@ import cv2
 import numpy as np
 from fastapi import UploadFile
 from PIL import Image
-import pytesseract
 
 # -- pytesseract import with robust fallback --
 pytesseract = None

@@ -45,9 +45,10 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const res = await authAPI.login({ email: form.email, password: form.password });
-      const { access_token, user } = res.data;
+      const { access_token, refresh_token, user } = res.data;
       if (typeof window !== 'undefined') {
         localStorage.setItem('pillsync_access_token', access_token);
+        if (refresh_token) localStorage.setItem('pillsync_refresh_token', refresh_token);
         localStorage.setItem('pillsync_user', JSON.stringify(user));
         if (form.remember) localStorage.setItem('pillsync_remember', '1');
       }

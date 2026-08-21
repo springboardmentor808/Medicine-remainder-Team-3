@@ -16,7 +16,7 @@ const CATEGORIES = [
   'Heart Medications',
 ];
 
-export default function AddMedicineModal({ isOpen, onClose, onSuccess }) {
+export default function AddMedicineModal({ isOpen, onClose, onSuccess, initialData = null }) {
   const [formData, setFormData] = useState({
     name: '',
     disease_category: 'General Healthcare',
@@ -26,6 +26,19 @@ export default function AddMedicineModal({ isOpen, onClose, onSuccess }) {
     quantity_per_dose: 1,
     notes: '',
   });
+
+  React.useEffect(() => {
+    if (initialData) {
+      setFormData((prev) => ({
+        ...prev,
+        name: initialData.medicine_name || initialData.name || '',
+        dosage: initialData.dosage || '',
+        daily_frequency: initialData.frequency === '1-1-1' ? 3 : initialData.frequency === '1-0-1' ? 2 : 1,
+        notes: initialData.raw_text ? `OCR Scanned: ${initialData.raw_text}` : (initialData.notes || ''),
+        disease_category: initialData.disease_category || 'General Healthcare',
+      }));
+    }
+  }, [initialData, isOpen]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');

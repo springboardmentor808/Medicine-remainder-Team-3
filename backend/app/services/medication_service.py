@@ -29,10 +29,11 @@ async def create_medicine(
 
     Sets current_stock equal to initial_quantity on creation.
     """
+    cat_val = data.disease_category.value if hasattr(data.disease_category, "value") else str(data.disease_category)
     medicine = Medicine(
         user_id=user_id,
         name=data.name,
-        disease_category=data.disease_category.value,
+        disease_category=cat_val,
         dosage=data.dosage,
         initial_quantity=data.initial_quantity,
         current_stock=data.initial_quantity,  # full stock on creation
@@ -42,6 +43,7 @@ async def create_medicine(
     )
     db.add(medicine)
     await db.flush()
+    await db.commit()
     await db.refresh(medicine)
     return medicine
 
@@ -159,6 +161,7 @@ async def update_medicine(
         setattr(medicine, field, value)
 
     await db.flush()
+    await db.commit()
     await db.refresh(medicine)
     return medicine
 
@@ -174,6 +177,7 @@ async def delete_medicine(
     """Hard delete a medicine record and its cascaded children."""
     await db.delete(medicine)
     await db.flush()
+    await db.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +208,7 @@ async def update_stock(
         medicine.current_stock = max(0, previous_stock + adjustment)
 
     await db.flush()
+    await db.commit()
     await db.refresh(medicine)
     return previous_stock, medicine.current_stock
 

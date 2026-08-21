@@ -20,6 +20,7 @@ import {
   Copy,
   Link2,
   RefreshCw,
+  Download,
 } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -28,6 +29,10 @@ import Input from '@/components/ui/Input';
 import Modal from '@/components/ui/Modal';
 import AdherenceRing from '@/components/ui/AdherenceRing';
 import PatientRosterCard from '@/components/dashboard/PatientRosterCard';
+import LogoutButton from '@/components/ui/LogoutButton';
+import DashboardLayout from '@/components/dashboard/DashboardLayout';
+import ReminderWidget from '@/components/dashboard/ReminderWidget';
+import { exportAPI } from '@/lib/api';
 
 /**
  * CaregiverDashboard — PillSync Caregiver Portal
@@ -283,47 +288,49 @@ export default function CaregiverDashboardPage() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Background pattern */}
-      <div className="medical-pattern" aria-hidden="true" />
+    <DashboardLayout>
+      <div className="min-h-screen bg-background">
+        {/* Background pattern */}
+        <div className="medical-pattern" aria-hidden="true" />
 
-      {/* ── Top Navigation ──────────────────────────────────────────────── */}
-      <nav className="sticky top-0 z-40 w-full bg-surface-container-lowest/80 backdrop-blur-md border-b border-outline-variant/40">
-        <div className="max-w-7xl mx-auto px-gutter flex items-center justify-between h-16">
-          <Link href="/" className="flex items-center gap-xs group">
-            <div className="p-xs rounded-lg bg-primary/10 group-hover:bg-primary/20 transition-colors">
-              <span
-                className="material-symbols-outlined text-primary text-[22px]"
-                style={{ fontVariationSettings: "'FILL' 1" }}
-              >
-                medical_services
-              </span>
-            </div>
-            <span className="text-body-sm font-bold text-primary tracking-tight">PillSync</span>
-            <Badge variant="caregiver" size="xs">Caregiver</Badge>
-          </Link>
-
-          <div className="flex items-center gap-sm">
-            {/* Notification bell */}
-            <button
-              className="relative p-2 rounded-full text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors"
-              aria-label="Notifications"
-            >
-              <Bell className="w-5 h-5" />
-              {activeAlerts.length > 0 && (
-                <span className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-error border-2 border-surface-container-lowest animate-pulse-slow" />
+        {/* ── Top Actions Bar ────────────────────────────────────────── */}
+        <div className="border-b border-outline-variant/30 bg-surface-container-lowest/60 backdrop-blur-md px-gutter py-3">
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <Badge variant="caregiver" size="sm">Caregiver Portal</Badge>
+              {stats.escalated > 0 && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-error/10 border border-error/20">
+                  <span className="w-2 h-2 rounded-full bg-error animate-pulse-slow" />
+                  <span className="text-[11px] text-error font-semibold">
+                    {stats.escalated} patients need attention
+                  </span>
+                </div>
               )}
-            </button>
+            </div>
 
-            {/* User avatar */}
-            <div className="w-9 h-9 rounded-full bg-gradient-primary flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-primary/30 transition-all">
-              <span className="text-on-primary text-label-caps font-bold">SC</span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outlined"
+                size="sm"
+                onClick={() => exportAPI.medicinesPDF()}
+                leftIcon={<Download className="w-3.5 h-3.5" />}
+              >
+                PDF Report
+              </Button>
+              <Button
+                variant="outlined"
+                size="sm"
+                onClick={() => exportAPI.allCSV()}
+                leftIcon={<Download className="w-3.5 h-3.5" />}
+              >
+                Export CSV
+              </Button>
+              <LogoutButton variant="icon" />
             </div>
           </div>
         </div>
-      </nav>
 
-      <main className="relative z-10 max-w-7xl mx-auto px-gutter py-lg space-y-lg">
+        <main className="relative z-10 max-w-7xl mx-auto px-gutter py-lg space-y-lg">
         {/* ── Welcome Banner + Quick Stats ──────────────────────────────── */}
         <section className="bg-gradient-to-br from-primary via-primary to-primary-container rounded-lg p-card-padding md:p-xl text-on-primary overflow-hidden relative">
           {/* Decorative circles */}
@@ -392,6 +399,44 @@ export default function CaregiverDashboardPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </section>
+
+        {/* ── Live Medication Reminder & Alert Widget ──────────────────── */}
+        <section className="grid grid-cols-1 lg:grid-cols-3 gap-lg">
+          <div className="lg:col-span-2">
+            <div className="bg-surface-container-lowest p-card-padding rounded-xl border border-outline-variant/30">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-primary" />
+                  <h2 className="text-body-sm font-bold text-on-surface">Scheduled Medication Queue</h2>
+                </div>
+                <Badge variant="patient" size="xs">Live Monitoring</Badge>
+              </div>
+              <p className="text-caption text-on-surface-variant mb-4">
+                Real-time tracking of upcoming and overdue patient doses across assigned wards.
+              </p>
+              <ReminderWidget />
+            </div>
+          </div>
+          <div className="space-y-4">
+            <Card variant="flat" padding="md">
+              <Card.Header
+                title="Quick Escalation"
+                icon={<AlertTriangle className="w-5 h-5 text-error" />}
+              />
+              <p className="text-caption text-on-surface-variant mt-2 mb-4">
+                Trigger emergency SMS and call alerts to primary contacts for missed doses.
+              </p>
+              <div className="space-y-2">
+                <Button variant="danger" size="sm" fullWidth leftIcon={<Phone className="w-4 h-4" />}>
+                  Emergency Broadcast
+                </Button>
+                <Button variant="outlined" size="sm" fullWidth leftIcon={<Download className="w-4 h-4" />} onClick={() => exportAPI.adherenceCSV()}>
+                  Download Logs (CSV)
+                </Button>
+              </div>
+            </Card>
           </div>
         </section>
 
@@ -693,6 +738,7 @@ export default function CaregiverDashboardPage() {
           </p>
         </div>
       </footer>
-    </div>
+      </div>
+    </DashboardLayout>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
@@ -8,7 +8,8 @@ import Input from '@/components/ui/Input';
 import Toast from '@/components/ui/Toast';
 import AddMedicineModal from '@/components/forms/AddMedicineModal';
 import EditMedicineModal from '@/components/forms/EditMedicineModal';
-import { medicineAPI } from '@/lib/api';
+import DashboardLayout from '@/components/dashboard/DashboardLayout';
+import { medicineAPI, exportAPI } from '@/lib/api';
 
 const CATEGORIES = [
   'All',
@@ -110,6 +111,11 @@ export default function MedicinesPage() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [selectedMed, setSelectedMed] = useState(null);
 
+  // OCR Scan State
+  const [ocrScanning, setOcrScanning] = useState(false);
+  const [ocrData, setOcrData] = useState(null);
+  const fileInputRef = useRef(null);
+
   // Stock Quick-Update modal
   const [stockModalMed, setStockModalMed] = useState(null);
   const [newStockVal, setNewStockVal] = useState(30);
@@ -206,6 +212,32 @@ export default function MedicinesPage() {
     }
   };
 
+  // OCR File / Camera Handler
+  const handleOcrFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setOcrScanning(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await medicineAPI.ocrScan(formData);
+      const data = res.data;
+      setOcrData(data);
+      setIsAddOpen(true);
+      setToast({
+        type: 'success',
+        message: data.medicine_name
+          ? `Prescription scanned: Detected ${data.medicine_name} (${data.dosage || ''})`
+          : 'Prescription scanned! Please review details.',
+      });
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'OCR Scan failed.' });
+    } finally {
+      setOcrScanning(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   // Stats calculation
   const totalCount = medicines.length;
   const lowStockCount = medicines.filter((m) => m.current_stock <= 5).length;
@@ -214,37 +246,85 @@ export default function MedicinesPage() {
   ).length;
 
   return (
-    <main className="min-h-screen bg-surface p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
-      {/* Toast Notification */}
-      {toast && (
-        <Toast
-          type={toast.type}
-          message={toast.message}
-          onClose={() => setToast(null)}
-        />
-      )}
+    <DashboardLayout>
+      <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+        {/* Toast Notification */}
+        {toast && (
+          <Toast
+            type={toast.type}
+            message={toast.message}
+            onClose={() => setToast(null)}
+          />
+        )}
 
-      {/* Header Banner */}
-      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface-container-low p-6 rounded-2xl border border-outline-variant/30 shadow-sm">
-        <div>
-          <div className="flex items-center gap-2 text-primary">
-            <span className="material-symbols-outlined text-[28px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-              pill
-            </span>
-            <h1 className="text-headline-md font-bold text-on-surface">Medication Cabinet</h1>
+        {/* Hidden Camera/File Input for Prescription OCR */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={handleOcrFileChange}
+          className="hidden"
+          id="prescription-camera-input"
+        />
+
+        {/* Header Banner */}
+        <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-surface-container-low p-6 rounded-2xl border border-outline-variant/30 shadow-sm">
+          <div>
+            <div className="flex items-center gap-2 text-primary">
+              <span className="material-symbols-outlined text-[28px]" style={{ fontVariationSettings: "'FILL' 1" }}>
+                pill
+              </span>
+              <h1 className="text-headline-md font-bold text-on-surface">Medication Cabinet</h1>
+            </div>
+            <p className="text-body-sm text-on-surface-variant mt-1">
+              Manage your prescriptions, dosage schedules, disease groupings, and inventory stock.
+            </p>
           </div>
-          <p className="text-body-sm text-on-surface-variant mt-1">
-            Manage your prescriptions, dosage schedules, disease groupings, and inventory stock.
-          </p>
-        </div>
-        <Button
-          onClick={() => setIsAddOpen(true)}
-          leftIcon={<span className="material-symbols-outlined text-[20px]">add</span>}
-          size="lg"
-        >
-          Add Medicine
-        </Button>
-      </header>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Scan Prescription Button (Camera / File) */}
+            <Button
+              variant="tonal"
+              onClick={() => fileInputRef.current?.click()}
+              loading={ocrScanning}
+              leftIcon={<span className="material-symbols-outlined text-[20px]">photo_camera</span>}
+            >
+              Scan Prescription
+            </Button>
+
+            {/* Export PDF */}
+            <Button
+              variant="outlined"
+              onClick={() => exportAPI.medicinesPDF()}
+              leftIcon={<span className="material-symbols-outlined text-[20px]">picture_as_pdf</span>}
+              title="Download styled PDF document"
+            >
+              Export PDF
+            </Button>
+
+            {/* Export CSV */}
+            <Button
+              variant="outlined"
+              onClick={() => exportAPI.medicinesCSV()}
+              leftIcon={<span className="material-symbols-outlined text-[20px]">download</span>}
+              title="Download CSV spreadsheet"
+            >
+              CSV
+            </Button>
+
+            {/* Add Medicine Button */}
+            <Button
+              onClick={() => {
+                setOcrData(null);
+                setIsAddOpen(true);
+              }}
+              leftIcon={<span className="material-symbols-outlined text-[20px]">add</span>}
+            >
+              Add Medicine
+            </Button>
+          </div>
+        </header>
 
       {/* Overview Metric Cards */}
       <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -552,7 +632,11 @@ export default function MedicinesPage() {
       {/* Add & Edit Modals */}
       <AddMedicineModal
         isOpen={isAddOpen}
-        onClose={() => setIsAddOpen(false)}
+        initialData={ocrData}
+        onClose={() => {
+          setIsAddOpen(false);
+          setOcrData(null);
+        }}
         onSuccess={(newMed) => {
           setToast({ type: 'success', message: 'Medicine added successfully!' });
           if (newMed) {
@@ -604,6 +688,7 @@ export default function MedicinesPage() {
           </div>
         </div>
       )}
-    </main>
+      </div>
+    </DashboardLayout>
   );
 }

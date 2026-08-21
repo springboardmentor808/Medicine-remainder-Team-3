@@ -62,6 +62,18 @@ class Settings(BaseSettings):
     # --- Redis (Sessions & Cache) ---
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # --- SMTP Email (OTP, Password Reset, Notifications) ---
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = "noreply@pillsync.app"
+    SMTP_FROM_NAME: str = "PillSync"
+    SMTP_USE_TLS: bool = True
+
+    # --- Frontend URL (for password reset links) ---
+    FRONTEND_URL: str = "http://localhost:3000"
+
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"

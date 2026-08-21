@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { authAPI } from '@/lib/api';
 import Input from '@/components/ui/Input';
@@ -10,7 +10,7 @@ import Button from '@/components/ui/Button';
 /**
  * Forgot Password Page — PillSync
  * Design: Stitch screen "Forgot Password Flow" (cf610bab308a4b61a5a2687c27f60d41)
- * 3-step flow: Email → OTP → New Password
+ * 3-step flow: Email → OTP / Link → New Password
  */
 
 const STEPS = {
@@ -20,8 +20,9 @@ const STEPS = {
   SUCCESS:  'success',
 };
 
-export default function ForgotPasswordPage() {
+function ForgotPasswordContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [step,  setStep]  = useState(STEPS.EMAIL);
   const [email, setEmail] = useState('');
   const [otp,   setOtp]   = useState(['', '', '', '', '', '']);
@@ -31,6 +32,21 @@ export default function ForgotPasswordPage() {
   const [serverError, setServerError] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
   const [devOtp, setDevOtp] = useState('');
+
+  // Detect email reset link parameters
+  useEffect(() => {
+    const emailParam = searchParams?.get('email');
+    const tokenParam = searchParams?.get('token');
+    if (emailParam) {
+      setEmail(emailParam);
+    }
+    if (tokenParam && tokenParam.length === 6) {
+      setOtp(tokenParam.split(''));
+      setStep(STEPS.RESET);
+    } else if (emailParam && tokenParam) {
+      setStep(STEPS.OTP);
+    }
+  }, [searchParams]);
 
   // ── Step 1 — Send OTP ─────────────────────────────────────────────────
   const handleEmailSubmit = async (e) => {
@@ -412,5 +428,13 @@ export default function ForgotPasswordPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function ForgotPasswordPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-on-surface-variant">Loading...</div>}>
+      <ForgotPasswordContent />
+    </Suspense>
   );
 }

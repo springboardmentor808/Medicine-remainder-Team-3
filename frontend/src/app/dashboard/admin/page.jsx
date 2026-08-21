@@ -28,6 +28,9 @@ import {
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
+import LogoutButton from '@/components/ui/LogoutButton';
+import DashboardLayout from '@/components/dashboard/DashboardLayout';
+import { exportAPI } from '@/lib/api';
 
 // ── Mock Data (replace with API: GET /admin/metrics, /admin/audit-log) ────────
 
@@ -426,42 +429,42 @@ export default function AdminDashboardPage() {
   }, [auditFilter]);
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* ── Navigation ────────────────────────────────────────────────── */}
-      <nav className="sticky top-0 z-40 w-full bg-surface-container-lowest/80 backdrop-blur-md border-b border-outline-variant/40">
-        <div className="max-w-7xl mx-auto px-gutter flex items-center justify-between h-16">
-          <Link href="/" className="flex items-center gap-xs group">
-            <div className="p-xs rounded-lg bg-primary/10 group-hover:bg-primary/20 transition-colors">
-              <span
-                className="material-symbols-outlined text-primary text-[22px]"
-                style={{ fontVariationSettings: "'FILL' 1" }}
-              >
-                medical_services
-              </span>
+    <DashboardLayout>
+      <div className="min-h-screen bg-background">
+        {/* ── Top Actions Bar ────────────────────────────────────────── */}
+        <div className="border-b border-outline-variant/30 bg-surface-container-lowest/60 backdrop-blur-md px-gutter py-3">
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <Badge variant="admin" size="sm">Admin Portal</Badge>
+              <div className="hidden sm:flex items-center gap-xs px-2.5 py-1 rounded-full bg-surface-container border border-outline-variant/50 text-[11px] text-on-surface-variant">
+                <RefreshCw className="w-3 h-3" />
+                Refreshed {lastRefreshed}
+              </div>
             </div>
-            <span className="text-body-sm font-bold text-primary tracking-tight">PillSync</span>
-            <Badge variant="admin" size="xs">Admin</Badge>
-          </Link>
 
-          <div className="flex items-center gap-sm">
-            <div className="hidden sm:flex items-center gap-xs px-sm py-1 rounded-full bg-surface-container border border-outline-variant/50 text-label-caps text-on-surface-variant">
-              <RefreshCw className="w-3 h-3" />
-              Refreshed {lastRefreshed}
-            </div>
-            <Link href="/notifications">
-              <button className="relative p-2 rounded-full text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors" aria-label="Notifications">
-                <Bell className="w-5 h-5" />
-                <span className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-error border-2 border-surface-container-lowest" />
-              </button>
-            </Link>
-            <div className="w-9 h-9 rounded-full bg-surface-container-high flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-primary/30 transition-all border border-outline-variant/40">
-              <span className="text-on-surface text-label-caps font-bold">SA</span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outlined"
+                size="sm"
+                onClick={() => exportAPI.medicinesPDF()}
+                leftIcon={<Download className="w-3.5 h-3.5" />}
+              >
+                PDF Report
+              </Button>
+              <Button
+                variant="outlined"
+                size="sm"
+                onClick={() => exportAPI.allCSV()}
+                leftIcon={<Download className="w-3.5 h-3.5" />}
+              >
+                Export CSV
+              </Button>
+              <LogoutButton variant="icon" />
             </div>
           </div>
         </div>
-      </nav>
 
-      <main className="max-w-7xl mx-auto px-gutter py-lg space-y-lg">
+        <main className="max-w-7xl mx-auto px-gutter py-lg space-y-lg">
 
         {/* ── Page Header ───────────────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-md">
@@ -483,8 +486,9 @@ export default function AdminDashboardPage() {
               variant="outline"
               size="sm"
               leftIcon={<Download className="w-4 h-4" />}
+              onClick={() => exportAPI.allCSV()}
             >
-              Export Report
+              Export CSV
             </Button>
             <Button
               variant="primary"
@@ -657,6 +661,7 @@ export default function AdminDashboardPage() {
           </p>
         </div>
       </main>
-    </div>
+      </div>
+    </DashboardLayout>
   );
 }
