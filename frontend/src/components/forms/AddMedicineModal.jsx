@@ -16,11 +16,29 @@ const CATEGORIES = [
   'Heart Medications',
 ];
 
+const DOSAGE_FORMS = [
+  'Tablet', 'Capsule', 'Syrup', 'Injection', 'Drops',
+  'Cream', 'Ointment', 'Inhaler', 'Patch', 'Powder',
+  'Suppository', 'Suspension', 'Lozenge', 'Spray',
+];
+
+const MEDICINE_PRESETS = [
+  'Metformin', 'Amlodipine', 'Lisinopril', 'Atorvastatin', 'Omeprazole',
+  'Levothyroxine', 'Aspirin', 'Paracetamol', 'Ibuprofen', 'Amoxicillin',
+  'Ciprofloxacin', 'Cetirizine', 'Loratadine', 'Pantoprazole', 'Ranitidine',
+  'Losartan', 'Hydrochlorothiazide', 'Metoprolol', 'Glimepiride', 'Sitagliptin',
+  'Insulin Glargine', 'Rosuvastatin', 'Clopidogrel', 'Warfarin', 'Digoxin',
+  'Furosemide', 'Spironolactone', 'Prednisolone', 'Montelukast', 'Salbutamol',
+  'Vitamin D3', 'Vitamin B12', 'Folic Acid', 'Iron Supplement', 'Calcium',
+  'Azithromycin', 'Doxycycline', 'Fluconazole', 'Acyclovir', 'Gabapentin',
+];
+
 export default function AddMedicineModal({ isOpen, onClose, onSuccess, initialData = null }) {
   const [formData, setFormData] = useState({
     name: '',
     disease_category: 'General Healthcare',
     dosage: '',
+    dosage_form: 'Tablet',
     initial_quantity: 30,
     daily_frequency: 1,
     quantity_per_dose: 1,
@@ -45,9 +63,12 @@ export default function AddMedicineModal({ isOpen, onClose, onSuccess, initialDa
 
   const handleChange = (e) => {
     const { name, value, type } = e.target;
+    let val = type === 'number' ? (value === '' ? '' : Number(value)) : value;
+    // Enforce min=1 on numeric fields
+    if (type === 'number' && val !== '' && val < 1) val = 1;
     setFormData((prev) => ({
       ...prev,
-      [name]: type === 'number' ? (value === '' ? '' : Number(value)) : value,
+      [name]: val,
     }));
     if (error) setError('');
   };
@@ -71,7 +92,7 @@ export default function AddMedicineModal({ isOpen, onClose, onSuccess, initialDa
       name: formData.name.trim(),
       disease_category: formData.disease_category,
       dosage: formData.dosage.trim(),
-      dosage_form: 'Tablet',
+      dosage_form: formData.dosage_form || 'Tablet',
       current_stock: Number(formData.initial_quantity) || 30,
       total_stock: Number(formData.initial_quantity) || 30,
       daily_frequency: Number(formData.daily_frequency) || 1,
@@ -85,6 +106,7 @@ export default function AddMedicineModal({ isOpen, onClose, onSuccess, initialDa
         name: formData.name.trim(),
         disease_category: formData.disease_category,
         dosage: formData.dosage.trim(),
+        dosage_form: formData.dosage_form || 'Tablet',
         initial_quantity: Number(formData.initial_quantity) || 30,
         daily_frequency: Number(formData.daily_frequency) || 1,
         quantity_per_dose: Number(formData.quantity_per_dose) || 1,
@@ -96,6 +118,7 @@ export default function AddMedicineModal({ isOpen, onClose, onSuccess, initialDa
         name: '',
         disease_category: 'General Healthcare',
         dosage: '',
+        dosage_form: 'Tablet',
         initial_quantity: 30,
         daily_frequency: 1,
         quantity_per_dose: 1,
@@ -138,9 +161,15 @@ export default function AddMedicineModal({ isOpen, onClose, onSuccess, initialDa
           onChange={handleChange}
           required
           leftIcon={<span className="material-symbols-outlined text-[20px]">medication</span>}
+          list="medicine-presets"
         />
+        <datalist id="medicine-presets">
+          {MEDICINE_PRESETS.map((m) => (
+            <option key={m} value={m} />
+          ))}
+        </datalist>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className="block text-body-sm font-semibold text-on-surface mb-1">
               Disease Category
@@ -159,11 +188,29 @@ export default function AddMedicineModal({ isOpen, onClose, onSuccess, initialDa
             </select>
           </div>
 
+          <div>
+            <label className="block text-body-sm font-semibold text-on-surface mb-1">
+              Dosage Form
+            </label>
+            <select
+              name="dosage_form"
+              value={formData.dosage_form}
+              onChange={handleChange}
+              className="w-full h-[44px] px-3 rounded-lg bg-surface-container-low border border-outline-variant text-on-surface text-body-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              {DOSAGE_FORMS.map((form) => (
+                <option key={form} value={form}>
+                  {form}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <Input
             label="Dosage Strength"
             id="dosage"
             name="dosage"
-            placeholder="e.g. 500mg, 1 Tablet"
+            placeholder="e.g. 500mg, 10ml"
             value={formData.dosage}
             onChange={handleChange}
             required

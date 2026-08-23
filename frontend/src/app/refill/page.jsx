@@ -261,10 +261,12 @@ export default function RefillPage() {
               onChange={(e) => setSearchRadius(Number(e.target.value))}
               className="h-[38px] px-3 rounded-lg bg-surface-container-low border border-outline-variant text-body-sm font-medium text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
             >
+              <option value={1}>1 km</option>
               <option value={2}>2 km</option>
               <option value={5}>5 km</option>
               <option value={10}>10 km</option>
-              <option value={20}>20 km</option>
+              <option value={25}>25 km</option>
+              <option value={50}>50 km</option>
             </select>
 
             <Button

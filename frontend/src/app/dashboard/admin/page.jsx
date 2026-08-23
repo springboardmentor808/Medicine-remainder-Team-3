@@ -43,7 +43,7 @@ const METRICS = [
     period: 'vs last 7 days',
     icon: Users,
     color: 'primary',
-    href: '/admin/users',
+    href: '/admin/users?role=patient',
   },
   {
     id: 'caregivers',
@@ -53,7 +53,7 @@ const METRICS = [
     period: 'vs last 7 days',
     icon: Heart,
     color: 'tertiary',
-    href: '/admin/users',
+    href: '/admin/users?role=caregiver',
   },
   {
     id: 'prescriptions',
@@ -483,20 +483,12 @@ export default function AdminDashboardPage() {
           </div>
           <div className="flex items-center gap-sm">
             <Button
-              variant="outline"
-              size="sm"
-              leftIcon={<Download className="w-4 h-4" />}
-              onClick={() => exportAPI.allCSV()}
-            >
-              Export CSV
-            </Button>
-            <Button
               variant="primary"
               size="sm"
               leftIcon={<RefreshCw className="w-4 h-4" />}
               onClick={() => window.location.reload()}
             >
-              Refresh
+              Refresh Data
             </Button>
           </div>
         </div>
@@ -599,7 +591,13 @@ export default function AdminDashboardPage() {
                   {f}
                 </button>
               ))}
-              <Button variant="outline" size="sm" leftIcon={<Download className="w-3.5 h-3.5" />} className="ml-xs">
+              <Button
+                variant="outline"
+                size="sm"
+                leftIcon={<Download className="w-3.5 h-3.5" />}
+                className="ml-xs"
+                onClick={() => exportAPI.allCSV()}
+              >
                 Export
               </Button>
             </div>

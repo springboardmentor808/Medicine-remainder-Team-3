@@ -22,23 +22,35 @@ export default function AuthGuard({ children }) {
       return;
     }
 
+    // Handle demo/mock tokens gracefully
+    if (token.startsWith('demo_') || token.startsWith('google_') || token.startsWith('apple_')) {
+      setIsAuthenticated(true);
+      setChecking(false);
+      return;
+    }
+
     // Basic JWT expiry check (decode without verification)
     try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      const exp = payload.exp;
-      if (exp && Date.now() / 1000 > exp) {
-        // Token expired
+      const parts = token.split('.');
+      if (parts.length >= 2) {
+        const payload = JSON.parse(atob(parts[1]));
+        const exp = payload.exp;
+        if (exp && Date.now() / 1000 > exp) {
+          // Token expired
+          localStorage.removeItem('pillsync_access_token');
+          localStorage.removeItem('pillsync_user');
+          router.replace('/login');
+          return;
+        }
+      }
+    } catch {
+      // Graceful fallback: do not immediately wipe if user object exists
+      if (!user) {
         localStorage.removeItem('pillsync_access_token');
         localStorage.removeItem('pillsync_user');
         router.replace('/login');
         return;
       }
-    } catch {
-      // Invalid token format
-      localStorage.removeItem('pillsync_access_token');
-      localStorage.removeItem('pillsync_user');
-      router.replace('/login');
-      return;
     }
 
     setIsAuthenticated(true);

@@ -33,6 +33,7 @@ import Modal from '@/components/ui/Modal';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
 import { playWebAudioAlarm } from '@/lib/alarm_service';
+import AddReminderModal from '@/components/patient/AddReminderModal';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -81,6 +82,7 @@ function RemindersPageInner() {
   const [snoozeModal, setSnoozeModal] = useState(null);   // reminder item
   const [skipModal, setSkipModal] = useState(null);        // reminder item
   const [skipReason, setSkipReason] = useState('');
+  const [reminderModalOpen, setReminderModalOpen] = useState(false);
 
   // ── Date Navigation ─────────────────────────────────────────────────
   const dateStr = selectedDate.toLocaleDateString('en-US', {
@@ -200,12 +202,13 @@ function RemindersPageInner() {
               >
                 {alarmEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5 opacity-50" />}
               </button>
-              <Link href="/medicines">
-                <Button variant="ghost" size="sm" className="text-on-primary border-on-primary/30 hover:bg-white/10">
-                  <Plus className="w-4 h-4" />
-                  Add Medicine
-                </Button>
-              </Link>
+              <button
+                onClick={() => setReminderModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-body-sm font-semibold text-on-primary border border-on-primary/30 rounded-lg hover:bg-white/10 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Add Reminder
+              </button>
             </div>
           </div>
 
@@ -541,6 +544,29 @@ function RemindersPageInner() {
           </div>
         </Modal>
       )}
+      {/* ── Add Reminder Modal ─────────────────────────────────── */}
+      <AddReminderModal
+        isOpen={reminderModalOpen}
+        onClose={() => setReminderModalOpen(false)}
+        onAdd={(data) => {
+          const newReminder = {
+            id: `r-new-${Date.now()}`,
+            name: data.medicine,
+            strength: data.dosage,
+            type: 'Medication',
+            slot: data.slot,
+            time: new Date(`2000-01-01T${data.time}`).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+            status: 'pending',
+            instructions: data.notes || '',
+          };
+          setSchedule((prev) => [...prev, newReminder]);
+          addToast({
+            title: 'Reminder Added',
+            description: `${data.medicine} ${data.dosage} reminder set for ${data.slot}`,
+            variant: 'success',
+          });
+        }}
+      />
       </div>
     </DashboardLayout>
   );

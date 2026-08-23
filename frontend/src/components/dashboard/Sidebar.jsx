@@ -41,18 +41,18 @@ const NAV_ITEMS = {
   ],
   caregiver: [
     { href: '/dashboard/caregiver', label: 'Dashboard', icon: LayoutDashboard },
-    { href: '/medicines', label: 'Medicines', icon: Pill },
-    { href: '/reminders', label: 'Reminders', icon: Bell },
-    { href: '/adherence', label: 'Adherence', icon: BarChart3 },
+    { href: '/medicines', label: 'Patient Medicines', icon: Pill },
+    { href: '/reminders', label: 'Schedules', icon: Bell },
+    { href: '/adherence', label: 'Adherence Reports', icon: BarChart3 },
     { href: '/refill', label: 'Refill Tracker', icon: Package },
+    { href: '/notifications', label: 'Emergency Alerts', icon: AlertTriangle },
     { href: '/help', label: 'Help & Support', icon: HelpCircle },
   ],
   admin: [
     { href: '/dashboard/admin', label: 'Dashboard', icon: LayoutDashboard },
-    { href: '/admin', label: 'Admin Panel', icon: Shield },
-    { href: '/medicines', label: 'Medicines', icon: Pill },
-    { href: '/reminders', label: 'Reminders', icon: Bell },
-    { href: '/adherence', label: 'Analytics', icon: BarChart3 },
+    { href: '/admin/users', label: 'User Management', icon: Users },
+    { href: '/admin/health', label: 'System Health', icon: Activity },
+    { href: '/notifications', label: 'Broadcast & Queue', icon: Bell },
     { href: '/help', label: 'Help & Support', icon: HelpCircle },
   ],
 };
@@ -70,9 +70,13 @@ export default function Sidebar() {
     } catch {}
   }, []);
 
-  const role = user?.role || 'patient';
-  const items = NAV_ITEMS[role] || NAV_ITEMS.patient;
-  const initials = (user?.full_name || 'U')
+  // Determine effective role from current path or stored user role
+  const isAdminPath = pathname?.startsWith('/admin') || pathname === '/dashboard/admin';
+  const isCaregiverPath = pathname === '/dashboard/caregiver';
+  const effectiveRole = isAdminPath ? 'admin' : isCaregiverPath ? 'caregiver' : (user?.role || 'patient');
+
+  const items = NAV_ITEMS[effectiveRole] || NAV_ITEMS.patient;
+  const initials = (user?.full_name || user?.name || user?.username || (effectiveRole === 'admin' ? 'AU' : 'U'))
     .split(' ')
     .map((w) => w[0])
     .join('')
@@ -88,27 +92,44 @@ export default function Sidebar() {
 
   const sidebarContent = (
     <div className="flex flex-col h-full">
-      {/* Logo / Brand */}
-      <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-4 py-5 border-b border-outline-variant/30`}>
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-primary-container flex items-center justify-center flex-shrink-0">
+      {/* Logo / Brand — Clickable to Toggle Collapse */}
+      <div
+        onClick={() => setCollapsed((prev) => !prev)}
+        className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-4 py-5 border-b border-outline-variant/30 cursor-pointer select-none hover:bg-surface-container-low transition-colors group`}
+        title={collapsed ? 'Click pill to expand sidebar' : 'Click pill to collapse sidebar'}
+      >
+        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-primary-container flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform shadow-sm">
           <span className="text-on-primary text-sm font-bold">💊</span>
         </div>
         {!collapsed && (
-          <div className="min-w-0">
-            <h2 className="text-body-sm font-bold text-on-surface truncate">PillSync</h2>
-            <p className="text-[11px] text-on-surface-variant truncate capitalize">{role} Portal</p>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-body-sm font-bold text-on-surface truncate flex items-center justify-between">
+              <span>PillSync</span>
+              <span className="text-[10px] text-on-surface-variant/60 font-normal group-hover:text-primary transition-colors">
+                ⟨ ⟩
+              </span>
+            </h2>
+            <p className={`text-[11px] font-semibold truncate capitalize ${
+              effectiveRole === 'admin' ? 'text-primary' : effectiveRole === 'caregiver' ? 'text-secondary' : 'text-on-surface-variant'
+            }`}>
+              {effectiveRole} Portal
+            </p>
           </div>
         )}
       </div>
 
       {/* User Info */}
       <div className={`flex items-center ${collapsed ? 'justify-center py-4' : 'gap-3 px-4 py-3'} border-b border-outline-variant/20`}>
-        <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
-          <span className="text-primary text-xs font-bold">{initials}</span>
+        <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-xs ${
+          effectiveRole === 'admin' ? 'bg-primary/20 text-primary' : 'bg-primary/15 text-primary'
+        }`}>
+          <span>{initials}</span>
         </div>
         {!collapsed && (
           <div className="min-w-0 flex-1">
-            <p className="text-caption font-semibold text-on-surface truncate">{user?.full_name || 'User'}</p>
+            <p className="text-caption font-semibold text-on-surface truncate">
+              {user?.full_name || user?.name || (effectiveRole === 'admin' ? 'Admin User' : 'User')}
+            </p>
             <p className="text-[11px] text-on-surface-variant truncate">{user?.email || ''}</p>
           </div>
         )}

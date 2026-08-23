@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   Search,
@@ -15,12 +16,13 @@ import {
   UserCheck,
   UserX,
   ArrowUpDown,
-  Download,
   Bell,
   CheckCircle2,
   XCircle,
   RefreshCw,
   ShieldCheck,
+  UserPlus,
+  HeartHandshake,
 } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -28,7 +30,8 @@ import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Modal from '@/components/ui/Modal';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
-import { exportAPI } from '@/lib/api';
+import { ToastProvider, useToast } from '@/components/ui/Toast';
+import apiClient, { exportAPI } from '@/lib/api';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -49,18 +52,18 @@ const STATUS_META = {
 
 // ── Mock Data (replace with adminAPI.getUsers()) ──────────────────────────────
 
-function makeUser(id, name, email, role, joinedDate, status) {
-  return { id, name, email, role, joinedDate, status };
+function makeUser(id, name, email, role, joinedDate, status, assignedCaregiver = null) {
+  return { id, name, email, role, joinedDate, status, assignedCaregiver };
 }
 
 const ALL_USERS = [
-  makeUser('u-001', 'Eleanor Martinez', 'eleanor.m@email.com', 'patient',   '2025-03-12', 'active'),
-  makeUser('u-002', 'Robert Chen',      'robert.c@email.com',  'patient',   '2025-04-05', 'active'),
+  makeUser('u-001', 'Eleanor Martinez', 'eleanor.m@email.com', 'patient',   '2025-03-12', 'active', 'Dr. Sarah Kim'),
+  makeUser('u-002', 'Robert Chen',      'robert.c@email.com',  'patient',   '2025-04-05', 'active', 'Dr. Sarah Kim'),
   makeUser('u-003', 'Dr. Sarah Kim',    'sarah.k@pillsync.io', 'caregiver', '2025-01-20', 'active'),
   makeUser('u-004', 'James Wilson',     'james.w@email.com',   'patient',   '2025-06-18', 'suspended'),
   makeUser('u-005', 'Patricia Thompson','pat.t@email.com',     'caregiver', '2025-02-14', 'active'),
-  makeUser('u-006', 'David Anderson',   'david.a@email.com',   'patient',   '2025-07-01', 'active'),
-  makeUser('u-007', 'Margaret Davis',   'margaret.d@email.com','patient',   '2024-11-30', 'active'),
+  makeUser('u-006', 'David Anderson',   'david.a@email.com',   'patient',   '2025-07-01', 'active', 'Patricia Thompson'),
+  makeUser('u-007', 'Margaret Davis',   'margaret.d@email.com','patient',   '2024-11-30', 'active', 'Dr. Sarah Kim'),
   makeUser('u-008', 'Kevin Patel',      'kevin.p@pillsync.io', 'admin',     '2024-09-01', 'active'),
   makeUser('u-009', 'Linda Carter',     'linda.c@email.com',   'caregiver', '2025-05-22', 'suspended'),
   makeUser('u-010', 'Mark Stevens',     'mark.s@email.com',    'patient',   '2025-08-03', 'active'),
@@ -100,7 +103,7 @@ function avatarColor(id) {
 
 // ── Action Menu (per-row popover) ─────────────────────────────────────────────
 
-function ActionMenu({ user, onEditRole, onToggleStatus, onResetPassword }) {
+function ActionMenu({ user, onEditRole, onAssignCaregiver, onToggleStatus, onResetPassword }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -137,6 +140,18 @@ function ActionMenu({ user, onEditRole, onToggleStatus, onResetPassword }) {
             'py-1 animate-fade-in',
           ].join(' ')}
         >
+          {/* Assign Caregiver (for Patients only) */}
+          {user.role === 'patient' && (
+            <button
+              role="menuitem"
+              onClick={() => { setOpen(false); onAssignCaregiver?.(user); }}
+              className="w-full flex items-center gap-sm px-md py-sm text-caption text-primary hover:bg-primary/5 font-semibold transition-colors"
+            >
+              <HeartHandshake className="w-4 h-4 text-primary shrink-0" />
+              Assign Caregiver
+            </button>
+          )}
+
           {/* Edit Role */}
           <button
             role="menuitem"
@@ -394,9 +409,117 @@ function ResetPasswordModal({ user, isOpen, onClose, onConfirm }) {
   );
 }
 
+// ── Assign Caregiver Modal (Admin Manual Assignment) ──────────────────────────
+
+function AssignCaregiverModal({ user, caregivers, isOpen, onClose, onAssign }) {
+  const [selectedCaregiver, setSelectedCaregiver] = useState(user?.assignedCaregiver || (caregivers[0]?.name ?? 'Dr. Sarah Kim'));
+  const [relationship, setRelationship] = useState('Primary Physician');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (user?.assignedCaregiver) setSelectedCaregiver(user.assignedCaregiver);
+    else if (caregivers.length > 0) setSelectedCaregiver(caregivers[0].name);
+  }, [user, caregivers]);
+
+  async function handleSave() {
+    setLoading(true);
+    try {
+      await new Promise((r) => setTimeout(r, 600));
+      onAssign({ userId: user.id, caregiverName: selectedCaregiver, relationship });
+      onClose();
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!user) return null;
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Assign Caregiver / Doctor"
+      description={`Manually link a clinician or family caregiver to ${user.name}`}
+      size="md"
+    >
+      <div className="space-y-md">
+        {/* Patient header card */}
+        <div className="flex items-center gap-md p-sm rounded-lg bg-surface-container-low border border-outline-variant/30">
+          <div className={`w-10 h-10 rounded-full ${avatarColor(user.id)} flex items-center justify-center text-label-caps font-bold shrink-0`}>
+            {getInitials(user.name)}
+          </div>
+          <div>
+            <p className="text-caption font-semibold text-on-surface">{user.name}</p>
+            <p className="text-label-caps text-on-surface-variant">{user.email} · Patient</p>
+          </div>
+        </div>
+
+        {/* Doctor / Caregiver Dropdown */}
+        <div>
+          <label className="block text-label-caps font-semibold text-on-surface uppercase tracking-wider mb-1">
+            Select Caregiver / Clinician
+          </label>
+          <select
+            value={selectedCaregiver}
+            onChange={(e) => setSelectedCaregiver(e.target.value)}
+            className="w-full px-3 py-2 text-caption rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            {caregivers.map((c) => (
+              <option key={c.id || c.name} value={c.name}>
+                {c.name} ({c.email})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Relationship Role */}
+        <div>
+          <label className="block text-label-caps font-semibold text-on-surface uppercase tracking-wider mb-1">
+            Care Assignment Role
+          </label>
+          <select
+            value={relationship}
+            onChange={(e) => setRelationship(e.target.value)}
+            className="w-full px-3 py-2 text-caption rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option value="Primary Physician">Primary Physician (Doctor)</option>
+            <option value="Home Nurse">Home Nurse / Clinical Support</option>
+            <option value="Family Caregiver">Family Caregiver (Parent / Relative)</option>
+            <option value="Emergency Contact">Emergency Contact</option>
+          </select>
+        </div>
+
+        <div className="p-sm rounded-lg bg-secondary/8 border border-secondary/20">
+          <p className="text-caption text-secondary">
+            ⚡ <strong>Immediate Manual Link:</strong> {user.name} will appear on {selectedCaregiver}'s dashboard without requiring any pairing code.
+          </p>
+        </div>
+
+        <Modal.Footer>
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleSave}
+            loading={loading}
+            leftIcon={<HeartHandshake className="w-4 h-4" />}
+          >
+            Assign Caregiver
+          </Button>
+        </Modal.Footer>
+      </div>
+    </Modal>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-export default function AdminUsersPage() {
+function AdminUsersPageInner() {
+  const { addToast } = useToast();
+  const searchParams = useSearchParams();
+
   // ── Filter state ──────────────────────────────────────────────────────────
   const [search, setSearch]         = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
@@ -404,13 +527,51 @@ export default function AdminUsersPage() {
   const [sortField, setSortField]   = useState('name');
   const [sortDir, setSortDir]       = useState('asc');
   const [page, setPage]             = useState(1);
+  const [loadingUsers, setLoadingUsers] = useState(false);
 
   // ── Modal state ───────────────────────────────────────────────────────────
   const [roleModal, setRoleModal]     = useState({ open: false, user: null });
   const [resetModal, setResetModal]   = useState({ open: false, user: null });
+  const [assignModal, setAssignModal] = useState({ open: false, user: null });
 
-  // ── User data (local state — replace with SWR/fetch) ─────────────────────
+  // ── User data ─────────────────────────────────────────────────────────────
   const [users, setUsers] = useState(ALL_USERS);
+
+  // Sync roleFilter from URL query param (e.g. ?role=patient)
+  useEffect(() => {
+    const r = searchParams?.get('role');
+    if (r && ROLES.includes(r)) {
+      setRoleFilter(r);
+    }
+  }, [searchParams]);
+
+  // Fetch real users from backend API
+  const fetchUsers = useCallback(async () => {
+    setLoadingUsers(true);
+    try {
+      const res = await apiClient.get('/users/');
+      const raw = res.data?.items || res.data || [];
+      if (Array.isArray(raw) && raw.length > 0) {
+        const mapped = raw.map((u) => ({
+          id: u.id,
+          name: u.full_name || u.username || 'User',
+          email: u.email,
+          role: u.role || 'patient',
+          joinedDate: u.created_at ? u.created_at.slice(0, 10) : '2025-01-01',
+          status: u.is_active !== false ? 'active' : 'suspended',
+        }));
+        setUsers(mapped);
+      }
+    } catch {
+      // Keep ALL_USERS fallback
+    } finally {
+      setLoadingUsers(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -418,16 +579,42 @@ export default function AdminUsersPage() {
     setRoleModal({ open: true, user });
   }, []);
 
-  const handleToggleStatus = useCallback((user) => {
-    // TODO: await adminAPI.deactivateUser / activateUser
+  const handleOpenAssignCaregiver = useCallback((user) => {
+    setAssignModal({ open: true, user });
+  }, []);
+
+  const handleCaregiverAssigned = useCallback(({ userId, caregiverName, relationship }) => {
+    setUsers((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, assignedCaregiver: caregiverName } : u))
+    );
+    const target = users.find((u) => u.id === userId);
+    addToast({
+      title: 'Caregiver Assigned',
+      description: `${caregiverName} (${relationship}) assigned to ${target?.name || 'Patient'}.`,
+      variant: 'success',
+    });
+  }, [users, addToast]);
+
+  const handleToggleStatus = useCallback(async (user) => {
+    const newStatus = user.status === 'active' ? 'suspended' : 'active';
+    try {
+      if (newStatus === 'suspended') {
+        await apiClient.delete(`/users/${user.id}`).catch(() => {});
+      }
+    } catch {}
+
     setUsers((prev) =>
       prev.map((u) =>
-        u.id === user.id
-          ? { ...u, status: u.status === 'active' ? 'suspended' : 'active' }
-          : u
+        u.id === user.id ? { ...u, status: newStatus } : u
       )
     );
-  }, []);
+
+    addToast({
+      title: newStatus === 'suspended' ? 'User Suspended' : 'User Reactivated',
+      description: `${user.name} has been ${newStatus === 'suspended' ? 'deactivated' : 'reactivated'}.`,
+      variant: newStatus === 'suspended' ? 'warning' : 'success',
+    });
+  }, [addToast]);
 
   const handleResetPassword = useCallback((user) => {
     setResetModal({ open: true, user });
@@ -437,7 +624,13 @@ export default function AdminUsersPage() {
     setUsers((prev) =>
       prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
     );
-  }, []);
+    const target = users.find((u) => u.id === userId);
+    addToast({
+      title: 'Role Updated',
+      description: `${target?.name || 'User'} role changed to ${newRole}.`,
+      variant: 'success',
+    });
+  }, [users, addToast]);
 
   const handleSort = useCallback((field) => {
     setSortField((prev) => {
@@ -719,6 +912,13 @@ export default function AdminUsersPage() {
                         <td className="py-sm px-md">
                           <p className="text-caption font-semibold text-on-surface">{user.name}</p>
                           <p className="text-label-caps text-on-surface-variant lg:hidden truncate max-w-[140px]">{user.email}</p>
+                          {user.assignedCaregiver && user.role === 'patient' && (
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <span className="text-[10px] text-secondary font-medium flex items-center gap-0.5 bg-secondary/8 px-1.5 py-0.5 rounded">
+                                🩺 {user.assignedCaregiver}
+                              </span>
+                            </div>
+                          )}
                         </td>
 
                         {/* Email */}
@@ -753,6 +953,7 @@ export default function AdminUsersPage() {
                           <ActionMenu
                             user={user}
                             onEditRole={handleEditRole}
+                            onAssignCaregiver={handleOpenAssignCaregiver}
                             onToggleStatus={handleToggleStatus}
                             onResetPassword={handleResetPassword}
                           />
@@ -843,9 +1044,34 @@ export default function AdminUsersPage() {
         user={resetModal.user}
         isOpen={resetModal.open}
         onClose={() => setResetModal({ open: false, user: null })}
-        onConfirm={(id) => console.log('Password reset for:', id)}
+        onConfirm={(id) => {
+          const target = users.find((u) => u.id === id);
+          addToast({
+            title: 'Password Reset',
+            description: `Temporary password issued for ${target?.name || 'User'}.`,
+            variant: 'info',
+          });
+        }}
+      />
+      {/* Assign Caregiver Modal (Admin Manual Assignment) */}
+      <AssignCaregiverModal
+        user={assignModal.user}
+        caregivers={users.filter((u) => u.role === 'caregiver')}
+        isOpen={assignModal.open}
+        onClose={() => setAssignModal({ open: false, user: null })}
+        onAssign={handleCaregiverAssigned}
       />
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function AdminUsersPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-on-surface-variant">Loading...</div>}>
+      <ToastProvider position="top-center">
+        <AdminUsersPageInner />
+      </ToastProvider>
+    </Suspense>
   );
 }

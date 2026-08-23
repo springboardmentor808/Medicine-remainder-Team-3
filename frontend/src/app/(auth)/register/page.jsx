@@ -7,6 +7,27 @@ import { authAPI } from '@/lib/api';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 
+// Disposable email domain blacklist (client-side check)
+const DISPOSABLE_DOMAINS = new Set([
+  'tempmail.com','temp-mail.org','10minutemail.com','guerrillamail.com',
+  'mailinator.com','trashmail.com','throwaway.email','fakeinbox.com',
+  'sharklasers.com','yopmail.com','yopmail.fr','maildrop.cc',
+  'discard.email','getnada.com','mailcatch.com','spam4.me',
+  'mohmal.com','burner.kiwi','minutemail.com','emailfake.com',
+  'crazymailing.com','armyspy.com','dayrep.com','rhyta.com',
+  'superrito.com','teleworm.us','mailnator.com','spambox.us',
+  'mytrashmail.com','wegwerfmail.de','guerrillamailblock.com',
+  'grr.la','dispostable.com','mailnesia.com','harakirimail.com',
+  'tempail.com','tempmailaddress.com','tmpmail.net','tmpmail.org',
+  'mailexpire.com','mailforspam.com','safetymail.info',
+]);
+
+const FAKE_PHONE_PATTERNS = new Set([
+  '0000000000','1111111111','2222222222','3333333333','4444444444',
+  '5555555555','6666666666','7777777777','8888888888','9999999999',
+  '1234567890','0987654321','0123456789','9876543210',
+]);
+
 /**
  * Register Page — PillSync
  * Design: Stitch screen "Registration - Step 1" (036684dd96a64b4f9e626397481ed04e)
@@ -39,7 +60,14 @@ function RegisterFormContent() {
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setForm((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+    let sanitized = type === 'checkbox' ? checked : value;
+    // Phone: strip non-numeric except leading +
+    if (name === 'phone') {
+      const hasPlus = value.startsWith('+');
+      const digitsOnly = value.replace(/[^\d]/g, '');
+      sanitized = (hasPlus ? '+' : '') + digitsOnly;
+    }
+    setForm((prev) => ({ ...prev, [name]: sanitized }));
     if (errors[name]) setErrors((prev) => ({ ...prev, [name]: '' }));
     setServerError('');
   };
@@ -52,10 +80,21 @@ function RegisterFormContent() {
       errs.email = 'Email address is required';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
       errs.email = 'Please enter a valid email address';
+    else {
+      // Disposable email check
+      const domain = form.email.split('@')[1]?.toLowerCase();
+      if (domain && DISPOSABLE_DOMAINS.has(domain))
+        errs.email = 'Temporary/disposable email addresses are not permitted. Please use a real email.';
+    }
     if (!form.phone.trim())
       errs.phone = 'Phone number is required';
-    else if (!/^\+?[\d\s\-()]{7,15}$/.test(form.phone))
-      errs.phone = 'Please enter a valid phone number';
+    else {
+      const digits = form.phone.replace(/[^\d]/g, '');
+      if (digits.length < 7 || digits.length > 15)
+        errs.phone = 'Phone number must be 7-15 digits';
+      else if (FAKE_PHONE_PATTERNS.has(digits) || new Set(digits).size === 1)
+        errs.phone = 'This phone number appears invalid. Please enter a real phone number.';
+    }
     if (!form.password)
       errs.password = 'Password is required';
     else if (form.password.length < 8)
@@ -155,6 +194,45 @@ function RegisterFormContent() {
 
           <form onSubmit={handleSubmit} noValidate>
             <div className="space-y-md">
+              {/* Role Selection */}
+              <div>
+                <label className="block text-body-sm font-semibold text-on-surface mb-2">
+                  Account Type (Role) *
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { key: 'patient', label: 'Patient', icon: 'person', desc: 'Track medicines' },
+                    { key: 'caregiver', label: 'Caregiver', icon: 'favorite', desc: 'Monitor patients' },
+                    { key: 'admin', label: 'Admin', icon: 'shield_person', desc: 'System ops' },
+                  ].map((r) => {
+                    const isSelected = form.role === r.key;
+                    return (
+                      <button
+                        key={r.key}
+                        type="button"
+                        onClick={() => setForm((prev) => ({ ...prev, role: r.key }))}
+                        className={`p-2.5 rounded-xl border text-center transition-all ${
+                          isSelected
+                            ? 'border-primary bg-primary/10 text-primary shadow-sm ring-1 ring-primary'
+                            : 'border-outline-variant/40 bg-surface-container-low text-on-surface-variant hover:border-outline hover:bg-surface-container'
+                        }`}
+                      >
+                        <span
+                          className={`material-symbols-outlined text-[20px] mx-auto block mb-0.5 ${
+                            isSelected ? 'text-primary' : 'text-on-surface-variant'
+                          }`}
+                          style={{ fontVariationSettings: "'FILL' 1" }}
+                        >
+                          {r.icon}
+                        </span>
+                        <span className="text-caption font-bold block">{r.label}</span>
+                        <span className="text-[10px] opacity-75 hidden sm:block">{r.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* Full name */}
               <Input
                 label="Full Name"

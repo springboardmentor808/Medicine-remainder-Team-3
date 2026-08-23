@@ -12,9 +12,10 @@ import Sidebar from '@/components/dashboard/Sidebar';
 export default function DashboardLayout({ children }) {
   return (
     <AuthGuard>
-      <div className="flex min-h-screen bg-background">
+      <div className="flex min-h-screen bg-background relative">
+        <div className="medical-pattern" aria-hidden="true" />
         <Sidebar />
-        <main className="flex-1 min-w-0 overflow-y-auto">
+        <main className="flex-1 min-w-0 overflow-y-auto relative z-10">
           {children}
         </main>
       </div>

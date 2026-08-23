@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
@@ -95,7 +96,7 @@ const DEFAULT_FALLBACK_MEDICINES = [
   },
 ];
 
-export default function MedicinesPage() {
+function MedicinesPageInner() {
   const [medicines, setMedicines] = useState(DEFAULT_FALLBACK_MEDICINES);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -143,6 +144,18 @@ export default function MedicinesPage() {
   useEffect(() => {
     fetchMedicines();
   }, [fetchMedicines]);
+
+  // Auto-trigger scan when navigated with ?scan=1 (e.g. from dashboard "Scan Now")
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    if (searchParams?.get('scan') === '1' && fileInputRef.current) {
+      // Short delay to ensure DOM is ready
+      const timer = setTimeout(() => {
+        fileInputRef.current?.click();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [searchParams]);
 
   // Safe list guard
   const medList = Array.isArray(medicines) ? medicines : DEFAULT_FALLBACK_MEDICINES;
@@ -293,25 +306,29 @@ export default function MedicinesPage() {
               Scan Prescription
             </Button>
 
-            {/* Export PDF */}
-            <Button
-              variant="outlined"
-              onClick={() => exportAPI.medicinesPDF()}
-              leftIcon={<span className="material-symbols-outlined text-[20px]">picture_as_pdf</span>}
-              title="Download styled PDF document"
-            >
-              Export PDF
-            </Button>
-
-            {/* Export CSV */}
-            <Button
-              variant="outlined"
-              onClick={() => exportAPI.medicinesCSV()}
-              leftIcon={<span className="material-symbols-outlined text-[20px]">download</span>}
-              title="Download CSV spreadsheet"
-            >
-              CSV
-            </Button>
+            {/* Download Group */}
+            <div className="flex items-center gap-1 border border-outline-variant/40 rounded-lg px-1 py-0.5 bg-surface-container-lowest">
+              <span className="text-label-caps text-on-surface-variant px-1.5">Download:</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => exportAPI.medicinesPDF()}
+                leftIcon={<span className="material-symbols-outlined text-[18px]">picture_as_pdf</span>}
+                title="Download styled PDF document"
+              >
+                PDF
+              </Button>
+              <div className="w-px h-5 bg-outline-variant/40" />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => exportAPI.medicinesCSV()}
+                leftIcon={<span className="material-symbols-outlined text-[18px]">download</span>}
+                title="Download CSV spreadsheet"
+              >
+                CSV
+              </Button>
+            </div>
 
             {/* Add Medicine Button */}
             <Button
@@ -690,5 +707,13 @@ export default function MedicinesPage() {
       )}
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function MedicinesPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-on-surface-variant">Loading...</div>}>
+      <MedicinesPageInner />
+    </Suspense>
   );
 }

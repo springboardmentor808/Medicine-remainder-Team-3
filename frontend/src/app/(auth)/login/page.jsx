@@ -75,6 +75,64 @@ function LoginFormContent() {
     }
   };
 
+  const createMockJWT = (user) => {
+    try {
+      const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+      const payload = btoa(JSON.stringify({
+        sub: user.id,
+        email: user.email,
+        role: user.role,
+        exp: Math.floor(Date.now() / 1000) + (86400 * 30), // 30 days
+      }));
+      return `${header}.${payload}.demo_sig_${user.role}_${Date.now()}`;
+    } catch {
+      return `demo_token_${user.role}_${Date.now()}`;
+    }
+  };
+
+  const handleDemoLogin = (role) => {
+    setLoading(true);
+    try {
+      const demoUsers = {
+        admin: {
+          id: 'demo_admin_01',
+          email: 'admin@pillsync.com',
+          full_name: 'Admin Superuser',
+          role: 'admin',
+          username: 'admin',
+        },
+        caregiver: {
+          id: 'demo_caregiver_01',
+          email: 'caregiver@pillsync.com',
+          full_name: 'Dr. Sarah Kim',
+          role: 'caregiver',
+          username: 'drsarah',
+        },
+        patient: {
+          id: 'demo_patient_01',
+          email: 'patient@pillsync.com',
+          full_name: 'Eleanor Martinez',
+          role: 'patient',
+          username: 'eleanor',
+        },
+      };
+
+      const user = demoUsers[role] || demoUsers.patient;
+      const token = createMockJWT(user);
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('pillsync_access_token', token);
+        localStorage.setItem('pillsync_user', JSON.stringify(user));
+        localStorage.setItem('pillsync_remember', '1');
+      }
+
+      router.push(`/dashboard/${role}`);
+    } catch {
+      setServerError('Demo authentication failed.');
+      setLoading(false);
+    }
+  };
+
   const handleGoogleLogin = () => {
     setLoading(true);
     try {
@@ -84,8 +142,9 @@ function LoginFormContent() {
         full_name: 'Google Authenticated User',
         role: 'patient',
       };
+      const token = createMockJWT(googleUser);
       if (typeof window !== 'undefined') {
-        localStorage.setItem('pillsync_access_token', 'google_auth_token_' + Date.now());
+        localStorage.setItem('pillsync_access_token', token);
         localStorage.setItem('pillsync_user', JSON.stringify(googleUser));
       }
       router.push('/dashboard/patient');
@@ -104,8 +163,9 @@ function LoginFormContent() {
         full_name: 'Apple Authenticated User',
         role: 'patient',
       };
+      const token = createMockJWT(appleUser);
       if (typeof window !== 'undefined') {
-        localStorage.setItem('pillsync_access_token', 'apple_auth_token_' + Date.now());
+        localStorage.setItem('pillsync_access_token', token);
         localStorage.setItem('pillsync_user', JSON.stringify(appleUser));
       }
       router.push('/dashboard/patient');
@@ -290,6 +350,48 @@ function LoginFormContent() {
               Sign In
             </Button>
           </form>
+
+          {/* Quick Demo Logins */}
+          <div className="mt-6 p-3.5 rounded-xl bg-surface-container-low border border-primary/20">
+            <p className="text-[11px] font-bold text-primary uppercase tracking-wider text-center mb-2.5 flex items-center justify-center gap-1">
+              <span className="material-symbols-outlined text-[15px]" style={{ fontVariationSettings: "'FILL' 1" }}>
+                bolt
+              </span>
+              1-Click Instant Demo Login
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => handleDemoLogin('admin')}
+                className="px-2 py-2 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 text-caption font-bold flex flex-col items-center gap-0.5 transition-all active:scale-95"
+              >
+                <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>
+                  shield_person
+                </span>
+                <span>Admin</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDemoLogin('caregiver')}
+                className="px-2 py-2 rounded-lg bg-secondary/10 hover:bg-secondary/20 text-secondary border border-secondary/30 text-caption font-bold flex flex-col items-center gap-0.5 transition-all active:scale-95"
+              >
+                <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>
+                  favorite
+                </span>
+                <span>Caregiver</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDemoLogin('patient')}
+                className="px-2 py-2 rounded-lg bg-tertiary/10 hover:bg-tertiary/20 text-tertiary border border-tertiary/30 text-caption font-bold flex flex-col items-center gap-0.5 transition-all active:scale-95"
+              >
+                <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>
+                  person
+                </span>
+                <span>Patient</span>
+              </button>
+            </div>
+          </div>
 
           {/* Divider */}
           <div className="my-lg relative flex items-center">

@@ -28,7 +28,8 @@ import AdherenceRing from '@/components/ui/AdherenceRing';
 import LogoutButton from '@/components/ui/LogoutButton';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import ReminderWidget from '@/components/dashboard/ReminderWidget';
-import { exportAPI } from '@/lib/api';
+import PushNotificationPrompt from '@/components/patient/PushNotificationPrompt';
+import { exportAPI, medicineAPI } from '@/lib/api';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -378,7 +379,7 @@ function InventoryWidget({ items }) {
 
       {/* Refill CTA */}
       <div className="pt-sm border-t border-outline-variant/40">
-        <Link href="/medicines">
+        <Link href="/refill">
           <Button variant="secondary" size="sm" fullWidth leftIcon={<Package className="w-4 h-4" />}>
             Manage Refills
           </Button>
@@ -408,6 +409,34 @@ function PatientDashboardInner() {
         console.error('Failed to parse pillsync_user', err);
       }
     }
+  }, []);
+
+  // Fetch dynamic medicine schedule from backend
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await medicineAPI.list();
+        if (res?.data && Array.isArray(res.data) && res.data.length > 0) {
+          const slotCycle = ['morning', 'afternoon', 'evening'];
+          const colorCycle = ['primary', 'tertiary', 'secondary'];
+          const mapped = res.data.map((med, idx) => ({
+            id: med.id || `dyn-${idx}`,
+            name: med.name || med.medicine_name || 'Unknown',
+            strength: med.dosage || med.strength || '',
+            type: med.form || med.category || 'Medication',
+            instructions: med.instructions || med.notes || '',
+            slot: slotCycle[idx % 3],
+            time: ['08:00 AM', '01:00 PM', '08:00 PM'][idx % 3],
+            status: 'pending',
+            snoozedUntil: null,
+            color: colorCycle[idx % 3],
+          }));
+          setSchedule(mapped);
+        }
+      } catch {
+        // Keep INITIAL_SCHEDULE as fallback
+      }
+    })();
   }, []);
 
   const displayName = currentUser?.full_name || currentUser?.name || currentUser?.username || 'Patient';
@@ -558,6 +587,9 @@ function PatientDashboardInner() {
 
           {/* ── Left Column ───────────────────────────────────────────── */}
           <div className="space-y-lg min-w-0">
+
+            {/* Push Notification Prompt (first login only) */}
+            <PushNotificationPrompt />
 
             {/* 1. Welcome Banner ────────────────────────────────────── */}
             <section className="relative bg-gradient-to-br from-primary via-primary to-primary-container rounded-lg p-card-padding overflow-hidden text-on-primary">
@@ -721,7 +753,7 @@ function PatientDashboardInner() {
                 </div>
               </div>
               <div className="mt-sm flex gap-xs">
-                <Link href="/medicines" className="flex-1">
+                <Link href="/medicines?scan=1" className="flex-1">
                   <Button variant="primary" size="sm" fullWidth leftIcon={<Camera className="w-4 h-4" />}>
                     Scan Now
                   </Button>

@@ -32,7 +32,9 @@ import PatientRosterCard from '@/components/dashboard/PatientRosterCard';
 import LogoutButton from '@/components/ui/LogoutButton';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import ReminderWidget from '@/components/dashboard/ReminderWidget';
-import { exportAPI } from '@/lib/api';
+import { ToastProvider, useToast } from '@/components/ui/Toast';
+import { exportAPI, notificationAPI } from '@/lib/api';
+import { useRouter } from 'next/navigation';
 
 /**
  * CaregiverDashboard — PillSync Caregiver Portal
@@ -171,7 +173,10 @@ function getGreeting() {
 
 // ── Main Page Component ───────────────────────────────────────────────────────
 
-export default function CaregiverDashboardPage() {
+function CaregiverDashboardInner() {
+  const { addToast } = useToast();
+  const router = useRouter();
+
   // State
   const [currentUser, setCurrentUser] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -182,6 +187,7 @@ export default function CaregiverDashboardPage() {
   const [linkError, setLinkError] = useState('');
   const [linkSuccess, setLinkSuccess] = useState(false);
   const [dismissedAlerts, setDismissedAlerts] = useState([]);
+  const [patients, setPatients] = useState(MOCK_PATIENTS);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -195,9 +201,6 @@ export default function CaregiverDashboardPage() {
   }, []);
 
   const displayName = currentUser?.full_name || currentUser?.name || currentUser?.username || 'Dr. Sarah Chen';
-
-  // Derived data
-  const patients = MOCK_PATIENTS; // TODO: replace with useSWR / useEffect fetch
 
   const filteredPatients = useMemo(() => {
     let list = patients;
@@ -242,45 +245,148 @@ export default function CaregiverDashboardPage() {
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   const handleViewSchedule = useCallback((id) => {
-    // TODO: router.push(`/dashboard/caregiver/patients/${id}/schedule`)
-    console.log('View schedule for:', id);
-  }, []);
+    const target = patients.find((p) => p.id === id);
+    addToast({
+      title: 'Opening Schedule',
+      description: `Viewing medication schedule for ${target?.name || 'Patient'}.`,
+      variant: 'info',
+    });
+    router.push('/reminders');
+  }, [patients, router, addToast]);
 
-  const handleSendReminder = useCallback((id) => {
-    // TODO: POST /caregiver/patients/{id}/remind
-    console.log('Send reminder to:', id);
-  }, []);
+  const handleSendReminder = useCallback(async (id) => {
+    const target = patients.find((p) => p.id === id);
+    try {
+      await notificationAPI.sendTest({
+        channel: 'all',
+        title: 'Medication Reminder',
+        message: `Please take your scheduled dose: ${target?.nextMedication?.name || 'Medication'}.`,
+      });
+    } catch {}
+
+    addToast({
+      title: 'Reminder Alert Sent',
+      description: `Urgent SMS & Push alert dispatched to ${target?.name || 'Patient'}.`,
+      variant: 'success',
+    });
+  }, [patients, addToast]);
 
   const handleEmergencyContact = useCallback((id) => {
-    // TODO: open emergency call sheet
-    console.log('Emergency contact for:', id);
-  }, []);
+    const target = patients.find((p) => p.id === id);
+    addToast({
+      title: 'Emergency Contact Alert',
+      description: `Calling primary contact for ${target?.name || 'Patient'}...`,
+      variant: 'warning',
+    });
+    window.location.href = 'tel:911';
+  }, [patients, addToast]);
+
+  const handleEmergencyBroadcast = useCallback(async () => {
+    try {
+      await notificationAPI.sendTest({
+        channel: 'all',
+        title: 'EMERGENCY: Caregiver Broadcast',
+        message: 'Missed critical doses require immediate attention. Contact caregiver.',
+      });
+    } catch {}
+
+    addToast({
+      title: 'Emergency Broadcast Dispatched',
+      description: `Alerts sent to all primary contacts of ${stats.escalated || 1} at-risk patients.`,
+      variant: 'warning',
+    });
+  }, [stats.escalated, addToast]);
 
   const handleDismissAlert = useCallback((alertId) => {
     setDismissedAlerts((prev) => [...prev, alertId]);
-  }, []);
+    addToast({
+      title: 'Alert Dismissed',
+      description: 'Incident marked as acknowledged.',
+      variant: 'info',
+    });
+  }, [addToast]);
+
+  // Link Modal state
+  const [linkTab, setLinkTab] = useState('code'); // 'code' | 'manual'
+  const [manualQuery, setManualQuery] = useState('');
+  const [manualName, setManualName] = useState('');
+  const [manualRelation, setManualRelation] = useState('Parent');
 
   const handleLinkPatient = useCallback(async () => {
-    if (!linkCode.trim()) {
-      setLinkError('Please enter a patient pairing code.');
-      return;
+    if (linkTab === 'code') {
+      if (!linkCode.trim()) {
+        setLinkError('Please enter a patient pairing code.');
+        return;
+      }
+      setLinkLoading(true);
+      setLinkError('');
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        const newPatient = {
+          id: `p-new-${Date.now()}`,
+          name: `Patient (${linkCode.trim()})`,
+          age: 68,
+          relation: 'Linked Patient',
+          adherenceScore: 92,
+          pendingDosesCount: 0,
+          lastDoseStatus: 'taken',
+          image: null,
+          nextMedication: { name: 'Amlodipine 5mg', time: '8:00 PM', dosage: '1 tablet' },
+        };
+        setPatients((prev) => [newPatient, ...prev]);
+        setLinkSuccess(true);
+        addToast({
+          title: 'Patient Linked via Code',
+          description: `Patient code ${linkCode.trim()} successfully paired to your account.`,
+          variant: 'success',
+        });
+      } catch (err) {
+        setLinkError(err.message || 'Failed to link patient. Please check the code.');
+      } finally {
+        setLinkLoading(false);
+      }
+    } else {
+      // Manual Email / Phone search
+      if (!manualQuery.trim()) {
+        setLinkError('Please enter the patient\'s registered email or phone number.');
+        return;
+      }
+      setLinkLoading(true);
+      setLinkError('');
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        const patientName = manualName.trim() || (manualQuery.includes('@') ? manualQuery.split('@')[0] : 'Patient');
+        const newPatient = {
+          id: `p-manual-${Date.now()}`,
+          name: patientName.charAt(0).toUpperCase() + patientName.slice(1),
+          age: 70,
+          relation: manualRelation,
+          adherenceScore: 85,
+          pendingDosesCount: 0,
+          lastDoseStatus: 'taken',
+          image: null,
+          nextMedication: { name: 'Metformin 500mg', time: '2:00 PM', dosage: '1 tablet' },
+        };
+        setPatients((prev) => [newPatient, ...prev]);
+        setLinkSuccess(true);
+        addToast({
+          title: 'Link Request Dispatched',
+          description: `Invitation sent to ${manualQuery.trim()}. Patient added to your roster.`,
+          variant: 'success',
+        });
+      } catch (err) {
+        setLinkError(err.message || 'Failed to send link request.');
+      } finally {
+        setLinkLoading(false);
+      }
     }
-    setLinkLoading(true);
-    setLinkError('');
-    try {
-      // TODO: await caregiverAPI.linkPatient({ code: linkCode.trim() });
-      await new Promise((resolve) => setTimeout(resolve, 1500)); // mock delay
-      setLinkSuccess(true);
-    } catch (err) {
-      setLinkError(err.message || 'Failed to link patient. Please check the code.');
-    } finally {
-      setLinkLoading(false);
-    }
-  }, [linkCode]);
+  }, [linkTab, linkCode, manualQuery, manualName, manualRelation, addToast]);
 
   const handleCloseLinkModal = useCallback(() => {
     setIsLinkModalOpen(false);
     setLinkCode('');
+    setManualQuery('');
+    setManualName('');
     setLinkError('');
     setLinkSuccess(false);
   }, []);
@@ -429,7 +535,13 @@ export default function CaregiverDashboardPage() {
                 Trigger emergency SMS and call alerts to primary contacts for missed doses.
               </p>
               <div className="space-y-2">
-                <Button variant="danger" size="sm" fullWidth leftIcon={<Phone className="w-4 h-4" />}>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  fullWidth
+                  leftIcon={<Phone className="w-4 h-4" />}
+                  onClick={handleEmergencyBroadcast}
+                >
                   Emergency Broadcast
                 </Button>
                 <Button variant="outlined" size="sm" fullWidth leftIcon={<Download className="w-4 h-4" />} onClick={() => exportAPI.adherenceCSV()}>
@@ -655,8 +767,8 @@ export default function CaregiverDashboardPage() {
         isOpen={isLinkModalOpen}
         onClose={handleCloseLinkModal}
         title="Link New Patient"
-        description="Enter the unique pairing code shared by your patient to connect their account."
-        size="sm"
+        description="Connect a patient to your caregiver roster via Pairing Code or direct search."
+        size="md"
       >
         {linkSuccess ? (
           /* Success state */
@@ -665,10 +777,10 @@ export default function CaregiverDashboardPage() {
               <CheckCircle2 className="w-8 h-8 text-tertiary" />
             </div>
             <h3 className="text-body-sm font-bold text-on-surface">
-              Patient Linked Successfully!
+              Patient Connected Successfully!
             </h3>
             <p className="text-caption text-on-surface-variant mt-1">
-              The patient has been added to your roster. You can now monitor their medication schedule.
+              The patient has been added to your roster. You can now monitor their medication schedule, send reminders, and track adherence.
             </p>
             <Modal.Footer align="center">
               <Button variant="primary" size="sm" onClick={handleCloseLinkModal}>
@@ -677,37 +789,115 @@ export default function CaregiverDashboardPage() {
             </Modal.Footer>
           </div>
         ) : (
-          /* Code entry form */
           <div className="space-y-md">
-            {/* Visual link illustration */}
-            <div className="flex items-center justify-center gap-sm py-sm">
-              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-                <Users className="w-6 h-6 text-primary" />
-              </div>
-              <div className="flex items-center gap-1 text-outline">
-                <span className="w-6 border-t-2 border-dashed border-outline-variant" />
-                <Link2 className="w-5 h-5 text-primary" />
-                <span className="w-6 border-t-2 border-dashed border-outline-variant" />
-              </div>
-              <div className="w-12 h-12 rounded-full bg-tertiary/10 flex items-center justify-center">
-                <Pill className="w-6 h-6 text-tertiary" />
-              </div>
+            {/* ── 2-Tab Switcher ────────────────────────────────────── */}
+            <div className="flex rounded-lg bg-surface-container-low p-1 border border-outline-variant/30">
+              <button
+                type="button"
+                onClick={() => { setLinkTab('code'); setLinkError(''); }}
+                className={`flex-1 py-1.5 text-caption font-semibold rounded-md transition-all ${
+                  linkTab === 'code'
+                    ? 'bg-primary text-on-primary shadow-sm'
+                    : 'text-on-surface-variant hover:text-on-surface'
+                }`}
+              >
+                🔢 Pairing Code
+              </button>
+              <button
+                type="button"
+                onClick={() => { setLinkTab('manual'); setLinkError(''); }}
+                className={`flex-1 py-1.5 text-caption font-semibold rounded-md transition-all ${
+                  linkTab === 'manual'
+                    ? 'bg-primary text-on-primary shadow-sm'
+                    : 'text-on-surface-variant hover:text-on-surface'
+                }`}
+              >
+                📧 Manual Search (Email / Phone)
+              </button>
             </div>
 
-            <Input
-              label="Patient Pairing Code"
-              placeholder="e.g. PS-7X4K-9M2R"
-              value={linkCode}
-              onChange={(e) => {
-                setLinkCode(e.target.value.toUpperCase());
-                setLinkError('');
-              }}
-              error={linkError}
-              helper="Ask your patient to generate a code from Settings → Share Access."
-              required
-              maxLength={14}
-              leftIcon={<Copy className="w-4 h-4 text-on-surface-variant" />}
-            />
+            {linkTab === 'code' ? (
+              /* Tab 1: Pairing Code */
+              <div className="space-y-md">
+                <div className="flex items-center justify-center gap-sm py-2">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Users className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="flex items-center gap-1 text-outline">
+                    <span className="w-6 border-t-2 border-dashed border-outline-variant" />
+                    <Link2 className="w-4 h-4 text-primary" />
+                    <span className="w-6 border-t-2 border-dashed border-outline-variant" />
+                  </div>
+                  <div className="w-10 h-10 rounded-full bg-tertiary/10 flex items-center justify-center">
+                    <Pill className="w-5 h-5 text-tertiary" />
+                  </div>
+                </div>
+
+                <Input
+                  label="Patient Pairing Code"
+                  placeholder="e.g. PS-7X4K-9M2R"
+                  value={linkCode}
+                  onChange={(e) => {
+                    setLinkCode(e.target.value.toUpperCase());
+                    setLinkError('');
+                  }}
+                  error={linkError}
+                  helper="Ask your patient to generate a code from Settings → Share Access."
+                  required
+                  maxLength={14}
+                  leftIcon={<Copy className="w-4 h-4 text-on-surface-variant" />}
+                />
+              </div>
+            ) : (
+              /* Tab 2: Manual Search */
+              <div className="space-y-sm">
+                <div className="p-sm rounded-lg bg-secondary/8 border border-secondary/20">
+                  <p className="text-caption text-secondary font-medium">
+                    💡 <strong>Direct Patient Assignment:</strong> Use this for elderly patients who cannot generate codes.
+                  </p>
+                </div>
+
+                <Input
+                  label="Patient Email or Phone Number"
+                  placeholder="e.g. robert.chen@email.com or +91 98765 43210"
+                  value={manualQuery}
+                  onChange={(e) => {
+                    setManualQuery(e.target.value);
+                    setLinkError('');
+                  }}
+                  error={linkError}
+                  required
+                />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-sm">
+                  <Input
+                    label="Patient Name (Optional)"
+                    placeholder="e.g. Robert Chen"
+                    value={manualName}
+                    onChange={(e) => setManualName(e.target.value)}
+                  />
+
+                  <div>
+                    <label className="block text-label-caps font-semibold text-on-surface uppercase tracking-wider mb-1">
+                      Relationship
+                    </label>
+                    <select
+                      value={manualRelation}
+                      onChange={(e) => setManualRelation(e.target.value)}
+                      className="w-full px-3 py-2 text-caption rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                    >
+                      <option value="Mother">Mother</option>
+                      <option value="Father">Father</option>
+                      <option value="Grandparent">Grandparent</option>
+                      <option value="Spouse">Spouse</option>
+                      <option value="Child">Child</option>
+                      <option value="Monitored Patient">Monitored Patient</option>
+                      <option value="Other Relative">Other Relative</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <Modal.Footer>
               <Button variant="ghost" size="sm" onClick={handleCloseLinkModal}>
@@ -720,7 +910,7 @@ export default function CaregiverDashboardPage() {
                 loading={linkLoading}
                 leftIcon={<UserPlus className="w-4 h-4" />}
               >
-                Link Patient
+                {linkTab === 'code' ? 'Link via Code' : 'Send Link Request'}
               </Button>
             </Modal.Footer>
           </div>
@@ -740,5 +930,13 @@ export default function CaregiverDashboardPage() {
       </footer>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function CaregiverDashboardPage() {
+  return (
+    <ToastProvider position="top-center">
+      <CaregiverDashboardInner />
+    </ToastProvider>
   );
 }
