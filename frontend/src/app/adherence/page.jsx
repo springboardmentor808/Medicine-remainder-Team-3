@@ -26,6 +26,7 @@ import {
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
+import EmptyState from '@/components/ui/EmptyState';
 import AdherenceRing from '@/components/ui/AdherenceRing';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { exportAPI } from '@/lib/api';
@@ -410,10 +411,12 @@ function AdherencePageInner() {
             </div>
 
             {filteredHistory.length === 0 ? (
-              <div className="text-center py-xl">
-                <Clock className="w-8 h-8 text-on-surface-variant mx-auto mb-sm" />
-                <p className="text-body-sm text-on-surface-variant">No dose history matching this filter.</p>
-              </div>
+              <EmptyState
+                icon="history"
+                title="No Dose History Records"
+                description="No medication dose logs found matching this filter."
+                className="py-8 my-4"
+              />
             ) : (
               <div className="flex flex-col gap-md">
                 {Object.entries(groupedHistory).map(([date, entries]) => {

@@ -17,53 +17,150 @@ from app.core.config import settings
 
 
 # ---------------------------------------------------------------------------
+# In-Memory Fallback Client for Standalone / Dev Mode
+# ---------------------------------------------------------------------------
+class InMemoryRedisFallback:
+    """Provides in-memory Redis-like operations when Redis server is offline."""
+    def __init__(self):
+        self._store = {}
+        self._lists = {}
+        self._zsets = {}
+
+    async def ping(self):
+        return True
+
+    async def get(self, key: str):
+        val = self._store.get(key)
+        return val
+
+    async def set(self, key: str, value: Any, ex: Optional[int] = None):
+        self._store[key] = str(value) if not isinstance(value, str) else value
+        return True
+
+    async def delete(self, *keys: str):
+        for k in keys:
+            self._store.pop(k, None)
+            self._lists.pop(k, None)
+            self._zsets.pop(k, None)
+        return True
+
+    async def incr(self, key: str):
+        cur = int(self._store.get(key, 0)) + 1
+        self._store[key] = str(cur)
+        return cur
+
+    async def expire(self, key: str, seconds: int):
+        return True
+
+    async def lpush(self, key: str, value: str):
+        if key not in self._lists:
+            self._lists[key] = []
+        self._lists[key].insert(0, value)
+        return len(self._lists[key])
+
+    async def ltrim(self, key: str, start: int, end: int):
+        if key in self._lists:
+            self._lists[key] = self._lists[key][start:end + 1]
+        return True
+
+    async def lrange(self, key: str, start: int, end: int):
+        lst = self._lists.get(key, [])
+        if end == -1:
+            return lst[start:]
+        return lst[start:end + 1]
+
+    async def lset(self, key: str, index: int, value: str):
+        if key in self._lists and 0 <= index < len(self._lists[key]):
+            self._lists[key][index] = value
+            return True
+        return False
+
+    async def zadd(self, key: str, mapping: dict):
+        if key not in self._zsets:
+            self._zsets[key] = {}
+        for member, score in mapping.items():
+            self._zsets[key][member] = float(score)
+        return len(mapping)
+
+    async def zrangebyscore(self, key: str, min_score: float, max_score: float):
+        zset = self._zsets.get(key, {})
+        matched = [m for m, s in zset.items() if min_score <= s <= max_score]
+        return sorted(matched, key=lambda m: zset[m])
+
+    async def zremrangebyscore(self, key: str, min_score: float, max_score: float):
+        zset = self._zsets.get(key, {})
+        to_del = [m for m, s in zset.items() if min_score <= s <= max_score]
+        for m in to_del:
+            del zset[m]
+        return len(to_del)
+
+    async def zcard(self, key: str):
+        return len(self._zsets.get(key, {}))
+
+    async def scan(self, cursor: int = 0, match: Optional[str] = None, count: int = 100):
+        import fnmatch
+        all_keys = list(self._store.keys()) + list(self._lists.keys()) + list(self._zsets.keys())
+        if match:
+            matched = fnmatch.filter(all_keys, match)
+        else:
+            matched = all_keys
+        return 0, list(set(matched))
+
+    async def close(self):
+        self._store.clear()
+        self._lists.clear()
+        self._zsets.clear()
+
+
+_in_memory_fallback = InMemoryRedisFallback()
+
+
+# ---------------------------------------------------------------------------
 # Redis Client Singleton
 # ---------------------------------------------------------------------------
-_redis_client: Optional[aioredis.Redis] = None
+_redis_client: Optional[Any] = None
 
 
-async def connect_redis() -> aioredis.Redis:
+async def connect_redis() -> Any:
     """
     Initialize the async Redis connection pool.
-
-    Called once during application startup via the FastAPI lifespan.
+    Falls back to InMemoryRedisFallback if Redis server is offline.
     """
     global _redis_client
-    _redis_client = aioredis.from_url(
-        settings.REDIS_URL,
-        encoding="utf-8",
-        decode_responses=True,
-        max_connections=20,
-    )
-    # Verify connectivity
-    await _redis_client.ping()
-    print(f"[PillSync] Redis connected: {settings.REDIS_URL}")
-    return _redis_client
+    try:
+        client = aioredis.from_url(
+            settings.REDIS_URL,
+            encoding="utf-8",
+            decode_responses=True,
+            max_connections=20,
+            socket_timeout=2.0,
+        )
+        await client.ping()
+        _redis_client = client
+        print(f"[PillSync] Redis connected: {settings.REDIS_URL}")
+        return _redis_client
+    except Exception as err:
+        print(f"[PillSync] Redis server not available ({err}). Using in-memory fallback.")
+        _redis_client = _in_memory_fallback
+        return _redis_client
 
 
 async def disconnect_redis() -> None:
     """Close the Redis connection pool. Called during shutdown."""
     global _redis_client
-    if _redis_client:
+    if _redis_client and _redis_client is not _in_memory_fallback:
         await _redis_client.close()
         _redis_client = None
         print("[PillSync] Redis connection closed.")
 
 
-def get_redis() -> aioredis.Redis:
+def get_redis() -> Any:
     """
-    FastAPI dependency — returns the active Redis client.
-
-    Usage:
-        @router.get("/example")
-        async def example(redis: aioredis.Redis = Depends(get_redis)):
-            ...
+    FastAPI dependency — returns the active Redis client or in-memory fallback.
     """
+    global _redis_client
     if _redis_client is None:
-        raise RuntimeError(
-            "Redis client not initialized. "
-            "Ensure connect_redis() is called during app startup."
-        )
+        return _in_memory_fallback
     return _redis_client
 
 

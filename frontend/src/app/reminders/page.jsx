@@ -30,6 +30,7 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
+import EmptyState from '@/components/ui/EmptyState';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
 import { playWebAudioAlarm } from '@/lib/alarm_service';
@@ -438,23 +439,18 @@ function RemindersPageInner() {
 
           {/* Empty state */}
           {filteredSchedule.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-[80px] text-center">
-              <div className="w-16 h-16 rounded-full bg-surface-container flex items-center justify-center mb-md">
-                <BellOff className="w-8 h-8 text-on-surface-variant" />
-              </div>
-              <h3 className="text-headline-sm text-on-surface mb-xs">No Reminders</h3>
-              <p className="text-body-sm text-on-surface-variant max-w-sm mb-lg">
-                {activeSlotFilter !== 'all'
+            <EmptyState
+              icon="notifications_off"
+              title="No Reminders Scheduled"
+              description={
+                activeSlotFilter !== 'all'
                   ? `No reminders scheduled for ${TIME_SLOTS.find((s) => s.key === activeSlotFilter)?.label || 'this time slot'}.`
-                  : 'No medications scheduled for this day. Add medicines to start getting reminders.'}
-              </p>
-              <Link href="/medicines">
-                <Button variant="primary">
-                  <Plus className="w-4 h-4" />
-                  Add Medicine
-                </Button>
-              </Link>
-            </div>
+                  : 'No medications scheduled for this day. Add medicines to start receiving automated dose reminders.'
+              }
+              actionLabel="Add Medicine"
+              actionHref="/medicines"
+              className="my-8"
+            />
           )}
         </div>
 

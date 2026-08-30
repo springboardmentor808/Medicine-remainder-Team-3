@@ -7,6 +7,8 @@ import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Toast from '@/components/ui/Toast';
+import EmptyState from '@/components/ui/EmptyState';
+import ErrorMessage from '@/components/ui/ErrorMessage';
 import AddMedicineModal from '@/components/forms/AddMedicineModal';
 import EditMedicineModal from '@/components/forms/EditMedicineModal';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
@@ -438,24 +440,24 @@ function MedicinesPageInner() {
           <p className="text-body-sm text-on-surface-variant">Loading your medication inventory...</p>
         </div>
       ) : error ? (
-        <Card variant="outlined" className="p-8 text-center bg-error-container/20 border-error/30">
-          <span className="material-symbols-outlined text-error text-[40px] mb-2">error</span>
-          <p className="text-body-md font-semibold text-error mb-2">{error}</p>
-          <Button variant="outlined" onClick={fetchMedicines}>
-            Retry Loading
-          </Button>
-        </Card>
+        <ErrorMessage
+          title="Error loading medication inventory"
+          message={error}
+          onRetry={fetchMedicines}
+          onDismiss={() => setError('')}
+        />
       ) : filteredMedicines.length === 0 ? (
-        <Card variant="outlined" className="p-12 text-center bg-surface-container-lowest">
-          <span className="material-symbols-outlined text-on-surface-variant text-[48px] mb-3">medication</span>
-          <h3 className="text-headline-sm font-semibold text-on-surface mb-1">No medicines found</h3>
-          <p className="text-body-sm text-on-surface-variant mb-6 max-w-sm mx-auto">
-            {search || selectedCategory !== 'All'
-              ? 'No items match your search filters. Try clearing filters.'
-              : 'Your cabinet is empty. Add your first prescription to get started.'}
-          </p>
-          <Button onClick={() => setIsAddOpen(true)}>Add Medicine Now</Button>
-        </Card>
+        <EmptyState
+          icon="medication"
+          title="No medicines found"
+          description={
+            search || selectedCategory !== 'All'
+              ? 'No items match your search filters. Try clearing or changing filters.'
+              : 'Your cabinet is empty. Add your first prescription to start tracking dosages and reminders.'
+          }
+          actionLabel="Add Medicine Now"
+          onAction={() => setIsAddOpen(true)}
+        />
       ) : viewMode === 'grid' ? (
         /* GRID VIEW */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

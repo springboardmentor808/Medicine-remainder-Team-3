@@ -15,24 +15,35 @@ Uses a layered approach:
 import re
 from typing import List, Optional, Pattern, Tuple
 
-import spacy
+spacy = None
+HAS_SPACY = False
+
+try:
+    import spacy as _spacy_mod
+    spacy = _spacy_mod
+    HAS_SPACY = True
+except ImportError:
+    pass
 
 # ---------------------------------------------------------------------------
 # spaCy Model — Lazy Singleton Load
 # ---------------------------------------------------------------------------
-_nlp_model: Optional[spacy.language.Language] = None
+_nlp_model = None
 
 
-def _get_nlp_model() -> spacy.language.Language:
-    """Load the spaCy model once and cache it."""
+def _get_nlp_model():
+    """Load the spaCy model once and cache it, if available."""
     global _nlp_model
+    if not HAS_SPACY or spacy is None:
+        return None
     if _nlp_model is None:
         try:
             _nlp_model = spacy.load("en_core_web_sm")
-        except OSError:
-            # Fallback: create a blank English model if the trained
-            # pipeline is not installed in the environment.
-            _nlp_model = spacy.blank("en")
+        except Exception:
+            try:
+                _nlp_model = spacy.blank("en")
+            except Exception:
+                _nlp_model = None
     return _nlp_model
 
 
@@ -155,17 +166,20 @@ def _extract_medicine_name(text: str) -> Optional[str]:
         if not any(w in _EXCLUDE_WORDS for w in words):
             return candidate.strip()
 
-    # Strategy 2: spaCy noun chunk extraction
+    # Strategy 2: spaCy noun chunk extraction (if available)
     nlp = _get_nlp_model()
-    doc = nlp(text)
-
-    for chunk in doc.noun_chunks:
-        chunk_text = chunk.text.strip()
-        if (
-            len(chunk_text) > 2
-            and chunk_text not in _EXCLUDE_WORDS
-            and not _DOSAGE_PATTERN.search(chunk_text)
-        ):
-            return chunk_text
+    if nlp is not None:
+        try:
+            doc = nlp(text)
+            for chunk in doc.noun_chunks:
+                chunk_text = chunk.text.strip()
+                if (
+                    len(chunk_text) > 2
+                    and chunk_text not in _EXCLUDE_WORDS
+                    and not _DOSAGE_PATTERN.search(chunk_text)
+                ):
+                    return chunk_text
+        except Exception:
+            pass
 
     return None

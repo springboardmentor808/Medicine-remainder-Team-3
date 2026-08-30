@@ -37,6 +37,7 @@ const NAV_ITEMS = {
     { href: '/reminders', label: 'Reminders', icon: Bell },
     { href: '/adherence', label: 'Adherence', icon: BarChart3 },
     { href: '/refill', label: 'Refill Tracker', icon: Package },
+    { href: '/interactions', label: 'AI Drug Safety', icon: Shield },
     { href: '/help', label: 'Help & Support', icon: HelpCircle },
   ],
   caregiver: [
@@ -45,6 +46,7 @@ const NAV_ITEMS = {
     { href: '/reminders', label: 'Schedules', icon: Bell },
     { href: '/adherence', label: 'Adherence Reports', icon: BarChart3 },
     { href: '/refill', label: 'Refill Tracker', icon: Package },
+    { href: '/interactions', label: 'AI Drug Safety', icon: Shield },
     { href: '/notifications', label: 'Emergency Alerts', icon: AlertTriangle },
     { href: '/help', label: 'Help & Support', icon: HelpCircle },
   ],
@@ -52,6 +54,7 @@ const NAV_ITEMS = {
     { href: '/dashboard/admin', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/admin/users', label: 'User Management', icon: Users },
     { href: '/admin/health', label: 'System Health', icon: Activity },
+    { href: '/interactions', label: 'AI Drug Safety', icon: Shield },
     { href: '/notifications', label: 'Broadcast & Queue', icon: Bell },
     { href: '/help', label: 'Help & Support', icon: HelpCircle },
   ],

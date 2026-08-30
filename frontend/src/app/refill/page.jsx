@@ -7,6 +7,8 @@ import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Toast from '@/components/ui/Toast';
 import Modal from '@/components/ui/Modal';
+import EmptyState from '@/components/ui/EmptyState';
+import ErrorMessage from '@/components/ui/ErrorMessage';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { medicineAPI, refillAPI } from '@/lib/api';
 
@@ -286,18 +288,24 @@ export default function RefillPage() {
             <p className="text-body-sm text-on-surface-variant">Scanning OpenStreetMap for nearby chemists...</p>
           </div>
         ) : pharmacyError ? (
-          <Card variant="outlined" className="p-6 text-center bg-surface-container-lowest">
-            <p className="text-body-sm text-on-surface-variant mb-3">{pharmacyError}</p>
-            <Button size="sm" onClick={() => fetchNearbyPharmacies(userCoords.lat, userCoords.lng, searchRadius)}>
-              Retry Search
-            </Button>
-          </Card>
+          <ErrorMessage
+            title="Unable to locate pharmacies"
+            message={pharmacyError}
+            onRetry={() => fetchNearbyPharmacies(userCoords.lat, userCoords.lng, searchRadius)}
+            onDismiss={() => setPharmacyError('')}
+          />
         ) : pharmacies.length === 0 ? (
-          <Card variant="outlined" className="p-8 text-center bg-surface-container-lowest">
-            <span className="material-symbols-outlined text-on-surface-variant text-[36px] mb-2">storefront</span>
-            <p className="text-body-md font-semibold text-on-surface">No pharmacies found within {searchRadius}km radius.</p>
-            <p className="text-caption text-on-surface-variant mt-1">Try expanding search radius.</p>
-          </Card>
+          <EmptyState
+            icon="storefront"
+            title="No Pharmacies Found"
+            description={`No pharmacies detected within ${searchRadius}km radius. Try expanding your search radius above.`}
+            secondaryLabel="Expand to 15km"
+            onSecondary={() => {
+              setSearchRadius(15);
+              fetchNearbyPharmacies(userCoords.lat, userCoords.lng, 15);
+            }}
+            className="py-8"
+          />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {pharmacies.map((p, idx) => (
