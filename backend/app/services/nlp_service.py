@@ -19,7 +19,7 @@ spacy = None
 HAS_SPACY = False
 
 try:
-    import spacy as _spacy_mod
+    import spacy as _spacy_mod  # type: ignore[import-not-found]
     spacy = _spacy_mod
     HAS_SPACY = True
 except ImportError:

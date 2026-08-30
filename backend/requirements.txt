@@ -24,6 +24,7 @@ redis>=5.0.0
 
 # --- AI & Vision (Phase 3+: OCR, NLP) ---
 opencv-python-headless>=4.9.0
+Pillow>=10.0.0
 spacy>=3.7.0
 pytesseract>=0.3.10
 openai>=1.14.0

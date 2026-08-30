@@ -228,7 +228,7 @@ class AdherenceService:
                 detail="Schedule not found for current user.",
             )
 
-        # Determine scheduled_date
+        # Determine scheduled_date early for duplicate check
         if req.scheduled_date:
             try:
                 scheduled_d = date.fromisoformat(req.scheduled_date)
@@ -240,6 +240,42 @@ class AdherenceService:
         else:
             scheduled_d = datetime.now(timezone.utc).date()
 
+        # --- Duplicate dose prevention ---
+        action_str = req.action.value if hasattr(req.action, "value") else str(req.action)
+        existing_log = await db.execute(
+            select(DoseLog).where(
+                DoseLog.schedule_id == sch_uuid,
+                DoseLog.scheduled_date == scheduled_d,
+                DoseLog.user_id == user_id,
+            )
+        )
+        existing = existing_log.scalar_one_or_none()
+        if existing:
+            # Allow updating action (e.g. Missed → Taken), but not duplicate same action
+            if existing.action == action_str:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Dose already recorded as '{action_str}' for this schedule on {scheduled_d}.",
+                )
+            # Update existing log instead of creating duplicate
+            existing.action = action_str
+            existing.action_time = datetime.now(timezone.utc)
+            if action_str in ["Snooze", "Snoozed"]:
+                existing.snooze_minutes = req.snooze_minutes
+            existing.notes = req.notes
+            # Stock depletion if changing TO Taken
+            if action_str == "Taken":
+                med_result = await db.execute(
+                    select(Medicine).where(Medicine.id == schedule.medicine_id)
+                )
+                medicine = med_result.scalar_one_or_none()
+                if medicine and medicine.current_stock > 0:
+                    qty_deduct = getattr(medicine, "quantity_per_dose", 1) or 1
+                    medicine.current_stock = max(0, medicine.current_stock - qty_deduct)
+            await db.flush()
+            await db.refresh(existing)
+            return existing
+
         # Parse action_time
         action_dt = datetime.now(timezone.utc)
         if req.action_time:
@@ -247,8 +283,6 @@ class AdherenceService:
                 action_dt = datetime.fromisoformat(req.action_time)
             except ValueError:
                 pass
-
-        action_str = req.action.value if hasattr(req.action, "value") else str(req.action)
 
         dose_log = DoseLog(
             user_id=user_id,

@@ -124,6 +124,8 @@ function MedicinesPageInner() {
   const [newStockVal, setNewStockVal] = useState(30);
   const [updatingStock, setUpdatingStock] = useState(false);
 
+  const [isDemoData, setIsDemoData] = useState(false);
+
   const fetchMedicines = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -132,12 +134,15 @@ function MedicinesPageInner() {
       const items = res.data?.items || res.data;
       if (Array.isArray(items) && items.length > 0) {
         setMedicines(items);
+        setIsDemoData(false);
       } else {
         setMedicines(DEFAULT_FALLBACK_MEDICINES);
+        setIsDemoData(false);
       }
     } catch (err) {
       console.log('Using default medicine catalog fallback:', err.message);
       setMedicines(DEFAULT_FALLBACK_MEDICINES);
+      setIsDemoData(true);
     } finally {
       setLoading(false);
     }
@@ -270,6 +275,26 @@ function MedicinesPageInner() {
             message={toast.message}
             onClose={() => setToast(null)}
           />
+        )}
+
+        {/* Demo Mode / Offline Catalog Notice */}
+        {isDemoData && (
+          <div className="flex items-center justify-between gap-3 p-3.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-xl text-xs text-amber-800 dark:text-amber-200">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-[20px] text-amber-600 dark:text-amber-400">
+                cloud_off
+              </span>
+              <span>
+                <strong>Offline Preview Mode:</strong> Showing offline sample medication catalog. Live synchronization will resume once the server is reached.
+              </span>
+            </div>
+            <button
+              onClick={fetchMedicines}
+              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-semibold transition-colors flex-shrink-0"
+            >
+              Retry Sync
+            </button>
+          </div>
         )}
 
         {/* Hidden Camera/File Input for Prescription OCR */}

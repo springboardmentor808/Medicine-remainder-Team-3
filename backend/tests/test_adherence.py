@@ -13,7 +13,8 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 # Fallback auto-detection for project .venv when executed with global python
-venv_site_pkgs = os.path.join(backend_dir, ".venv", "lib", "python3.14", "site-packages")
+_pyver = f"python{sys.version_info.major}.{sys.version_info.minor}"
+venv_site_pkgs = os.path.join(backend_dir, ".venv", "lib", _pyver, "site-packages")
 if os.path.exists(venv_site_pkgs) and venv_site_pkgs not in sys.path:
     sys.path.insert(0, venv_site_pkgs)
 venv_site_pkgs_win = os.path.join(backend_dir, ".venv", "Lib", "site-packages")

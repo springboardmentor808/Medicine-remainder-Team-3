@@ -5,6 +5,8 @@ Centralized application settings loaded exclusively from environment variables
 via Pydantic BaseSettings. Zero hardcoded credentials.
 """
 
+import secrets
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 
@@ -30,7 +32,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True
 
     # --- JWT Authentication ---
-    SECRET_KEY: str = "CHANGE-THIS-IN-PRODUCTION"
+    SECRET_KEY: str = secrets.token_urlsafe(64)
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7

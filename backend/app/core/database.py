@@ -1,5 +1,6 @@
 import os
 from typing import AsyncGenerator
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -21,12 +22,26 @@ class Base(DeclarativeBase):
 
 
 # ---------------------------------------------------------------------------
+# SQLite Foreign Key Enforcement
+# ---------------------------------------------------------------------------
+def _enable_sqlite_fk(dbapi_conn, connection_record):
+    """Enable foreign key constraint enforcement on every SQLite connection."""
+    cursor = dbapi_conn.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
+
+# ---------------------------------------------------------------------------
 # Async Engine Creation (with fallback for standalone dev without Docker)
 # ---------------------------------------------------------------------------
 db_url = settings.POSTGRES_URL
 
 if "sqlite" in db_url:
-    engine = create_async_engine(db_url, echo=settings.DEBUG)
+    engine = create_async_engine(
+        db_url,
+        echo=settings.DEBUG,
+        connect_args={"check_same_thread": False},
+    )
+    event.listen(engine.sync_engine, "connect", _enable_sqlite_fk)
 else:
     try:
         engine = create_async_engine(
@@ -40,7 +55,12 @@ else:
     except Exception:
         fallback_url = "sqlite+aiosqlite:///./pillsync_dev.db"
         print(f"[PillSync DB] PostgreSQL unavailable at {db_url}. Falling back to local SQLite: {fallback_url}")
-        engine = create_async_engine(fallback_url, echo=settings.DEBUG)
+        engine = create_async_engine(
+            fallback_url,
+            echo=settings.DEBUG,
+            connect_args={"check_same_thread": False},
+        )
+        event.listen(engine.sync_engine, "connect", _enable_sqlite_fk)
 
 # ---------------------------------------------------------------------------
 # Async Session Factory

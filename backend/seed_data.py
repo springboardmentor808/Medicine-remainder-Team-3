@@ -242,7 +242,7 @@ async def seed():
                     schedule_id=s1.id,
                     scheduled_date=log_date,
                     scheduled_time=time(8, 0),
-                    action="taken",
+                    action="Taken",
                     action_time=datetime.combine(log_date, time(8, 5), tzinfo=timezone.utc),
                     notes="Taken with food",
                 )
@@ -253,7 +253,7 @@ async def seed():
                     schedule_id=s3.id,
                     scheduled_date=log_date,
                     scheduled_time=time(21, 0),
-                    action="taken" if day_offset != 2 else "missed",
+                    action="Taken" if day_offset != 2 else "Missed",
                     action_time=datetime.combine(log_date, time(21, 10), tzinfo=timezone.utc) if day_offset != 2 else None,
                     notes="Routine bedtime dose" if day_offset != 2 else "Fell asleep early",
                 )

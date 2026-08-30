@@ -163,10 +163,25 @@ export default function Sidebar() {
         {/* Export link */}
         <div className={`pt-2 mt-2 border-t border-outline-variant/20`}>
           <button
-            onClick={() => {
-              const token = localStorage.getItem('pillsync_access_token');
-              const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-              window.open(`${base}/api/v1/export/medicines/pdf?token=${token}`, '_blank');
+            onClick={async () => {
+              try {
+                const token = localStorage.getItem('pillsync_access_token');
+                const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+                const res = await fetch(`${base}/api/v1/export/medicines/pdf`, {
+                  method: 'GET',
+                  headers: { 'Authorization': `Bearer ${token}` },
+                });
+                if (!res.ok) throw new Error('Export failed');
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'medicines_report.pdf';
+                a.click();
+                URL.revokeObjectURL(url);
+              } catch (err) {
+                console.error('Export error:', err);
+              }
             }}
             className={`w-full flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg text-sm font-medium text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-all duration-200`}
             title={collapsed ? 'Export Data' : undefined}

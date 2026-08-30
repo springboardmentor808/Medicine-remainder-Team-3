@@ -11,7 +11,7 @@ export default function ErrorMessage({
   variant = "error", // 'error' | 'warning' | 'info'
   className = "",
 }) {
-  const styles = {
+  const variantStyles = {
     error: {
       bg: "bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800/60",
       text: "text-red-800 dark:text-red-200",
@@ -33,7 +33,8 @@ export default function ErrorMessage({
       icon: "info",
       iconColor: "text-blue-500 dark:text-blue-400",
     },
-  }[variant] || styles.error;
+  };
+  const styles = variantStyles[variant] || variantStyles.error;
 
   return (
     <div

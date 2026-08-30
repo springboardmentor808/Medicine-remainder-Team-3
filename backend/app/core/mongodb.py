@@ -18,22 +18,34 @@ from app.core.config import settings
 # In-Memory Fallback Client for Standalone / Dev Mode
 # ---------------------------------------------------------------------------
 class InMemoryMongoCollection:
+    """In-memory MongoDB collection fallback — fully dependency-free."""
+
     def __init__(self, name: str):
         self.name = name
         self._docs = []
+
+    @staticmethod
+    def _generate_id():
+        """Generate a unique document ID without requiring bson."""
+        try:
+            from bson import ObjectId
+            return ObjectId()
+        except ImportError:
+            import uuid as _uuid
+            return str(_uuid.uuid4())
 
     async def create_index(self, *args, **kwargs):
         return True
 
     async def insert_one(self, doc: dict):
-        import uuid
-        from bson import ObjectId
         doc_copy = dict(doc)
         if "_id" not in doc_copy:
-            doc_copy["_id"] = ObjectId()
+            doc_copy["_id"] = self._generate_id()
         self._docs.append(doc_copy)
+        _inserted_id = doc_copy["_id"]
+
         class InsertResult:
-            inserted_id = doc_copy["_id"]
+            inserted_id = _inserted_id
         return InsertResult()
 
     async def count_documents(self, query: dict):
@@ -58,6 +70,7 @@ class InMemoryMongoCollection:
     def find(self, query: Optional[dict] = None, *args, **kwargs):
         q = query or {}
         matched = list(self._match(q))
+
         class Cursor:
             def __init__(self, data):
                 self._data = data
@@ -87,25 +100,28 @@ class InMemoryMongoCollection:
         return None
 
     async def update_one(self, filter_q: dict, update_q: dict, upsert: bool = False):
-        from bson import ObjectId
         matched = self._match(filter_q)
         set_vals = update_q.get("$set", {})
         if matched:
             matched[0].update(set_vals)
-            class UpdateResult:
+
+            class _UpdateHit:
                 upserted_id = None
-            return UpdateResult()
+            return _UpdateHit()
         elif upsert:
             new_doc = {**filter_q, **set_vals}
             if "_id" not in new_doc:
-                new_doc["_id"] = ObjectId()
+                new_doc["_id"] = self._generate_id()
             self._docs.append(new_doc)
-            class UpdateResult:
-                upserted_id = new_doc["_id"]
-            return UpdateResult()
-        class UpdateResult:
+            _uid = new_doc["_id"]
+
+            class _UpdateUpsert:
+                upserted_id = _uid
+            return _UpdateUpsert()
+
+        class _UpdateMiss:
             upserted_id = None
-        return UpdateResult()
+        return _UpdateMiss()
 
 
 class InMemoryMongoDatabase:

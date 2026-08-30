@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import AuthGuard from "@/components/AuthGuard";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -206,8 +205,7 @@ export default function InteractionsPage() {
       : Math.max(20, 100 - highCount * 35 - modCount * 18 - cautionCount * 8);
 
   return (
-    <AuthGuard>
-      <DashboardLayout>
+    <DashboardLayout>
         <div className="space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           {/* Header Banner */}
           <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-teal-900 via-teal-800 to-cyan-900 p-6 sm:p-10 text-white shadow-xl">
@@ -593,7 +591,6 @@ export default function InteractionsPage() {
             </Card>
           )}
         </div>
-      </DashboardLayout>
-    </AuthGuard>
+    </DashboardLayout>
   );
 }
