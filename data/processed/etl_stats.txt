@@ -1,0 +1,76 @@
+========================================================================
+  PillSync Indian Medicine ETL — Processing Report
+========================================================================
+
+  Total Input Rows          : 253,973
+  Successfully Processed    : 253,973
+  Skipped (empty name)      : 0
+  Discontinued Medicines    : 7,905
+  Missing Composition       : 0
+
+--- Price Statistics (₹ per unit) ---
+  Average  : ₹106.11
+  Minimum  : ₹0.01
+  Maximum  : ₹330000.00
+  Total priced entries : 253,969
+
+--- Dosage Form Distribution ---
+  Tablet                    :  152,574
+  Injection                 :   32,044
+  Capsule                   :   22,112
+  Syrup                     :   16,747
+  Suspension                :    9,108
+  Cream                     :    5,071
+  Eye Drops                 :    3,169
+  Unknown                   :    2,943
+  Solution                  :    1,803
+  Gel                       :    1,687
+  Ointment                  :    1,669
+  Drops                     :    1,423
+  Lotion                    :    1,022
+  Soap                      :      526
+  Powder                    :      454
+  Spray                     :      366
+  Ear Drops                 :      307
+  Shampoo                   :      271
+  Inhaler                   :      267
+  Sachet                    :      162
+  Respule                   :      122
+  Patch                     :       65
+  Suppository               :       32
+  Lozenge                   :       25
+  Oil                       :        4
+
+--- Top 10 Manufacturers ---
+  Sun Pharmaceutical Industries Ltd                  :  2,986
+  Cipla Ltd                                          :  2,467
+  Intas Pharmaceuticals Ltd                          :  2,302
+  Torrent Pharmaceuticals Ltd                        :  2,027
+  Alkem Laboratories Ltd                             :  1,809
+  Abbott                                             :  1,777
+  Zydus Cadila                                       :  1,768
+  Lupin Ltd                                          :  1,735
+  Micro Labs Ltd                                     :  1,305
+  Mankind Pharma Ltd                                 :  1,297
+
+--- Generic Substitution Groups (≥5 alternatives) : 3,642 groups ---
+  aceclofenac_100mg+paracetamol_325mg                          : 4681 brands
+  pantoprazole_40mg                                            : 2643 brands
+  domperidone_30mg+rabeprazole_20mg                            : 2617 brands
+  amoxycillin_500mg+clavulanic acid_125mg                      : 2605 brands
+  levocetirizine_5mg+montelukast_10mg                          : 2354 brands
+  rabeprazole_20mg                                             : 2101 brands
+  ofloxacin_200mg+ornidazole_500mg                             : 2029 brands
+  azithromycin_500mg                                           : 1997 brands
+  ofloxacin_200mg                                              : 1988 brands
+  glimepiride_2mg+metformin_500mg                              : 1819 brands
+  domperidone_30mg+pantoprazole_40mg                           : 1753 brands
+  deflazacort_6mg                                              : 1721 brands
+  cefixime_200mg                                               : 1708 brands
+  cefpodoxime proxetil_200mg                                   : 1657 brands
+  levocetirizine_5mg                                           : 1597 brands
+
+========================================================================
+  Output File: D:\Ai_intelligent-medicine-remainder-and-medication-tracking-\data\processed\pillsync_medicine_import.csv
+  Output Size: 51.48 MB
+========================================================================

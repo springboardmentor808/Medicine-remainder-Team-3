@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.adherence import router as adherence_router
 from app.api.v1.analytics import router as analytics_router
 from app.api.v1.auth import router as auth_router
+from app.api.v1.catalog import router as catalog_router
 from app.api.v1.export import router as export_router
 from app.api.v1.medicines import router as medicines_router
 from app.api.v1.ocr import router as ocr_router
@@ -108,6 +109,7 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
+app.include_router(catalog_router, prefix="/api/v1")
 app.include_router(ocr_router, prefix="/api/v1", tags=["OCR Scanner"])
 app.include_router(refill_router, prefix="/api/v1", tags=["Refill AI"])
 app.include_router(medicines_router, prefix="/api/v1")

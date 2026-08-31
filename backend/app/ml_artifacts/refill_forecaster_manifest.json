@@ -1,0 +1,36 @@
+{
+  "model_name": "refill_forecaster",
+  "version": "v1.0.0",
+  "architecture": "GradientBoostedRegressor",
+  "n_estimators": 100,
+  "learning_rate": 0.1,
+  "training_samples": 800,
+  "test_samples": 200,
+  "metrics": {
+    "mae": 1.1446,
+    "rmse": 3.7606,
+    "r2": 0.9851,
+    "mse": 14.1422,
+    "n_samples": 200
+  },
+  "quality_gates": {
+    "mae_passed": false,
+    "rmse_passed": false,
+    "r2_passed": true,
+    "all_passed": false
+  },
+  "trained_at": "2026-08-31T10:42:41.569253",
+  "feature_names": [
+    "current_stock",
+    "daily_prescribed_frequency",
+    "quantity_per_dose",
+    "adherence_rate_7d",
+    "missed_dose_frequency_weekly",
+    "snooze_frequency_index",
+    "weekday_weekend_variance",
+    "avg_delay_minutes",
+    "streak_length",
+    "effective_daily_consumption",
+    "days_remaining_naive"
+  ]
+}
