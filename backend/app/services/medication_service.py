@@ -49,10 +49,10 @@ async def create_medicine(
         name=data.name.strip(),
         disease_category=cat_val,
         dosage=data.dosage.strip(),
-        initial_quantity=max(1, int(data.initial_quantity)),
-        current_stock=max(1, int(data.initial_quantity)),  # full stock on creation
-        daily_frequency=max(1, int(data.daily_frequency)),
-        quantity_per_dose=max(1, int(data.quantity_per_dose)),
+        initial_quantity=max(1, data.initial_quantity),
+        current_stock=max(1, data.initial_quantity),  # full stock on creation
+        daily_frequency=max(1, data.daily_frequency),
+        quantity_per_dose=max(1, data.quantity_per_dose),
         notes=data.notes.strip() if data.notes else None,
     )
     db.add(medicine)
