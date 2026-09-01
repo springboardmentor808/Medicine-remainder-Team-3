@@ -327,11 +327,12 @@ function ResetPasswordModal({ user, isOpen, onClose, onConfirm }) {
   async function handleConfirm() {
     setLoading(true);
     try {
-      // TODO: const res = await adminAPI.resetUserPassword({ userId: user.id });
-      await new Promise((r) => setTimeout(r, 1000));
-      setTempPass('PillSync#' + Math.random().toString(36).slice(2, 8).toUpperCase());
+      const res = await adminAPI.resetUserPassword({ userId: user.id });
+      setTempPass(res?.detail || res?.message || 'Password reset');
       setDone(true);
       onConfirm?.(user.id);
+    } catch (err) {
+      console.error('Password reset failed:', err);
     } finally {
       setLoading(false);
     }
@@ -486,7 +487,7 @@ function AssignCaregiverModal({ user, caregivers, isOpen, onClose, onAssign }) {
 
         <div className="p-sm rounded-lg bg-secondary/8 border border-secondary/20">
           <p className="text-caption text-secondary">
-            ⚡ <strong>Immediate Manual Link:</strong> {user.name} will appear on {selectedCaregiver}'s dashboard without requiring any pairing code.
+            ⚡ <strong>Immediate Manual Link:</strong> {user.name} will appear on {selectedCaregiver}&apos;s dashboard without requiring any pairing code.
           </p>
         </div>
 
@@ -592,9 +593,8 @@ function AdminUsersPageInner() {
   const handleToggleStatus = useCallback(async (user) => {
     const newStatus = user.status === 'active' ? 'suspended' : 'active';
     try {
-      await adminAPI.toggleUserStatus({ userId: user.id, is_active: newStatus === 'active' });
+      await adminAPI.toggleStatus(user.id, newStatus === 'active');
     } catch (err) {
-      // If reactivate endpoint doesn't exist, log warning but still update UI
       console.warn('Toggle status API error:', err.message);
     }
 
@@ -783,7 +783,7 @@ function AdminUsersPageInner() {
               <span className="text-label-caps text-on-surface-variant">Filters:</span>
               {search && (
                 <Badge variant="primary" size="sm" removable onRemove={() => setSearch('')}>
-                  "{search}"
+                  &quot;{search}&quot;
                 </Badge>
               )}
               {roleFilter !== 'all' && (

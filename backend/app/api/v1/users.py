@@ -9,11 +9,12 @@ import uuid
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import select, insert, func, or_, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, hash_password
 from app.core.rbac import allow_admin, allow_any_authenticated
 from app.models.user import User, UserRole
 from app.models.caregiver_patient import caregiver_patients
@@ -223,13 +224,14 @@ async def link_patient_endpoint(
             if res.scalar_one_or_none():
                 new_uname = f"{new_uname}_{uuid.uuid4().hex[:4]}"
 
+            temp_init_pw = f"PillSync#{uuid.uuid4().hex[:8]}"
             patient = User(
                 username=new_uname,
                 email=payload.email or f"{new_uname}@patient.pillsync.app",
                 full_name=payload.patient_name or payload.email or "Linked Patient",
                 phone=payload.phone,
                 role=UserRole.PATIENT,
-                hashed_password="$2b$12$e8rGgq6iG3kZzQeN0hPjfe.hFgdN/HHh/MBxG.znGmgMtIl9dpVIq",
+                hashed_password=hash_password(temp_init_pw),
                 is_active=True,
             )
             db.add(patient)
@@ -550,3 +552,45 @@ async def deactivate_user(
         message=f"User '{user.username}' has been deactivated.",
         detail=f"User ID: {user.id}",
     )
+
+
+# ===================================================================
+# 11. POST /api/v1/users/{user_id}/reset-password — Admin only
+# ===================================================================
+class AdminResetPasswordRequest(BaseModel):
+    temp_password: Optional[str] = None
+
+
+@router.post(
+    "/{user_id}/reset-password",
+    response_model=MessageResponse,
+    summary="Admin reset user password",
+    description="Resets the target user's password to a secure temporary password. Admin access only.",
+)
+async def admin_reset_user_password_endpoint(
+    user_id: uuid.UUID,
+    payload: Optional[AdminResetPasswordRequest] = None,
+    current_user: User = Depends(allow_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reset target user password and invalidate previous credentials."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found.",
+        )
+
+    temp_pw = (payload.temp_password if payload and payload.temp_password else None) or f"PillSync#{uuid.uuid4().hex[:6].upper()}"
+    user.hashed_password = hash_password(temp_pw)
+    db.add(user)
+    await db.flush()
+    await db.commit()
+
+    return MessageResponse(
+        message=f"Password for user '{user.username}' has been reset.",
+        detail=temp_pw,
+    )
+

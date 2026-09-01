@@ -30,7 +30,7 @@ def calculate_refill_prediction(
     low_stock_threshold: int = 5,
 ) -> dict:
     """
-    Compute refill prediction metrics.
+    Compute refill prediction metrics with safe zero/negative bounds.
 
     Args:
         total_pills: Current remaining pill count.
@@ -43,6 +43,9 @@ def calculate_refill_prediction(
             - estimated_refill_date (date)
             - is_low_stock (bool)
     """
+    # Clamp negative stock to zero
+    clamped_pills = max(0, total_pills)
+
     if daily_dose <= 0:
         # Avoid division by zero; treat as infinite supply
         return {
@@ -51,7 +54,14 @@ def calculate_refill_prediction(
             "is_low_stock": False,
         }
 
-    days_remaining = total_pills / daily_dose
+    if clamped_pills == 0:
+        return {
+            "days_remaining": 0.0,
+            "estimated_refill_date": date.today(),
+            "is_low_stock": True,
+        }
+
+    days_remaining = clamped_pills / daily_dose
     estimated_refill_date = date.today() + timedelta(days=days_remaining)
     is_low_stock = days_remaining <= low_stock_threshold
 

@@ -22,6 +22,7 @@ Usage:
 """
 
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta, date, time
 from typing import Optional
 import random
@@ -247,6 +248,16 @@ class AdherenceFeatureEngineer:
 # Synthetic Training Data Generator
 # ---------------------------------------------------------------------------
 
+@dataclass
+class AdherenceProfile:
+    name: str
+    take_prob: float
+    snooze_prob: float
+    delay_min: float
+    delay_max: float
+    weight: float
+
+
 def generate_synthetic_adherence_data(
     num_patients: int = 500,
     days_per_patient: int = 30,
@@ -254,17 +265,6 @@ def generate_synthetic_adherence_data(
 ) -> Path:
     """
     Generate synthetic adherence training data for the XGBoost refill model.
-
-    Creates realistic patient dose log histories with varying adherence
-    patterns (perfect, moderate, poor, erratic).
-
-    Args:
-        num_patients: Number of synthetic patients to generate
-        days_per_patient: Number of days of history per patient
-        output_path: Where to save the CSV
-
-    Returns:
-        Path to the generated CSV file
     """
     if output_path is None:
         output_path = SYNTHETIC_DATA_DIR / "adherence_features.csv"
@@ -274,12 +274,12 @@ def generate_synthetic_adherence_data(
     engineer = AdherenceFeatureEngineer()
 
     # Adherence profiles
-    profiles = [
-        {"name": "perfect", "take_prob": 0.98, "snooze_prob": 0.01, "delay_range": (0, 5), "weight": 0.2},
-        {"name": "good", "take_prob": 0.90, "snooze_prob": 0.05, "delay_range": (0, 15), "weight": 0.3},
-        {"name": "moderate", "take_prob": 0.75, "snooze_prob": 0.10, "delay_range": (0, 30), "weight": 0.25},
-        {"name": "poor", "take_prob": 0.55, "snooze_prob": 0.15, "delay_range": (0, 60), "weight": 0.15},
-        {"name": "erratic", "take_prob": 0.40, "snooze_prob": 0.20, "delay_range": (0, 120), "weight": 0.1},
+    profiles: list[AdherenceProfile] = [
+        AdherenceProfile(name="perfect", take_prob=0.98, snooze_prob=0.01, delay_min=0.0, delay_max=5.0, weight=0.2),
+        AdherenceProfile(name="good", take_prob=0.90, snooze_prob=0.05, delay_min=0.0, delay_max=15.0, weight=0.3),
+        AdherenceProfile(name="moderate", take_prob=0.75, snooze_prob=0.10, delay_min=0.0, delay_max=30.0, weight=0.25),
+        AdherenceProfile(name="poor", take_prob=0.55, snooze_prob=0.15, delay_min=0.0, delay_max=60.0, weight=0.15),
+        AdherenceProfile(name="erratic", take_prob=0.40, snooze_prob=0.20, delay_min=0.0, delay_max=120.0, weight=0.1),
     ]
 
     feature_fields = [
@@ -298,7 +298,7 @@ def generate_synthetic_adherence_data(
 
         for patient_idx in range(num_patients):
             # Random profile selection
-            weights = [p["weight"] for p in profiles]
+            weights = [p.weight for p in profiles]
             profile = random.choices(profiles, weights=weights, k=1)[0]
 
             # Random medicine parameters
@@ -321,20 +321,20 @@ def generate_synthetic_adherence_data(
 
                     # Determine action
                     rand = random.random()
-                    if rand < profile["take_prob"]:
+                    if rand < profile.take_prob:
                         action = "Taken"
-                        delay = random.uniform(*profile["delay_range"])
+                        delay = random.uniform(profile.delay_min, profile.delay_max)
                         action_dt = datetime.combine(
                             log_date, scheduled_time_val
                         ) + timedelta(minutes=delay)
                         pills_consumed += qty_per_dose
-                    elif rand < profile["take_prob"] + profile["snooze_prob"]:
+                    elif rand < profile.take_prob + profile.snooze_prob:
                         action = "Snoozed"
-                        delay = random.uniform(15, 60)
+                        delay = random.uniform(15.0, 60.0)
                         action_dt = datetime.combine(
                             log_date, scheduled_time_val
                         ) + timedelta(minutes=delay)
-                        pills_consumed += qty_per_dose  # Eventually taken
+                        pills_consumed += qty_per_dose
                     else:
                         action = "Missed"
                         action_dt = None
@@ -346,28 +346,38 @@ def generate_synthetic_adherence_data(
                         "action_time": action_dt,
                     })
 
-            # Current stock after consumption
+            # Current remaining stock after past window consumption
             current_stock = max(0, initial_stock - pills_consumed)
 
-            # Compute features
+            # Compute features over past historical lookback window
             features = engineer.extract_features(
                 dose_logs, current_stock, daily_freq, qty_per_dose
             )
 
-            # Compute actual days to runout (ground truth label)
-            if features["effective_daily_consumption"] > 0:
-                actual_days = current_stock / features["effective_daily_consumption"]
-                # Add some noise
-                actual_days *= random.uniform(0.85, 1.15)
-                actual_days = max(0, round(actual_days, 1))
+            # Compute actual days to runout via forward-time stochastic simulation
+            sim_stock = current_stock
+            sim_day = 0
+            if sim_stock <= 0:
+                actual_days = 0.0
             else:
-                actual_days = float(current_stock)
+                while sim_stock > 0 and sim_day < 365:
+                    sim_day += 1
+                    is_weekend = (today + timedelta(days=sim_day)).weekday() >= 5
+                    weekend_drop = 0.12 if is_weekend else 0.0
+                    take_prob = max(0.1, profile.take_prob - weekend_drop + random.gauss(0, 0.05))
+                    
+                    for _ in range(daily_freq):
+                        if random.random() < take_prob:
+                            sim_stock -= qty_per_dose
+                            if sim_stock <= 0:
+                                break
+                actual_days = float(sim_day)
 
             # Write row
             row = {
                 "patient_id": f"P{patient_idx:04d}",
                 "actual_days_to_runout": actual_days,
-                "adherence_profile": profile["name"],
+                "adherence_profile": profile.name,
                 **features,
             }
             writer.writerow(row)

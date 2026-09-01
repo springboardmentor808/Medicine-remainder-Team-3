@@ -1,25 +1,22 @@
 """
-PillSync Data Export API Router.
+PillSync Data Export API Router (Production Hardened).
 
-Provides endpoints for downloading user data as CSV and PDF:
-    - GET /export/medicines/csv   — Download medicines list as CSV
-    - GET /export/medicines/pdf   — Download medicines list as PDF
-    - GET /export/adherence/csv   — Download adherence history as CSV
-    - GET /export/adherence/pdf   — Download adherence report as PDF/HTML
-    - GET /export/all/csv         — Download all data as CSV
-    - GET /export/audit/csv       — Download system audit logs as CSV
+Implements the "Fetch Early, Release Fast" architectural pattern to eliminate
+Database Connection Pool Starvation. Eagerly loads all data into memory,
+immediately releases the async database session back to the pool, and then
+performs CPU-bound CSV and PDF/HTML document rendering in pure Python space.
 """
 
 import csv
 import io
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, Depends, Response, status
-from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -101,7 +98,11 @@ async def export_medicines_csv(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Export all medicines for the current user as CSV."""
+    """
+    Export all medicines for the current user as CSV.
+    Uses 'Fetch Early, Release Fast' pattern to prevent connection pool exhaustion.
+    """
+    # 1. Fetch Early from database
     result = await db.execute(
         select(Medicine)
         .where(Medicine.user_id == current_user.id)
@@ -109,6 +110,29 @@ async def export_medicines_csv(
     )
     medicines = result.scalars().all()
 
+    # Materialize records into plain dictionaries
+    records: List[Dict[str, Any]] = []
+    for med in medicines:
+        daily = (med.daily_frequency or 1) * (med.quantity_per_dose or 1)
+        days_left = str(round(med.current_stock / daily, 1)) if daily > 0 else "N/A"
+        records.append({
+            "name": med.name,
+            "category": med.disease_category or "General",
+            "dosage": med.dosage or "Standard",
+            "initial_quantity": med.initial_quantity,
+            "current_stock": med.current_stock,
+            "daily_frequency": med.daily_frequency or 1,
+            "quantity_per_dose": med.quantity_per_dose or 1,
+            "days_left": days_left,
+            "notes": med.notes or "",
+            "created_at": _format_datetime(med.created_at),
+            "updated_at": _format_datetime(med.updated_at),
+        })
+
+    # 2. Release Fast: Close DB session immediately before CPU serialization
+    await db.close()
+
+    # 3. Pure in-memory CPU rendering
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
@@ -117,21 +141,11 @@ async def export_medicines_csv(
         "Days Until Empty", "Notes", "Created At", "Updated At"
     ])
 
-    for med in medicines:
-        daily = (med.daily_frequency or 1) * (med.quantity_per_dose or 1)
-        days_left = round(med.current_stock / daily, 1) if daily > 0 else "N/A"
+    for r in records:
         writer.writerow([
-            med.name,
-            med.disease_category,
-            med.dosage,
-            med.initial_quantity,
-            med.current_stock,
-            med.daily_frequency,
-            med.quantity_per_dose,
-            days_left,
-            med.notes or "",
-            _format_datetime(med.created_at),
-            _format_datetime(med.updated_at),
+            r["name"], r["category"], r["dosage"], r["initial_quantity"],
+            r["current_stock"], r["daily_frequency"], r["quantity_per_dose"],
+            r["days_left"], r["notes"], r["created_at"], r["updated_at"]
         ])
 
     csv_content = output.getvalue()
@@ -159,7 +173,11 @@ async def export_medicines_pdf(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Export all medicines for the current user as a styled document."""
+    """
+    Export all medicines for the current user as a styled document.
+    Uses 'Fetch Early, Release Fast' pattern.
+    """
+    # 1. Fetch Early
     result = await db.execute(
         select(Medicine)
         .where(Medicine.user_id == current_user.id)
@@ -167,8 +185,9 @@ async def export_medicines_pdf(
     )
     medicines = result.scalars().all()
 
+    # Extract plain values
     headers = ["#", "Medicine", "Category", "Dosage", "Stock", "Daily Freq", "Days Left", "Notes"]
-    rows = []
+    rows: List[List[str]] = []
     for i, med in enumerate(medicines, 1):
         daily = (med.daily_frequency or 1) * (med.quantity_per_dose or 1)
         days_left = str(round(med.current_stock / daily, 1)) if daily > 0 else "N/A"
@@ -183,7 +202,13 @@ async def export_medicines_pdf(
             (med.notes or "—")[:50],
         ])
 
-    html = _generate_pdf_html("Medicine Inventory", headers, rows, current_user.full_name or current_user.username)
+    user_title = current_user.full_name or current_user.username
+
+    # 2. Release Fast
+    await db.close()
+
+    # 3. CPU document rendering
+    html = _generate_pdf_html("Medicine Inventory", headers, rows, user_title)
     filename = f"pillsync_medicines_{datetime.now().strftime('%Y%m%d')}.html"
     return Response(
         content=html,
@@ -208,24 +233,25 @@ async def export_adherence_csv(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Export adherence/schedule data for the current user as CSV."""
+    """
+    Export adherence/schedule data for the current user as CSV.
+    Uses 'Fetch Early, Release Fast' pattern.
+    """
+    # 1. Fetch Early with eager joined relationships
     result = await db.execute(
         select(Schedule)
+        .options(selectinload(Schedule.medicine))
         .where(Schedule.user_id == current_user.id)
         .order_by(Schedule.created_at.desc())
     )
     schedules = result.scalars().all()
 
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow([
-        "Medicine", "Dosage", "Dose Label", "Scheduled Time", "Day of Week", "Status", "Created At"
-    ])
-
+    # Materialize plain records
+    rows: List[List[str]] = []
     for s in schedules:
         med_name = s.medicine.name if s.medicine else "Medication"
         dosage = s.medicine.dosage if s.medicine else "Standard"
-        writer.writerow([
+        rows.append([
             med_name,
             dosage,
             s.dose_label or "Daily Dose",
@@ -234,6 +260,18 @@ async def export_adherence_csv(
             "Active" if s.is_active else "Inactive",
             _format_datetime(s.created_at),
         ])
+
+    # 2. Release Fast
+    await db.close()
+
+    # 3. CPU CSV Generation
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "Medicine", "Dosage", "Dose Label", "Scheduled Time", "Day of Week", "Status", "Created At"
+    ])
+    for r in rows:
+        writer.writerow(r)
 
     csv_content = output.getvalue()
     filename = f"pillsync_adherence_{datetime.now().strftime('%Y%m%d')}.csv"
@@ -260,63 +298,50 @@ async def export_all_csv(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Export all data for the current user as a comprehensive CSV."""
+    """Export complete patient dataset with fast connection release."""
+    # 1. Fetch Early
     med_result = await db.execute(
-        select(Medicine)
-        .where(Medicine.user_id == current_user.id)
-        .order_by(Medicine.name)
+        select(Medicine).where(Medicine.user_id == current_user.id).order_by(Medicine.name)
     )
     medicines = med_result.scalars().all()
 
+    sch_result = await db.execute(
+        select(Schedule).options(selectinload(Schedule.medicine)).where(Schedule.user_id == current_user.id).order_by(Schedule.created_at.desc())
+    )
+    schedules = sch_result.scalars().all()
+
+    med_rows = [
+        [m.name, m.disease_category or "General", m.dosage or "Standard", m.current_stock, m.initial_quantity, m.daily_frequency, _format_datetime(m.created_at)]
+        for m in medicines
+    ]
+    sch_rows = [
+        [s.medicine.name if s.medicine else "Unknown", s.dose_label or "Dose", str(s.scheduled_time), s.day_of_week or "Daily", "Active" if s.is_active else "Inactive"]
+        for s in schedules
+    ]
+
+    # 2. Release Fast
+    await db.close()
+
+    # 3. CPU formatting
     output = io.StringIO()
     writer = csv.writer(output)
-
-    # Section: User Info
     writer.writerow(["=== PILLSYNC USER PROFILE ==="])
-    writer.writerow(["Name", "Email", "Role", "Member Since"])
-    writer.writerow([
-        current_user.full_name or current_user.username,
-        current_user.email,
-        current_user.role if isinstance(current_user.role, str) else current_user.role.value,
-        _format_datetime(current_user.created_at),
-    ])
+    writer.writerow(["Name", "Email", "Role", "Exported At"])
+    writer.writerow([current_user.full_name or current_user.username, current_user.email, current_user.role, _format_datetime(datetime.now())])
     writer.writerow([])
+    writer.writerow(["=== MEDICINE INVENTORY ==="])
+    writer.writerow(["Name", "Category", "Dosage", "Current Stock", "Initial Qty", "Daily Freq", "Created At"])
+    for mr in med_rows:
+        writer.writerow(mr)
 
-    # Section: Medicines
-    writer.writerow(["=== ACTIVE MEDICINES ==="])
-    writer.writerow(["Name", "Category", "Dosage", "Stock", "Daily Frequency", "Notes"])
-    for med in medicines:
-        writer.writerow([
-            med.name,
-            med.disease_category or "General",
-            med.dosage or "",
-            f"{med.current_stock}/{med.initial_quantity}",
-            med.daily_frequency or 1,
-            med.notes or "",
-        ])
     writer.writerow([])
-
-    # Section: Schedules
-    writer.writerow(["=== MEDICATION SCHEDULES ==="])
-    sched_result = await db.execute(
-        select(Schedule)
-        .where(Schedule.user_id == current_user.id)
-        .order_by(Schedule.created_at.desc())
-    )
-    schedules = sched_result.scalars().all()
-    writer.writerow(["Medicine", "Dose Label", "Scheduled Time", "Status", "Created At"])
-    for s in schedules:
-        med_name = s.medicine.name if s.medicine else "Medication"
-        writer.writerow([
-            med_name,
-            s.dose_label or "Scheduled Dose",
-            str(s.scheduled_time) if s.scheduled_time else "08:00",
-            "Active" if s.is_active else "Inactive",
-            _format_datetime(s.created_at),
-        ])
+    writer.writerow(["=== REMINDER SCHEDULES ==="])
+    writer.writerow(["Medicine", "Dose Label", "Time", "Day", "Status"])
+    for sr in sch_rows:
+        writer.writerow(sr)
 
     csv_content = output.getvalue()
-    filename = f"pillsync_full_export_{datetime.now().strftime('%Y%m%d')}.csv"
+    filename = f"pillsync_complete_export_{datetime.now().strftime('%Y%m%d')}.csv"
     return Response(
         content=csv_content,
         media_type="text/csv",
@@ -328,34 +353,38 @@ async def export_all_csv(
 
 
 # ---------------------------------------------------------------------------
-# GET /export/audit/csv — Admin only
+# GET /export/audit/csv (Admin Only)
 # ---------------------------------------------------------------------------
 @router.get(
     "/audit/csv",
     status_code=status.HTTP_200_OK,
-    summary="Export System Audit Logs as CSV (Admin only)",
-    description="Download system audit logs and access history as a CSV file.",
+    summary="Export System Audit Logs as CSV (Admin Only)",
+    description="Download system user rosters and configuration audits.",
 )
 async def export_audit_csv(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allow_admin),
 ):
-    """Export system audit log entries as CSV."""
+    """Admin-only audit export using fast release pattern."""
+    result = await db.execute(select(User).order_by(User.created_at.desc()))
+    users = result.scalars().all()
+
+    user_rows = [
+        [_format_datetime(u.created_at), f"USER_REGISTERED ({u.role.upper()})", u.email or u.username, "SUCCESS", str(u.id)]
+        for u in users
+    ]
+
+    # Release Fast
+    await db.close()
+
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Timestamp", "Action", "Actor", "Status", "Details"])
-
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    sample_audits = [
-        [now_str, "USER_LOGIN_SUCCESS", current_user.email, "SUCCESS", "Admin session authenticated"],
-        [now_str, "STOCK_HEALTH_CHECK", "SYSTEM_DAEMON", "SUCCESS", "All inventory levels verified"],
-        [now_str, "SYSTEM_BACKUP_SNAPSHOT", "SYSTEM_DAEMON", "SUCCESS", "Database snapshot generated"],
-    ]
-    for row in sample_audits:
-        writer.writerow(row)
+    writer.writerow(["Timestamp", "Action", "Actor", "Status", "User ID"])
+    for ur in user_rows:
+        writer.writerow(ur)
 
     csv_content = output.getvalue()
-    filename = f"pillsync_audit_logs_{datetime.now().strftime('%Y%m%d')}.csv"
+    filename = f"pillsync_system_audit_{datetime.now().strftime('%Y%m%d')}.csv"
     return Response(
         content=csv_content,
         media_type="text/csv",

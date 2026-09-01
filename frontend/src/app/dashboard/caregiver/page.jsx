@@ -227,26 +227,56 @@ function CaregiverDashboardInner() {
     }
   }, []);
 
-  // Fetch live patients assigned to this caregiver
+  // Fetch live patients and compliance analytics assigned to this caregiver
   useEffect(() => {
     (async () => {
       setPatientsLoading(true);
       try {
-        const data = await caregiverAPI.getPatients();
-        const list = Array.isArray(data) ? data : [];
-        const mapped = list.map((u) => ({
-          id: u.id,
-          name: u.full_name || u.username || 'Patient',
-          age: u.age || null,
-          relation: u.relationship || 'Monitored Patient',
-          adherenceScore: 92,
-          pendingDosesCount: 0,
-          lastDoseStatus: 'taken',
-          image: null,
-          nextMedication: null,
-          email: u.email,
-        }));
+        const [patientsRes, overviewRes] = await Promise.allSettled([
+          caregiverAPI.getPatients(),
+          caregiverAPI.patientOverview(),
+        ]);
+
+        const rawList = patientsRes.status === 'fulfilled' && Array.isArray(patientsRes.value)
+          ? patientsRes.value
+          : [];
+        const overviewList = overviewRes.status === 'fulfilled' && Array.isArray(overviewRes.value)
+          ? overviewRes.value
+          : [];
+
+        const mapped = rawList.map((u) => {
+          const stats = overviewList.find((o) => o.patient_id === String(u.id)) || {};
+          const adherence = stats.adherence_percentage ?? 95;
+          const lowStock = stats.low_stock_count ?? 0;
+          return {
+            id: u.id,
+            name: u.full_name || u.username || 'Patient',
+            age: u.age || null,
+            relation: u.relationship || 'Monitored Patient',
+            adherenceScore: Math.round(adherence),
+            pendingDosesCount: lowStock,
+            lastDoseStatus: adherence < 60 ? 'missed' : 'taken',
+            image: null,
+            nextMedication: null,
+            email: u.email,
+          };
+        });
         setPatients(mapped);
+
+        // Generate live telemetry alerts for patients with low adherence or low stock
+        const dynamicAlerts = overviewList
+          .filter((o) => (o.adherence_percentage !== undefined && o.adherence_percentage < 75) || (o.low_stock_count && o.low_stock_count > 0))
+          .map((o) => ({
+            id: `alert-${o.patient_id}`,
+            patientId: o.patient_id,
+            patientName: o.patient_name || o.username || 'Patient',
+            severity: (o.adherence_percentage !== undefined && o.adherence_percentage < 60) ? 'critical' : 'warning',
+            message: (o.adherence_percentage !== undefined && o.adherence_percentage < 60)
+              ? `Adherence critical (${o.adherence_percentage}%). Doses missed.`
+              : `${o.low_stock_count} medication(s) running low on stock.`,
+            time: 'Live Telemetry',
+          }));
+        setAlerts(dynamicAlerts);
       } catch {
         setPatients([]);
       } finally {
@@ -255,7 +285,7 @@ function CaregiverDashboardInner() {
     })();
   }, []);
 
-  const displayName = currentUser?.full_name || currentUser?.name || currentUser?.username || 'Dr. Sarah Chen';
+  const displayName = currentUser?.full_name || currentUser?.name || currentUser?.username || 'Caregiver';
 
   const filteredPatients = useMemo(() => {
     let list = patients;
@@ -280,11 +310,11 @@ function CaregiverDashboardInner() {
 
   const stats = useMemo(() => {
     const total = patients.length;
-    const escalated = patients.filter((p) => p.pendingDosesCount > 0).length;
+    const escalated = patients.filter((p) => p.pendingDosesCount > 0 || p.adherenceScore < 60).length;
     const avgAdherence =
       total > 0
         ? Math.round(patients.reduce((sum, p) => sum + p.adherenceScore, 0) / total)
-        : 0;
+        : 100;
     return { total, escalated, avgAdherence };
   }, [patients]);
 
@@ -305,16 +335,27 @@ function CaregiverDashboardInner() {
   const handleSendReminder = useCallback(async (id) => {
     const target = patients.find((p) => p.id === id);
     try {
-      await notificationAPI.sendTest({
-        channel: 'all',
-        title: 'Medication Reminder',
-        message: `Please take your scheduled dose: ${target?.nextMedication?.name || 'Medication'}.`,
-      });
-    } catch {}
+      if (target?.id) {
+        await caregiverAPI.sendPatientReminder(
+          target.id,
+          `Please take your scheduled medication: ${target?.nextMedication?.name || 'Daily Dose'}.`
+        );
+      }
+    } catch {
+      // Fallback broadcast
+      try {
+        await notificationAPI.sendTest({
+          channel: 'all',
+          title: 'Medication Reminder',
+          message: `Please take your scheduled dose: ${target?.name || 'Patient'}.`,
+          patient_id: target?.id,
+        });
+      } catch {}
+    }
 
     addToast({
       title: 'Reminder Alert Sent',
-      description: `Urgent SMS & Push alert dispatched to ${target?.name || 'Patient'}.`,
+      description: `Urgent dose notification dispatched to ${target?.name || 'Patient'}.`,
       variant: 'success',
     });
   }, [patients, addToast]);
@@ -334,7 +375,7 @@ function CaregiverDashboardInner() {
       await notificationAPI.sendTest({
         channel: 'all',
         title: 'EMERGENCY: Caregiver Broadcast',
-        message: 'Missed critical doses require immediate attention. Contact caregiver.',
+        message: 'Missed critical doses require immediate attention. Contact caregiver immediately.',
       });
     } catch {}
 

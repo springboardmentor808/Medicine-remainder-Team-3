@@ -1,9 +1,22 @@
 {
+  "include": [
+    "backend/app",
+    "backend/tests"
+  ],
+  "exclude": [
+    "**/__pyrefly_virtual__",
+    "**/inmemory",
+    "**/node_modules",
+    "**/backend/.venv",
+    "**/.next",
+    "**/scratch"
+  ],
   "pythonPath": "backend/.venv/Scripts/python.exe",
   "venvPath": "backend",
   "venv": ".venv",
   "extraPaths": [
     "backend",
+    "backend/app",
     "backend/.venv/Lib/site-packages"
   ]
 }

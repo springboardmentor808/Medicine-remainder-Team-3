@@ -693,7 +693,7 @@ function PatientDashboardInner() {
             <section>
               <div className="flex items-center justify-between mb-md">
                 <h2 className="text-body-sm font-bold text-on-surface">
-                  Today's Medications
+                  Today&apos;s Medications
                 </h2>
                 <Link href="/medicines">
                   <Button variant="ghost" size="sm" rightIcon={<ChevronRight className="w-4 h-4" />}>

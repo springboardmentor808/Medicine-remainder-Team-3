@@ -82,52 +82,55 @@ async def scan_prescription(
             ),
         )
 
-    # --- OCR Extraction ---
     try:
-        ocr_result = await extract_text_from_image(file)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"OCR processing failed: {str(e)}",
-        )
+        # --- OCR Extraction ---
+        try:
+            ocr_result = await extract_text_from_image(file)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"OCR processing failed: {str(e)}",
+            )
 
-    raw_text: str = ocr_result.get("raw_text", "")
-    confidence_score: float = ocr_result.get("confidence_score", 0.0)
+        raw_text: str = ocr_result.get("raw_text", "")
+        confidence_score: float = ocr_result.get("confidence_score", 0.0)
 
-    if not raw_text:
+        if not raw_text:
+            return OCRScanResponse(
+                medicine_name=None,
+                dosage=None,
+                frequency=None,
+                raw_text="",
+                confidence_score=0.0,
+                scan_id=None,
+            )
+
+        # --- NLP Parsing ---
+        parsed = parse_prescription_text(raw_text)
+
+        # --- Save Result to MongoDB ---
+        scan_id = None
+        try:
+            scan_id = await save_ocr_result(
+                user_id=current_user.id,
+                filename=file.filename or "prescription.jpg",
+                raw_text=raw_text,
+                confidence_score=confidence_score,
+                parsed_data=parsed,
+            )
+        except Exception as db_err:
+            print(f"[OCR Router] Failed to save result to MongoDB: {db_err}")
+
         return OCRScanResponse(
-            medicine_name=None,
-            dosage=None,
-            frequency=None,
-            raw_text="",
-            confidence_score=0.0,
-            scan_id=None,
-        )
-
-    # --- NLP Parsing ---
-    parsed = parse_prescription_text(raw_text)
-
-    # --- Save Result to MongoDB ---
-    scan_id = None
-    try:
-        scan_id = await save_ocr_result(
-            user_id=current_user.id,
-            filename=file.filename or "prescription.jpg",
+            medicine_name=parsed.get("medicine_name"),
+            dosage=parsed.get("dosage"),
+            frequency=parsed.get("frequency"),
             raw_text=raw_text,
             confidence_score=confidence_score,
-            parsed_data=parsed,
+            scan_id=scan_id,
         )
-    except Exception as db_err:
-        print(f"[OCR Router] Failed to save result to MongoDB: {db_err}")
-
-    return OCRScanResponse(
-        medicine_name=parsed.get("medicine_name"),
-        dosage=parsed.get("dosage"),
-        frequency=parsed.get("frequency"),
-        raw_text=raw_text,
-        confidence_score=confidence_score,
-        scan_id=scan_id,
-    )
+    finally:
+        await file.close()
 
 
 @router.get(
@@ -186,18 +189,12 @@ async def get_scan_detail_endpoint(
     scan_id: str,
     current_user: User = Depends(get_current_user),
 ) -> PrescriptionDetailResponse:
-    """Fetch a single scan result from MongoDB."""
-    doc = await get_prescription_by_id(scan_id)
+    """Fetch a single scan result from MongoDB with strict IDOR prevention."""
+    doc = await get_prescription_by_id(scan_id, user_id=current_user.id)
     if not doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Prescription scan with ID '{scan_id}' not found.",
-        )
-
-    if doc.get("user_id") != str(current_user.id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have access to this prescription scan.",
+            detail=f"Prescription scan with ID '{scan_id}' not found or access denied.",
         )
 
     return PrescriptionDetailResponse(

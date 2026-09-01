@@ -2,24 +2,24 @@
   "model_name": "refill_forecaster",
   "version": "v1.0.0",
   "architecture": "GradientBoostedRegressor",
-  "n_estimators": 100,
-  "learning_rate": 0.1,
+  "n_estimators": 80,
+  "learning_rate": 0.08,
   "training_samples": 800,
   "test_samples": 200,
   "metrics": {
-    "mae": 1.1446,
-    "rmse": 3.7606,
-    "r2": 0.9851,
-    "mse": 14.1422,
+    "mae": 6.2282,
+    "rmse": 20.2805,
+    "r2": -0.0141,
+    "mse": 411.3003,
     "n_samples": 200
   },
   "quality_gates": {
     "mae_passed": false,
     "rmse_passed": false,
-    "r2_passed": true,
+    "r2_passed": false,
     "all_passed": false
   },
-  "trained_at": "2026-08-31T10:42:41.569253",
+  "trained_at": "2026-09-01T18:19:14.271470+00:00",
   "feature_names": [
     "current_stock",
     "daily_prescribed_frequency",

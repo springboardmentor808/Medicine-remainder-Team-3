@@ -10,12 +10,14 @@ from datetime import date
 from typing import List, Optional
 import uuid
 
-from fastapi import APIRouter, Depends, Query, Path, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
+from app.models.caregiver_patient import caregiver_patients
 from app.schemas.pillsync_schemas import (
     ScheduleCreate,
     ScheduleResponse,
@@ -92,7 +94,21 @@ async def get_schedules(
     target_user_id = current_user.id
     if patient_id:
         u_role = str(current_user.role).lower()
-        if "caregiver" in u_role or "admin" in u_role:
+        if "admin" in u_role:
+            target_user_id = patient_id
+        elif "caregiver" in u_role:
+            # Enforce RBAC/IDOR check: verify caregiver is assigned to this patient
+            link_check = await db.execute(
+                select(caregiver_patients).where(
+                    caregiver_patients.c.caregiver_id == current_user.id,
+                    caregiver_patients.c.patient_id == patient_id,
+                )
+            )
+            if not link_check.first():
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You are not authorized to view schedules for this patient.",
+                )
             target_user_id = patient_id
 
     schedules = await AdherenceService.get_user_schedules(db, target_user_id, medicine_id)

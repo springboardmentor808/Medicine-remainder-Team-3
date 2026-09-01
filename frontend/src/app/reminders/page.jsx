@@ -354,7 +354,7 @@ function RemindersPageInner() {
           <div className="p-card-padding">
             <div className="flex items-center justify-between mb-sm">
               <h2 className="text-caption font-semibold text-on-surface uppercase tracking-wider">
-                Today's Progress
+                Today&apos;s Progress
               </h2>
               <span className="text-headline-sm font-bold text-primary">{stats.progress}%</span>
             </div>

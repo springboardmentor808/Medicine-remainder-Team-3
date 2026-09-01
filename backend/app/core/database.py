@@ -33,18 +33,24 @@ def _enable_sqlite_fk(dbapi_conn, connection_record):
     cursor.close()
 
 
+def create_sqlite_engine(url: str):
+    """Factory creating an async SQLite engine with FK enforcement and WAL mode."""
+    eng = create_async_engine(
+        url,
+        echo=settings.DEBUG,
+        connect_args={"check_same_thread": False, "timeout": 30},
+    )
+    event.listen(eng.sync_engine, "connect", _enable_sqlite_fk)
+    return eng
+
+
 # ---------------------------------------------------------------------------
 # Async Engine Creation (with fallback for standalone dev without Docker)
 # ---------------------------------------------------------------------------
 db_url = settings.POSTGRES_URL
 
 if "sqlite" in db_url:
-    engine = create_async_engine(
-        db_url,
-        echo=settings.DEBUG,
-        connect_args={"check_same_thread": False, "timeout": 30},
-    )
-    event.listen(engine.sync_engine, "connect", _enable_sqlite_fk)
+    engine = create_sqlite_engine(db_url)
 else:
     try:
         engine = create_async_engine(
@@ -58,12 +64,7 @@ else:
     except Exception:
         fallback_url = "sqlite+aiosqlite:///./pillsync_dev.db"
         print(f"[PillSync DB] PostgreSQL unavailable at {db_url}. Falling back to local SQLite: {fallback_url}")
-        engine = create_async_engine(
-            fallback_url,
-            echo=settings.DEBUG,
-            connect_args={"check_same_thread": False},
-        )
-        event.listen(engine.sync_engine, "connect", _enable_sqlite_fk)
+        engine = create_sqlite_engine(fallback_url)
 
 # ---------------------------------------------------------------------------
 # Async Session Factory
@@ -93,7 +94,7 @@ async def init_db():
     except Exception as err:
         print(f"[PillSync DB] Primary PostgreSQL connection failed ({err}). Initializing local SQLite fallback...")
         fallback_url = "sqlite+aiosqlite:///./pillsync_dev.db"
-        engine = create_async_engine(fallback_url, echo=settings.DEBUG)
+        engine = create_sqlite_engine(fallback_url)
         async_session_factory = async_sessionmaker(
             bind=engine,
             class_=AsyncSession,

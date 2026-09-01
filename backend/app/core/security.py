@@ -10,14 +10,15 @@ from typing import Optional
 import uuid
 
 import bcrypt
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, OAuth2PasswordBearer
+from fastapi import Depends, HTTPException, Query, Request, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt  # type: ignore[import-untyped]
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.redis import get_redis
 
 # ---------------------------------------------------------------------------
 # Password Hashing (bcrypt — direct usage, avoids passlib compatibility issues)
@@ -136,11 +137,16 @@ oauth2_scheme = http_bearer  # backward compatibility alias
 # FastAPI Dependency — Get Current Authenticated User
 # ---------------------------------------------------------------------------
 async def get_current_user(
+    request: Request,
     auth: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    token_query: Optional[str] = Query(None, alias="token"),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    FastAPI dependency that extracts and validates the JWT bearer token,
+    FastAPI dependency that extracts and validates the JWT bearer token from:
+    1. HTTP Authorization Bearer Header
+    2. URL Query Param (?token=...) — for direct browser tab file downloads
+    3. Cookies (pillsync_access_token)
     then fetches the corresponding active user from the database.
 
     Usage:
@@ -152,16 +158,22 @@ async def get_current_user(
         HTTPException 401: Invalid token or user not found.
         HTTPException 403: User account is deactivated.
     """
-    if auth is None or not auth.credentials:
+    token = None
+    if auth and auth.credentials:
+        token = auth.credentials.strip()
+        if token.lower().startswith("bearer "):
+            token = token[7:].strip()
+    elif token_query:
+        token = token_query.strip()
+    elif request and "pillsync_access_token" in request.cookies:
+        token = request.cookies.get("pillsync_access_token", "").strip()
+
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated. Bearer token required.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
-    token = auth.credentials.strip()
-    if token.lower().startswith("bearer "):
-        token = token[7:].strip()
 
     # Import here to avoid circular dependency
     from app.models.user import User
@@ -187,9 +199,33 @@ async def get_current_user(
         if user:
             return user
 
+    # Check Redis token revocation blacklist
+    try:
+        redis = await get_redis()
+        if redis:
+            is_blacklisted = await redis.get(f"blacklist:{token}")
+            if is_blacklisted:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token has been revoked.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
     payload = decode_token(token)
     user_id_str: str | None = payload.get("sub")
     token_type: str | None = payload.get("type", "access")
+
+    # Enforce strict access token type (blocks refresh token misuse)
+    if token_type != "access":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token type. Access token required.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     if user_id_str is None:
         raise HTTPException(
