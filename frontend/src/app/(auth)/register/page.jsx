@@ -116,14 +116,23 @@ function RegisterFormContent() {
     if (Object.keys(errs).length) { setErrors(errs); return; }
     setLoading(true);
     try {
-      await authAPI.register({
-        name: form.name.trim(),
-        email: form.email.trim(),
-        phone: form.phone.trim(),
+      // Derive a clean, valid username from email prefix (at least 3 characters)
+      const emailPrefix = form.email.trim().split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '_');
+      const username = emailPrefix.length >= 3 ? emailPrefix.slice(0, 50) : `${emailPrefix}_usr`.slice(0, 50);
+      const cleanRole = (form.role || 'patient').toLowerCase();
+
+      // Only pass fields matching the backend Pydantic schema (exclude confirmPassword, agree)
+      const payload = {
+        username,
+        full_name: form.name.trim(),
+        email: form.email.trim().toLowerCase(),
         password: form.password,
-        role: form.role || 'patient',
-      });
-      router.push(`/login?registered=1&email=${encodeURIComponent(form.email)}`);
+        role: cleanRole,
+        ...(form.phone?.trim() ? { phone: form.phone.trim() } : {}),
+      };
+
+      await authAPI.register(payload);
+      router.push(`/login?registered=1&email=${encodeURIComponent(form.email.trim().toLowerCase())}`);
     } catch (err) {
       setServerError(err.message || 'Registration failed. Please try again.');
     } finally {

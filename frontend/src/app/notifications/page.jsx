@@ -68,28 +68,7 @@ const MSG_TYPES = {
   appointment_reminder:   { label: 'Appointment Reminder',   icon: 'event',         color: 'secondary' },
 };
 
-// ── Mock Data ─────────────────────────────────────────────────────────────────
-
-const MOCK_LOGS = [
-  { id: 'n-001', recipient: 'Eleanor Martinez',  channel: 'push',     type: 'medication_reminder',  sentTime: '2026-08-09 17:45:02', status: 'delivered' },
-  { id: 'n-002', recipient: 'Robert Chen',       channel: 'sms',      type: 'caregiver_escalation', sentTime: '2026-08-09 17:40:18', status: 'delivered' },
-  { id: 'n-003', recipient: 'Margaret Davis',    channel: 'push',     type: 'low_stock_alert',      sentTime: '2026-08-09 17:38:55', status: 'pending' },
-  { id: 'n-004', recipient: 'James Wilson',      channel: 'whatsapp', type: 'medication_reminder',  sentTime: '2026-08-09 17:35:30', status: 'delivered' },
-  { id: 'n-005', recipient: 'Patricia Thompson', channel: 'email',    type: 'adherence_report',     sentTime: '2026-08-09 17:30:00', status: 'delivered' },
-  { id: 'n-006', recipient: 'David Anderson',    channel: 'sms',      type: 'medication_reminder',  sentTime: '2026-08-09 17:28:44', status: 'failed' },
-  { id: 'n-007', recipient: 'Dr. Sarah Kim',     channel: 'push',     type: 'caregiver_escalation', sentTime: '2026-08-09 17:25:11', status: 'delivered' },
-  { id: 'n-008', recipient: 'Kevin Patel',       channel: 'email',    type: 'system_broadcast',     sentTime: '2026-08-09 17:20:00', status: 'delivered' },
-  { id: 'n-009', recipient: 'Linda Carter',      channel: 'whatsapp', type: 'medication_reminder',  sentTime: '2026-08-09 17:15:33', status: 'delivered' },
-  { id: 'n-010', recipient: 'Mark Stevens',      channel: 'push',     type: 'low_stock_alert',      sentTime: '2026-08-09 17:10:09', status: 'pending' },
-  { id: 'n-011', recipient: 'Priya Nair',        channel: 'sms',      type: 'medication_reminder',  sentTime: '2026-08-09 17:05:22', status: 'delivered' },
-  { id: 'n-012', recipient: 'Tom Bradley',       channel: 'push',     type: 'adherence_report',     sentTime: '2026-08-09 17:00:00', status: 'delivered' },
-  { id: 'n-013', recipient: 'Ananya Roy',        channel: 'email',    type: 'appointment_reminder', sentTime: '2026-08-09 16:55:41', status: 'delivered' },
-  { id: 'n-014', recipient: 'George Fuller',     channel: 'sms',      type: 'medication_reminder',  sentTime: '2026-08-09 16:50:18', status: 'failed' },
-  { id: 'n-015', recipient: 'Sofia Rossi',       channel: 'whatsapp', type: 'low_stock_alert',      sentTime: '2026-08-09 16:45:02', status: 'delivered' },
-  { id: 'n-016', recipient: 'Ali Hassan',        channel: 'push',     type: 'medication_reminder',  sentTime: '2026-08-09 16:40:30', status: 'delivered' },
-  { id: 'n-017', recipient: 'Mei Tanaka',        channel: 'push',     type: 'caregiver_escalation', sentTime: '2026-08-09 16:35:12', status: 'delivered' },
-  { id: 'n-018', recipient: 'Carlos Diaz',       channel: 'sms',      type: 'medication_reminder',  sentTime: '2026-08-09 16:30:00', status: 'delivered' },
-];
+const MOCK_LOGS = [];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

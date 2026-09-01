@@ -1,28 +1,26 @@
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Bell,
   CheckCircle2,
   Clock,
   XCircle,
   Pill,
-  Timer,
   Sunrise,
   Sun,
   Sunset,
   Moon,
-  ChevronRight,
-  RefreshCw,
+  Loader2,
 } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
-import Button from '@/components/ui/Button';
+import { patientAPI, medicineAPI } from '@/lib/api';
 
 /**
  * ReminderWidget — PillSync
- * Compact, embeddable reminder card for dashboards.
- * Shows today's medication schedule with Take/Snooze/Skip actions.
+ * Live embeddable reminder card for dashboards.
+ * Displays real medication schedule from PostgreSQL with Take/Skip actions.
  */
 
 const TIME_SLOTS = [
@@ -32,16 +30,80 @@ const TIME_SLOTS = [
   { key: 'night',     label: 'Night',     Icon: Moon,    color: 'text-slate-500' },
 ];
 
-const DEMO_SCHEDULE = [
-  { id: 'rw-1', name: 'Metformin', strength: '500mg', slot: 'morning', time: '08:00 AM', status: 'pending' },
-  { id: 'rw-2', name: 'Amlodipine', strength: '5mg', slot: 'morning', time: '08:00 AM', status: 'taken', takenAt: '08:05 AM' },
-  { id: 'rw-3', name: 'Atorvastatin', strength: '20mg', slot: 'afternoon', time: '01:00 PM', status: 'pending' },
-  { id: 'rw-4', name: 'Aspirin', strength: '75mg', slot: 'evening', time: '06:00 PM', status: 'pending' },
-  { id: 'rw-5', name: 'Vitamin D3', strength: '1000 IU', slot: 'morning', time: '09:00 AM', status: 'pending' },
-];
-
 export default function ReminderWidget({ maxItems = 5, className = '' }) {
-  const [schedule, setSchedule] = useState(DEMO_SCHEDULE);
+  const [schedule, setSchedule] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch real schedule from PostgreSQL backend
+  const fetchSchedule = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await patientAPI.getTodaySchedule();
+      const list = Array.isArray(data) ? data : (data?.schedules || []);
+
+      if (list.length > 0) {
+        const slotMap = {
+          '08:00': 'morning', '08:00 AM': 'morning',
+          '13:00': 'afternoon', '01:00 PM': 'afternoon',
+          '14:00': 'afternoon', '02:00 PM': 'afternoon',
+          '18:00': 'evening', '06:00 PM': 'evening',
+          '20:00': 'night', '08:00 PM': 'night',
+          '21:00': 'night', '09:00 PM': 'night',
+        };
+
+        const mapped = list.map((s, idx) => ({
+          id: s.id || `rw-sched-${idx}`,
+          schedule_id: s.id,
+          medicine_id: s.medicine_id,
+          name: s.medicine_name || s.name || 'Medication',
+          strength: s.dosage || s.strength || '',
+          slot: s.dose_label?.toLowerCase().includes('morning')
+            ? 'morning'
+            : s.dose_label?.toLowerCase().includes('afternoon') || s.dose_label?.toLowerCase().includes('noon')
+            ? 'afternoon'
+            : s.dose_label?.toLowerCase().includes('evening')
+            ? 'evening'
+            : s.dose_label?.toLowerCase().includes('night')
+            ? 'night'
+            : slotMap[s.scheduled_time] || (idx % 2 === 0 ? 'morning' : 'night'),
+          time: s.scheduled_time || '08:00 AM',
+          time24: s.scheduled_time || '08:00',
+          status: s.status || 'pending',
+        }));
+        setSchedule(mapped);
+      } else {
+        // Fallback to active medicines if no schedules created yet
+        const medsRes = await medicineAPI.list();
+        const meds = Array.isArray(medsRes) ? medsRes : (medsRes?.items || medsRes?.data || []);
+        if (meds.length > 0) {
+          const slots = ['morning', 'afternoon', 'night'];
+          const times = ['08:00 AM', '01:00 PM', '08:00 PM'];
+          const times24 = ['08:00', '13:00', '20:00'];
+          const mapped = meds.map((m, idx) => ({
+            id: m.id || `rw-med-${idx}`,
+            medicine_id: m.id,
+            name: m.name,
+            strength: m.dosage || '',
+            slot: slots[idx % 3],
+            time: times[idx % 3],
+            time24: times24[idx % 3],
+            status: 'pending',
+          }));
+          setSchedule(mapped);
+        } else {
+          setSchedule([]);
+        }
+      }
+    } catch {
+      setSchedule([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSchedule();
+  }, [fetchSchedule]);
 
   const stats = useMemo(() => {
     const total = schedule.length;
@@ -57,17 +119,43 @@ export default function ReminderWidget({ maxItems = 5, className = '' }) {
       .slice(0, maxItems);
   }, [schedule, maxItems]);
 
-  const handleTake = useCallback((item) => {
+  const handleTake = useCallback(async (item) => {
     const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     setSchedule((prev) =>
       prev.map((r) => (r.id === item.id ? { ...r, status: 'taken', takenAt: now } : r))
     );
+
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      await patientAPI.recordAction({
+        schedule_id: item.schedule_id,
+        medicine_id: item.medicine_id,
+        scheduled_date: today,
+        scheduled_time: item.time24 || '08:00',
+        action: 'TAKEN',
+      });
+    } catch (err) {
+      console.warn('Record action failed:', err.message);
+    }
   }, []);
 
-  const handleSkip = useCallback((item) => {
+  const handleSkip = useCallback(async (item) => {
     setSchedule((prev) =>
       prev.map((r) => (r.id === item.id ? { ...r, status: 'skipped' } : r))
     );
+
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      await patientAPI.recordAction({
+        schedule_id: item.schedule_id,
+        medicine_id: item.medicine_id,
+        scheduled_date: today,
+        scheduled_time: item.time24 || '08:00',
+        action: 'MISSED',
+      });
+    } catch (err) {
+      console.warn('Record action failed:', err.message);
+    }
   }, []);
 
   return (
@@ -115,7 +203,12 @@ export default function ReminderWidget({ maxItems = 5, className = '' }) {
         </div>
 
         {/* Upcoming Items */}
-        {upcomingItems.length > 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center py-6 text-on-surface-variant gap-2 text-caption">
+            <Loader2 className="w-4 h-4 animate-spin text-primary" />
+            Loading reminders...
+          </div>
+        ) : upcomingItems.length > 0 ? (
           <div className="space-y-2">
             {upcomingItems.map((item) => {
               const slotInfo = TIME_SLOTS.find((s) => s.key === item.slot) || TIME_SLOTS[0];
@@ -140,14 +233,16 @@ export default function ReminderWidget({ maxItems = 5, className = '' }) {
                     <button
                       onClick={() => handleTake(item)}
                       className="p-1.5 rounded-md bg-tertiary/10 text-tertiary hover:bg-tertiary/20 transition-colors"
-                      title="Take"
+                      title="Mark as Taken"
+                      aria-label={`Mark ${item.name} as taken`}
                     >
                       <CheckCircle2 className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => handleSkip(item)}
                       className="p-1.5 rounded-md text-on-surface-variant hover:bg-error/10 hover:text-error transition-colors"
-                      title="Skip"
+                      title="Skip Dose"
+                      aria-label={`Skip ${item.name} dose`}
                     >
                       <XCircle className="w-4 h-4" />
                     </button>
@@ -160,7 +255,7 @@ export default function ReminderWidget({ maxItems = 5, className = '' }) {
           <div className="text-center py-6">
             <CheckCircle2 className="w-8 h-8 text-tertiary mx-auto mb-2" />
             <p className="text-caption font-semibold text-on-surface">All done for today!</p>
-            <p className="text-[11px] text-on-surface-variant">You&apos;ve taken all your medications.</p>
+            <p className="text-[11px] text-on-surface-variant">You&apos;ve completed all scheduled doses.</p>
           </div>
         )}
       </div>

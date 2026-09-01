@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ===================================================================
@@ -40,8 +40,8 @@ class MedicineCreate(BaseModel):
         examples=["Metformin 500mg"],
         description="Medicine name",
     )
-    disease_category: DiseaseCategory = Field(
-        default=DiseaseCategory.GENERAL_HEALTHCARE,
+    disease_category: str = Field(
+        default="General Healthcare",
         description="Disease category for grouping",
     )
     dosage: str = Field(
@@ -50,12 +50,12 @@ class MedicineCreate(BaseModel):
         description="Dosage strength (e.g., '500mg', '2 Tablets')",
     )
     initial_quantity: int = Field(
-        ..., ge=1,
+        default=30, ge=1,
         examples=[30],
         description="Total quantity when medicine is added",
     )
     daily_frequency: int = Field(
-        ..., ge=1,
+        default=1, ge=1,
         examples=[2],
         description="Number of doses per day",
     )
@@ -64,11 +64,17 @@ class MedicineCreate(BaseModel):
         examples=[1],
         description="Number of units consumed per dose",
     )
+    dosage_form: Optional[str] = Field(
+        default="Tablet",
+        description="Form of the medicine (e.g. Tablet, Capsule, Syrup)",
+    )
     notes: Optional[str] = Field(
         None, max_length=1000,
         examples=["Take after meals"],
         description="Additional notes (optional)",
     )
+
+    model_config = {"extra": "allow"}
 
 
 class MedicineUpdate(BaseModel):
@@ -77,9 +83,15 @@ class MedicineUpdate(BaseModel):
     name: Optional[str] = Field(
         None, min_length=1, max_length=200,
     )
-    disease_category: Optional[DiseaseCategory] = None
+    disease_category: Optional[str] = None
     dosage: Optional[str] = Field(
         None, min_length=1, max_length=50,
+    )
+    initial_quantity: Optional[int] = Field(
+        None, ge=1,
+    )
+    current_stock: Optional[int] = Field(
+        None, ge=0,
     )
     daily_frequency: Optional[int] = Field(
         None, ge=1,
@@ -87,9 +99,12 @@ class MedicineUpdate(BaseModel):
     quantity_per_dose: Optional[int] = Field(
         None, ge=1,
     )
+    dosage_form: Optional[str] = None
     notes: Optional[str] = Field(
         None, max_length=1000,
     )
+
+    model_config = {"extra": "allow"}
 
 
 class StockUpdateRequest(BaseModel):
@@ -97,7 +112,7 @@ class StockUpdateRequest(BaseModel):
     PATCH /api/v1/medicines/{id}/stock — Adjust or set stock level.
 
     Provide either `adjustment` (relative: +10 to add, -5 to consume)
-    or `new_stock` (absolute: set stock to this value), but not both.
+    or `new_stock` / `current_stock` (absolute: set stock to this value).
     """
 
     adjustment: Optional[int] = Field(
@@ -110,6 +125,18 @@ class StockUpdateRequest(BaseModel):
         examples=[25],
         description="Absolute stock value to set",
     )
+    current_stock: Optional[int] = Field(
+        None, ge=0,
+        description="Alias for new_stock for frontend compatibility",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_stock_fields(cls, data):
+        if isinstance(data, dict):
+            if "current_stock" in data and data.get("new_stock") is None:
+                data["new_stock"] = data["current_stock"]
+        return data
 
 
 # ===================================================================
@@ -161,5 +188,6 @@ class StockUpdateResponse(BaseModel):
 
     previous_stock: int
     new_stock: int
+    current_stock: Optional[int] = None
     adjustment: int
     medicine: MedicineResponse

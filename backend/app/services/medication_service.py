@@ -26,23 +26,70 @@ async def create_medicine(
 ) -> Medicine:
     """
     Insert a new medicine record for the given user.
-
-    Sets current_stock equal to initial_quantity on creation.
+    Sets current_stock equal to initial_quantity on creation,
+    and automatically generates corresponding daily reminder schedules.
     """
-    cat_val = data.disease_category.value if hasattr(data.disease_category, "value") else str(data.disease_category)
+    valid_categories = {
+        "blood pressure": "Blood Pressure",
+        "diabetes": "Diabetes",
+        "thyroid": "Thyroid",
+        "antibiotics": "Antibiotics",
+        "vitamins": "Vitamins",
+        "heart medications": "Heart Medications",
+        "general healthcare": "General Healthcare",
+        "general": "General Healthcare",
+        "supplement": "Vitamins",
+        "supplements": "Vitamins",
+    }
+    raw_cat = str(data.disease_category.value if hasattr(data.disease_category, "value") else data.disease_category).strip().lower()
+    cat_val = valid_categories.get(raw_cat, "General Healthcare")
+
     medicine = Medicine(
         user_id=user_id,
-        name=data.name,
+        name=data.name.strip(),
         disease_category=cat_val,
-        dosage=data.dosage,
-        initial_quantity=data.initial_quantity,
-        current_stock=data.initial_quantity,  # full stock on creation
-        daily_frequency=data.daily_frequency,
-        quantity_per_dose=data.quantity_per_dose,
-        notes=data.notes,
+        dosage=data.dosage.strip(),
+        initial_quantity=max(1, int(data.initial_quantity)),
+        current_stock=max(1, int(data.initial_quantity)),  # full stock on creation
+        daily_frequency=max(1, int(data.daily_frequency)),
+        quantity_per_dose=max(1, int(data.quantity_per_dose)),
+        notes=data.notes.strip() if data.notes else None,
     )
     db.add(medicine)
     await db.flush()
+
+    # Automatically generate default daily reminder schedules in the schedules table
+    try:
+        from datetime import time as d_time
+        from app.models.schedule import Schedule
+
+        freq = max(1, data.daily_frequency)
+        if freq == 1:
+            slots = [(d_time(8, 0), "Morning")]
+        elif freq == 2:
+            slots = [(d_time(8, 0), "Morning"), (d_time(20, 0), "Night")]
+        elif freq == 3:
+            slots = [(d_time(8, 0), "Morning"), (d_time(13, 0), "Afternoon"), (d_time(20, 0), "Night")]
+        elif freq == 4:
+            slots = [(d_time(8, 0), "Morning"), (d_time(12, 0), "Afternoon"), (d_time(18, 0), "Evening"), (d_time(22, 0), "Night")]
+        else:
+            slots = [(d_time(8, 0), "Morning")]
+
+        for t_val, lbl in slots:
+            sched = Schedule(
+                user_id=user_id,
+                medicine_id=medicine.id,
+                scheduled_time=t_val,
+                day_of_week=None,
+                frequency_pattern=f"{freq}x daily",
+                dose_label=lbl,
+                is_active=True,
+            )
+            db.add(sched)
+        await db.flush()
+    except Exception as sched_err:
+        print(f"[MedicationService] Auto-schedule creation notice: {sched_err}")
+
     await db.commit()
     await db.refresh(medicine)
     return medicine

@@ -7,7 +7,7 @@ Complements the existing pillsync_schemas.py with token-specific models.
 
 import uuid
 from typing import Optional, List
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # ===================================================================
@@ -16,8 +16,8 @@ from pydantic import BaseModel, EmailStr, Field
 
 class RegisterRequest(BaseModel):
     """POST /api/v1/auth/register — New user registration."""
-    username: str = Field(
-        ..., min_length=3, max_length=50,
+    username: Optional[str] = Field(
+        None, min_length=3, max_length=50,
         examples=["om_pandey"],
         description="Unique username (3-50 chars)",
     )
@@ -42,9 +42,44 @@ class RegisterRequest(BaseModel):
     )
     role: str = Field(
         default="patient",
-        pattern="^(patient|caregiver|admin)$",
-        description="User role: patient, caregiver, or admin",
+        description="User role: patient, caregiver, or admin (case-insensitive)",
     )
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, v: str) -> str:
+        if isinstance(v, str):
+            return v.strip().lower()
+        return v
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def normalize_role(cls, v: str) -> str:
+        if isinstance(v, str):
+            cleaned = v.strip().lower()
+            if cleaned in ("patient", "caregiver", "admin"):
+                return cleaned
+        raise ValueError("Role must be 'patient', 'caregiver', or 'admin'.")
+
+    @field_validator("phone", mode="before")
+    @classmethod
+    def normalize_phone(cls, v: Optional[str]) -> Optional[str]:
+        if isinstance(v, str):
+            cleaned = v.strip()
+            return cleaned if cleaned else None
+        return v
+
+    @field_validator("username", mode="before")
+    @classmethod
+    def normalize_username(cls, v: Optional[str]) -> Optional[str]:
+        if isinstance(v, str):
+            cleaned = v.strip().lower()
+            if cleaned:
+                if len(cleaned) < 3:
+                    cleaned = (cleaned + "_usr")[:50]
+                return cleaned
+        return v
+
 
 
 class LoginRequest(BaseModel):
@@ -93,6 +128,39 @@ class AssignPatientRequest(BaseModel):
     patient_id: uuid.UUID = Field(
         ..., description="UUID of the patient to assign",
     )
+    relationship: Optional[str] = None
+
+
+class LinkPatientRequest(BaseModel):
+    """POST /api/v1/users/link-patient — Caregiver connects a patient."""
+    code: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    username: Optional[str] = None
+    patient_id: Optional[str] = None
+    patient_name: Optional[str] = None
+    age: Optional[int] = None
+    relationship: Optional[str] = "Monitored Patient"
+    notes: Optional[str] = None
+    assigned_medicines: Optional[List[str]] = None
+
+    model_config = {"extra": "allow"}
+
+
+class AdminUserUpdateRequest(BaseModel):
+    """PATCH /api/v1/users/{user_id} — Admin updates user details."""
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+
+    model_config = {"extra": "allow"}
+
+
+class UserStatusUpdateRequest(BaseModel):
+    """PATCH /api/v1/users/{user_id}/status — Toggle user active/suspended."""
+    is_active: bool
 
 
 # ===================================================================

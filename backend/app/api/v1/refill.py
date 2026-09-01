@@ -154,11 +154,17 @@ async def update_stock(
             detail=f"Medicine with id '{payload.medicine_id}' not found.",
         )
 
-    if medicine.user_id != current_user.id:
+    med_uid = str(uuid.UUID(str(medicine.user_id))).lower()
+    cur_uid = str(uuid.UUID(str(current_user.id))).lower()
+    if med_uid != cur_uid:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have access to this medicine.",
         )
+
+    # Sync current_stock on the medicine model
+    medicine.current_stock = payload.total_pills_remaining
+    await db.flush()
 
     refill = await create_or_update_refill(
         db=db,
@@ -168,6 +174,8 @@ async def update_stock(
         daily_dose_count=payload.daily_dose_count,
         low_stock_threshold=payload.low_stock_threshold,
     )
+    await db.commit()
+    await db.refresh(medicine)
 
     prediction = calculate_refill_prediction(
         total_pills=payload.total_pills_remaining,
@@ -207,23 +215,25 @@ async def update_stock(
     ),
 )
 async def get_nearby_pharmacies_endpoint(
-    lat: float = Query(..., description="User latitude (e.g. 28.6139)"),
-    lon: float = Query(..., description="User longitude (e.g. 77.2090)"),
+    lat: float = Query(28.6139, description="User latitude (e.g. 28.6139)"),
+    lon: Optional[float] = Query(None, description="User longitude (e.g. 77.2090)"),
+    lng: Optional[float] = Query(None, description="User longitude alias"),
     radius_km: float = Query(5.0, ge=0.5, le=50.0, description="Search radius in km"),
     limit: int = Query(10, ge=1, le=50, description="Max pharmacies to return"),
     current_user: User = Depends(get_current_user),
 ) -> NearbyPharmacyListResponse:
     """Find nearby pharmacies using user's GPS coordinates."""
+    actual_lon = lon if lon is not None else (lng if lng is not None else 77.2090)
     pharmacies = await find_nearby_pharmacies(
         latitude=lat,
-        longitude=lon,
+        longitude=actual_lon,
         radius_km=radius_km,
         limit=limit,
     )
 
     return NearbyPharmacyListResponse(
         user_latitude=lat,
-        user_longitude=lon,
+        user_longitude=actual_lon,
         radius_km=radius_km,
         total_found=len(pharmacies),
         pharmacies=pharmacies,

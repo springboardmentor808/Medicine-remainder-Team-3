@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   UserPlus,
   HeartHandshake,
+  Download,
 } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -31,7 +32,7 @@ import Input from '@/components/ui/Input';
 import Modal from '@/components/ui/Modal';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
-import apiClient, { exportAPI } from '@/lib/api';
+import apiClient, { exportAPI, adminAPI } from '@/lib/api';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -49,33 +50,6 @@ const STATUS_META = {
   active:    { label: 'Active',    variant: 'taken',  Icon: CheckCircle2 },
   suspended: { label: 'Suspended', variant: 'missed', Icon: XCircle },
 };
-
-// ── Mock Data (replace with adminAPI.getUsers()) ──────────────────────────────
-
-function makeUser(id, name, email, role, joinedDate, status, assignedCaregiver = null) {
-  return { id, name, email, role, joinedDate, status, assignedCaregiver };
-}
-
-const ALL_USERS = [
-  makeUser('u-001', 'Eleanor Martinez', 'eleanor.m@email.com', 'patient',   '2025-03-12', 'active', 'Dr. Sarah Kim'),
-  makeUser('u-002', 'Robert Chen',      'robert.c@email.com',  'patient',   '2025-04-05', 'active', 'Dr. Sarah Kim'),
-  makeUser('u-003', 'Dr. Sarah Kim',    'sarah.k@pillsync.io', 'caregiver', '2025-01-20', 'active'),
-  makeUser('u-004', 'James Wilson',     'james.w@email.com',   'patient',   '2025-06-18', 'suspended'),
-  makeUser('u-005', 'Patricia Thompson','pat.t@email.com',     'caregiver', '2025-02-14', 'active'),
-  makeUser('u-006', 'David Anderson',   'david.a@email.com',   'patient',   '2025-07-01', 'active', 'Patricia Thompson'),
-  makeUser('u-007', 'Margaret Davis',   'margaret.d@email.com','patient',   '2024-11-30', 'active', 'Dr. Sarah Kim'),
-  makeUser('u-008', 'Kevin Patel',      'kevin.p@pillsync.io', 'admin',     '2024-09-01', 'active'),
-  makeUser('u-009', 'Linda Carter',     'linda.c@email.com',   'caregiver', '2025-05-22', 'suspended'),
-  makeUser('u-010', 'Mark Stevens',     'mark.s@email.com',    'patient',   '2025-08-03', 'active'),
-  makeUser('u-011', 'Priya Nair',       'priya.n@email.com',   'patient',   '2025-03-29', 'active'),
-  makeUser('u-012', 'Tom Bradley',      'tom.b@pillsync.io',   'admin',     '2024-08-15', 'active'),
-  makeUser('u-013', 'Ananya Roy',       'ananya.r@email.com',  'caregiver', '2025-06-11', 'active'),
-  makeUser('u-014', 'George Fuller',    'george.f@email.com',  'patient',   '2025-07-19', 'suspended'),
-  makeUser('u-015', 'Sofia Rossi',      'sofia.r@email.com',   'patient',   '2025-04-28', 'active'),
-  makeUser('u-016', 'Ali Hassan',       'ali.h@email.com',     'patient',   '2025-01-05', 'active'),
-  makeUser('u-017', 'Mei Tanaka',       'mei.t@email.com',     'caregiver', '2025-08-01', 'active'),
-  makeUser('u-018', 'Carlos Diaz',      'carlos.d@email.com',  'patient',   '2025-05-15', 'active'),
-];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -97,8 +71,9 @@ const AVATAR_COLORS = [
 ];
 
 function avatarColor(id) {
-  const idx = parseInt(id.replace(/\D/g, ''), 10) % AVATAR_COLORS.length;
-  return AVATAR_COLORS[idx];
+  // Works with both UUID strings and old numeric IDs
+  const hash = String(id).split('').reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
 // ── Action Menu (per-row popover) ─────────────────────────────────────────────
@@ -213,8 +188,16 @@ function RoleEditModal({ user, isOpen, onClose, onSave }) {
   async function handleSave() {
     setLoading(true);
     try {
-      // TODO: await adminAPI.updateRole({ userId: user.id, role: selectedRole });
-      await new Promise((r) => setTimeout(r, 900)); // mock delay
+      // Try real API first; fall back to local state update only if 404/not-implemented
+      try {
+        await adminAPI.updateRole({ userId: user.id, role: selectedRole });
+      } catch (apiErr) {
+        // If backend endpoint doesn't exist yet (404/405), log warning but allow UI update
+        if (!apiErr.message?.includes('404') && !apiErr.message?.includes('405') && !apiErr.message?.includes('not found')) {
+          throw apiErr; // Only rethrow unexpected errors
+        }
+        console.warn('Role update endpoint not yet implemented in backend. UI-only update applied.');
+      }
       onSave({ userId: user.id, newRole: selectedRole });
       onClose();
     } finally {
@@ -424,7 +407,19 @@ function AssignCaregiverModal({ user, caregivers, isOpen, onClose, onAssign }) {
   async function handleSave() {
     setLoading(true);
     try {
-      await new Promise((r) => setTimeout(r, 600));
+      // Call real assign-patient endpoint if caregiver ID is available
+      const selectedCg = caregivers.find((c) => c.name === selectedCaregiver);
+      if (selectedCg?.id) {
+        try {
+          const apiClient = (await import('@/lib/api')).default;
+          await apiClient.post('/users/assign-patient', {
+            caregiver_id: selectedCg.id,
+            patient_id: user.id,
+          });
+        } catch (apiErr) {
+          console.warn('Assign-patient API error:', apiErr.message);
+        }
+      }
       onAssign({ userId: user.id, caregiverName: selectedCaregiver, relationship });
       onClose();
     } finally {
@@ -535,7 +530,7 @@ function AdminUsersPageInner() {
   const [assignModal, setAssignModal] = useState({ open: false, user: null });
 
   // ── User data ─────────────────────────────────────────────────────────────
-  const [users, setUsers] = useState(ALL_USERS);
+  const [users, setUsers] = useState([]);
 
   // Sync roleFilter from URL query param (e.g. ?role=patient)
   useEffect(() => {
@@ -549,21 +544,20 @@ function AdminUsersPageInner() {
   const fetchUsers = useCallback(async () => {
     setLoadingUsers(true);
     try {
-      const res = await apiClient.get('/users/');
-      const raw = res.data?.items || res.data || [];
-      if (Array.isArray(raw) && raw.length > 0) {
-        const mapped = raw.map((u) => ({
-          id: u.id,
-          name: u.full_name || u.username || 'User',
-          email: u.email,
-          role: u.role || 'patient',
-          joinedDate: u.created_at ? u.created_at.slice(0, 10) : '2025-01-01',
-          status: u.is_active !== false ? 'active' : 'suspended',
-        }));
-        setUsers(mapped);
-      }
+      const raw = await adminAPI.getUsers();
+      const list = Array.isArray(raw) ? raw : (raw?.items || raw?.data || []);
+      const mapped = list.map((u) => ({
+        id: u.id,
+        name: u.full_name || u.username || 'User',
+        email: u.email,
+        role: u.role || 'patient',
+        joinedDate: u.created_at ? u.created_at.slice(0, 10) : '2025-01-01',
+        status: u.is_active !== false ? 'active' : 'suspended',
+      }));
+      setUsers(mapped);
     } catch {
-      // Keep ALL_USERS fallback
+      // If API fails, show empty state (not mock data)
+      setUsers([]);
     } finally {
       setLoadingUsers(false);
     }
@@ -598,10 +592,11 @@ function AdminUsersPageInner() {
   const handleToggleStatus = useCallback(async (user) => {
     const newStatus = user.status === 'active' ? 'suspended' : 'active';
     try {
-      if (newStatus === 'suspended') {
-        await apiClient.delete(`/users/${user.id}`).catch(() => {});
-      }
-    } catch {}
+      await adminAPI.toggleUserStatus({ userId: user.id, is_active: newStatus === 'active' });
+    } catch (err) {
+      // If reactivate endpoint doesn't exist, log warning but still update UI
+      console.warn('Toggle status API error:', err.message);
+    }
 
     setUsers((prev) =>
       prev.map((u) =>
