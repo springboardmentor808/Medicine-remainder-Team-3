@@ -42,8 +42,7 @@ async def create_medicine(
         notes=data.notes,
     )
     db.add(medicine)
-    await db.flush()
-    await db.commit()
+    await db.flush()  # Get generated UUID — commit handled by get_db dependency
     await db.refresh(medicine)
     return medicine
 
@@ -160,8 +159,7 @@ async def update_medicine(
             value = value.value
         setattr(medicine, field, value)
 
-    await db.flush()
-    await db.commit()
+    await db.flush()  # Commit handled by get_db dependency
     await db.refresh(medicine)
     return medicine
 
@@ -176,8 +174,7 @@ async def delete_medicine(
 ) -> None:
     """Hard delete a medicine record and its cascaded children."""
     await db.delete(medicine)
-    await db.flush()
-    await db.commit()
+    await db.flush()  # Commit handled by get_db dependency
 
 
 # ---------------------------------------------------------------------------
@@ -207,8 +204,7 @@ async def update_stock(
     elif adjustment is not None:
         medicine.current_stock = max(0, previous_stock + adjustment)
 
-    await db.flush()
-    await db.commit()
+    await db.flush()  # Commit handled by get_db dependency
     await db.refresh(medicine)
     return previous_stock, medicine.current_stock
 

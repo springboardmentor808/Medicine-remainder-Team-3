@@ -1,11 +1,11 @@
 'use client';
 
-import React from 'react';
+import React, { useRef, useCallback } from 'react';
 
 /**
  * RoleSelectorForm — PillSync
  * Design: Stitch screen "Role Selection" (9bc972cf4f0b48e292c40a8f3e5d8206)
- * Reusable role selection radio card group.
+ * Reusable role selection radio card group with full ARIA & keyboard support.
  * Used on: SelectRolePage, RegisterPage
  *
  * Usage:
@@ -42,26 +42,67 @@ export default function RoleSelectorForm({
   showFeatures = false,
   className = '',
 }) {
+  const groupRef = useRef(null);
+
+  // Handle keyboard navigation: Arrow keys move between options, Space/Enter select
+  const handleKeyDown = useCallback((e, roleValue, index) => {
+    let nextIndex = null;
+
+    switch (e.key) {
+      case 'ArrowDown':
+      case 'ArrowRight':
+        e.preventDefault();
+        nextIndex = (index + 1) % ROLES.length;
+        break;
+      case 'ArrowUp':
+      case 'ArrowLeft':
+        e.preventDefault();
+        nextIndex = (index - 1 + ROLES.length) % ROLES.length;
+        break;
+      case ' ':
+      case 'Enter':
+        e.preventDefault();
+        onChange(roleValue);
+        return;
+      default:
+        return;
+    }
+
+    if (nextIndex !== null) {
+      onChange(ROLES[nextIndex].value);
+      // Focus the next card
+      const cards = groupRef.current?.querySelectorAll('[role="radio"]');
+      cards?.[nextIndex]?.focus();
+    }
+  }, [onChange]);
+
   return (
     <div
+      ref={groupRef}
       role="radiogroup"
       aria-label="Select your role"
       id="role-selection-group"
       className={`flex flex-col gap-sm relative z-10 ${className}`}
     >
-      {ROLES.map(({ value: roleValue, icon, title, description, features }) => {
+      {ROLES.map(({ value: roleValue, icon, title, description, features }, index) => {
         const isSelected = value === roleValue;
         return (
-          <label
+          <div
             key={roleValue}
+            role="radio"
+            aria-checked={isSelected}
+            aria-label={`${title} — ${description}`}
+            tabIndex={isSelected || (!value && index === 0) ? 0 : -1}
+            onClick={() => onChange(roleValue)}
+            onKeyDown={(e) => handleKeyDown(e, roleValue, index)}
             className={[
               // Base
               'group relative cursor-pointer w-full rounded-xl',
               'flex items-center p-md gap-md',
               'transition-all duration-300',
               'outline-none',
-              // Focus ring on inner radio
-              'focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2',
+              // Focus ring
+              'focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
               // Hover
               'hover:shadow-elevated',
               // Selected state
@@ -70,16 +111,6 @@ export default function RoleSelectorForm({
                 : 'bg-surface border border-outline-variant/60 hover:border-primary/30',
             ].join(' ')}
           >
-            {/* Hidden radio */}
-            <input
-              type="radio"
-              name="role"
-              value={roleValue}
-              checked={isSelected}
-              onChange={() => onChange(roleValue)}
-              className="sr-only"
-            />
-
             {/* Selection background overlay */}
             <div
               className={[
@@ -142,7 +173,7 @@ export default function RoleSelectorForm({
                 </span>
               )}
             </div>
-          </label>
+          </div>
         );
       })}
     </div>

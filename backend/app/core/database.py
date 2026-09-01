@@ -25,8 +25,11 @@ class Base(DeclarativeBase):
 # SQLite Foreign Key Enforcement
 # ---------------------------------------------------------------------------
 def _enable_sqlite_fk(dbapi_conn, connection_record):
-    """Enable foreign key constraint enforcement on every SQLite connection."""
-    cursor = dbapi_conn.execute("PRAGMA foreign_keys=ON")
+    """Enable foreign key constraint enforcement and WAL mode on SQLite."""
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=30000")
     cursor.close()
 
 
@@ -39,7 +42,7 @@ if "sqlite" in db_url:
     engine = create_async_engine(
         db_url,
         echo=settings.DEBUG,
-        connect_args={"check_same_thread": False},
+        connect_args={"check_same_thread": False, "timeout": 30},
     )
     event.listen(engine.sync_engine, "connect", _enable_sqlite_fk)
 else:

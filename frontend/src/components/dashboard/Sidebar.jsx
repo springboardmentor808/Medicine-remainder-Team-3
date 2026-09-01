@@ -73,10 +73,12 @@ export default function Sidebar() {
     } catch {}
   }, []);
 
-  // Determine effective role from current path or stored user role
+  // Determine effective role from stored user role (primary source of truth)
+  // Fallback to path-based detection only when no user data is available
+  const userRole = user?.role || null;
   const isAdminPath = pathname?.startsWith('/admin') || pathname === '/dashboard/admin';
   const isCaregiverPath = pathname === '/dashboard/caregiver';
-  const effectiveRole = isAdminPath ? 'admin' : isCaregiverPath ? 'caregiver' : (user?.role || 'patient');
+  const effectiveRole = userRole || (isAdminPath ? 'admin' : isCaregiverPath ? 'caregiver' : 'patient');
 
   const items = NAV_ITEMS[effectiveRole] || NAV_ITEMS.patient;
   const initials = (user?.full_name || user?.name || user?.username || (effectiveRole === 'admin' ? 'AU' : 'U'))

@@ -45,13 +45,14 @@ from app.services.email_service import (
     send_password_reset_link,
     send_welcome_email,
 )
+from app.core.redis import cache_set, cache_get, cache_delete
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-# Temporary in-memory OTP cache: { "email": { "otp": "123456", "expires_at": float } }
-_OTP_STORE = {}
+# Note: OTPs are now stored in Redis (or InMemoryRedisFallback) via cache_set/cache_get
+# under key pattern 'otp:{email}' with 10-minute TTL for multi-worker safety.
 
 
 # ===================================================================
@@ -71,17 +72,21 @@ async def register(
     """
     Register a new user.
 
-    - Validates username and email uniqueness.
+    - Validates username and email uniqueness (case-insensitive).
     - Hashes the password with bcrypt.
     - Issues JWT access and refresh tokens.
     - Sends welcome email.
     """
-    # Check for existing username or email
+    # Normalize inputs to prevent case-variant duplicates
+    clean_username = payload.username.strip().lower()
+    clean_email = payload.email.strip().lower()
+
+    # Case-insensitive uniqueness check prevents MultipleResultsFound on login
     existing = await db.execute(
         select(User).where(
             or_(
-                User.username == payload.username,
-                User.email == payload.email,
+                func.lower(User.username) == clean_username,
+                func.lower(User.email) == clean_email,
             )
         )
     )
@@ -91,19 +96,18 @@ async def register(
             detail="Username or email already registered.",
         )
 
-    # Create new user
+    # Create new user with normalized fields
     new_user = User(
-        username=payload.username,
-        email=payload.email,
+        username=clean_username,
+        email=clean_email,
         hashed_password=hash_password(payload.password),
-        full_name=payload.full_name,
-        phone=payload.phone,
+        full_name=payload.full_name.strip(),
+        phone=payload.phone.strip() if payload.phone else None,
         role=payload.role,
     )
 
     db.add(new_user)
-    await db.flush()  # Flush to get the generated UUID
-    await db.commit()
+    await db.flush()  # Flush to get the generated UUID — commit handled by get_db
     await db.refresh(new_user)
 
     # Generate tokens
@@ -406,12 +410,10 @@ async def forgot_password(
 
     # Generate 6-digit numeric OTP
     otp_code = f"{random.randint(100000, 999999)}"
-    expires_at = time.time() + (10 * 60)  # 10 minutes validity
+    otp_ttl = 10 * 60  # 10 minutes validity
 
-    _OTP_STORE[email_clean] = {
-        "otp": otp_code,
-        "expires_at": expires_at,
-    }
+    # Store OTP in Redis (or in-memory fallback) for multi-worker safety
+    await cache_set(f"otp:{email_clean}", {"otp": otp_code}, ttl_seconds=otp_ttl)
 
     # Send OTP email
     try:
@@ -446,7 +448,7 @@ async def forgot_password(
 async def verify_otp(payload: VerifyOtpRequest):
     """Verify that the submitted OTP matches."""
     email_clean = payload.email.strip().lower()
-    stored = _OTP_STORE.get(email_clean)
+    stored = await cache_get(f"otp:{email_clean}")
 
     if not stored:
         raise HTTPException(
@@ -454,14 +456,7 @@ async def verify_otp(payload: VerifyOtpRequest):
             detail="No active OTP found for this email. Please request a new one.",
         )
 
-    if time.time() > stored["expires_at"]:
-        _OTP_STORE.pop(email_clean, None)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="OTP has expired. Please request a new one.",
-        )
-
-    if stored["otp"] != payload.otp.strip():
+    if stored.get("otp") != payload.otp.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid OTP code. Please check and try again.",
@@ -482,12 +477,10 @@ async def resend_otp(payload: ForgotPasswordRequest):
 
     # Generate new OTP
     otp_code = f"{random.randint(100000, 999999)}"
-    expires_at = time.time() + (10 * 60)
+    otp_ttl = 10 * 60
 
-    _OTP_STORE[email_clean] = {
-        "otp": otp_code,
-        "expires_at": expires_at,
-    }
+    # Store in Redis (or in-memory fallback)
+    await cache_set(f"otp:{email_clean}", {"otp": otp_code}, ttl_seconds=otp_ttl)
 
     # Send via email
     try:
@@ -518,9 +511,9 @@ async def reset_password(
 ):
     """Reset user password after OTP verification."""
     email_clean = payload.email.strip().lower()
-    stored = _OTP_STORE.get(email_clean)
+    stored = await cache_get(f"otp:{email_clean}")
 
-    if not stored or stored["otp"] != payload.otp.strip():
+    if not stored or stored.get("otp") != payload.otp.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired OTP. Please request a new verification code.",
@@ -538,10 +531,8 @@ async def reset_password(
 
     # Update password
     user.hashed_password = hash_password(payload.new_password)
-    await db.commit()
-    await db.refresh(user)
 
-    # Clear OTP
-    _OTP_STORE.pop(email_clean, None)
+    # Clear OTP from Redis
+    await cache_delete(f"otp:{email_clean}")
 
     return MessageResponse(message="Password reset successfully! You can now log in with your new password.")

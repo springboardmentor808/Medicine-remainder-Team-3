@@ -16,9 +16,16 @@ export default function SelectRolePage() {
   const router = useRouter();
   const [selected, setSelected] = useState('');
 
+  // Clear any stale role from a previously abandoned flow on mount
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('pillsync_selected_role');
+    }
+  }, []);
+
   const handleContinue = () => {
     if (!selected) return;
-    // Store role selection and route to login
+    // Store role selection and route to register
     if (typeof window !== 'undefined') {
       sessionStorage.setItem('pillsync_selected_role', selected);
     }
