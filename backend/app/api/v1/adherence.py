@@ -85,21 +85,32 @@ async def create_schedules(
 )
 async def get_schedules(
     medicine_id: Optional[uuid.UUID] = Query(None, description="Filter by medicine ID"),
+    patient_id: Optional[uuid.UUID] = Query(None, description="Filter by patient ID (Caregiver/Admin)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    schedules = await AdherenceService.get_user_schedules(db, current_user.id, medicine_id)
+    target_user_id = current_user.id
+    if patient_id:
+        u_role = str(current_user.role).lower()
+        if "caregiver" in u_role or "admin" in u_role:
+            target_user_id = patient_id
+
+    schedules = await AdherenceService.get_user_schedules(db, target_user_id, medicine_id)
     return [
         ScheduleResponse(
             id=str(s.id),
             user_id=str(s.user_id),
             medicine_id=str(s.medicine_id),
-            scheduled_time=s.scheduled_time.strftime("%H:%M"),
+            scheduled_time=s.scheduled_time.strftime("%H:%M") if s.scheduled_time else "08:00",
             day_of_week=s.day_of_week,
             frequency_pattern=s.frequency_pattern,
             dose_label=s.dose_label,
             is_active=s.is_active,
             created_at=s.created_at,
+            medicine_name=s.medicine.name if s.medicine else None,
+            dosage=s.medicine.dosage if s.medicine else None,
+            disease_category=s.medicine.disease_category if s.medicine else None,
+            notes=s.medicine.notes if s.medicine else None,
         )
         for s in schedules
     ]
@@ -119,6 +130,7 @@ async def delete_schedule(
     return {"message": f"Schedule {schedule_id} deactivated successfully."}
 
 
+@router.post("", response_model=DoseLogResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 @router.post(
     "/record",
     response_model=DoseLogResponse,
@@ -137,7 +149,7 @@ async def record_action(
         medicine_id=str(dose_log.medicine_id),
         schedule_id=str(dose_log.schedule_id) if dose_log.schedule_id else None,
         scheduled_date=dose_log.scheduled_date.isoformat(),
-        scheduled_time=dose_log.scheduled_time.strftime("%H:%M"),
+        scheduled_time=dose_log.scheduled_time.strftime("%H:%M") if dose_log.scheduled_time else "08:00",
         action=_map_reminder_action(dose_log.action),
         action_time=dose_log.action_time,
         snooze_minutes=dose_log.snooze_minutes,

@@ -2,10 +2,18 @@
 const path = require('path');
 
 const nextConfig = {
-  reactStrictMode: true,
+  // ── Performance: disable double-render in dev (strict mode causes 2x renders) ──
+  reactStrictMode: false,
 
-  // ── @/ path alias ─────────────────────────────────────────────────────
-  // For webpack (production builds)
+  // ── Turbopack: much faster HMR and cold starts (Next.js 15 built-in) ────────
+  // Use `next dev --turbopack` or set this flag
+  turbopack: {
+    resolveAlias: {
+      '@': path.join(__dirname, 'src'),
+    },
+  },
+
+  // ── @/ path alias for webpack (production builds) ─────────────────────────
   webpack(config) {
     config.resolve.alias = {
       ...config.resolve.alias,
@@ -14,7 +22,13 @@ const nextConfig = {
     return config;
   },
 
-  // ── API Proxy ──────────────────────────────────────────────────────────
+  // ── Optimize large icon/component packages ────────────────────────────────
+  experimental: {
+    optimizePackageImports: ['lucide-react'],
+    cpus: 1,
+  },
+
+  // ── API Proxy to FastAPI backend ──────────────────────────────────────────
   async rewrites() {
     return [
       {
@@ -24,7 +38,7 @@ const nextConfig = {
     ];
   },
 
-  // ── Image domains (for future prescription image uploads) ─────────────
+  // ── Image domains ─────────────────────────────────────────────────────────
   images: {
     remotePatterns: [
       { protocol: 'http',  hostname: 'localhost' },

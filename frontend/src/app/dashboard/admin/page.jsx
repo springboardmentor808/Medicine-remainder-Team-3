@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Users,
@@ -30,17 +30,17 @@ import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import LogoutButton from '@/components/ui/LogoutButton';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
-import { exportAPI } from '@/lib/api';
+import { exportAPI, adminAPI, medicineAPI } from '@/lib/api';
 
-// ── Mock Data (replace with API: GET /admin/metrics, /admin/audit-log) ────────
+// ── Base Metric Templates ───────────────────────────────────────────────────
 
-const METRICS = [
+const DEFAULT_METRICS = [
   {
     id: 'patients',
     label: 'Active Patients',
-    value: 1_284,
-    delta: +47,
-    period: 'vs last 7 days',
+    value: 0,
+    delta: 0,
+    period: 'live registered',
     icon: Users,
     color: 'primary',
     href: '/admin/users?role=patient',
@@ -48,9 +48,9 @@ const METRICS = [
   {
     id: 'caregivers',
     label: 'Total Caregivers',
-    value: 342,
-    delta: +12,
-    period: 'vs last 7 days',
+    value: 0,
+    delta: 0,
+    period: 'live registered',
     icon: Heart,
     color: 'tertiary',
     href: '/admin/users?role=caregiver',
@@ -58,19 +58,19 @@ const METRICS = [
   {
     id: 'prescriptions',
     label: 'Prescriptions Tracked',
-    value: 8_619,
-    delta: +203,
-    period: 'vs last 7 days',
+    value: 0,
+    delta: 0,
+    period: 'in catalog',
     icon: FileText,
     color: 'secondary',
     href: '/medicines',
   },
   {
     id: 'alerts',
-    label: 'Active System Alerts',
-    value: 3,
-    delta: -2,
-    period: 'vs last 7 days',
+    label: 'System Status',
+    value: 0,
+    delta: 0,
+    period: 'active issues',
     icon: AlertTriangle,
     color: 'error',
     href: '/admin/health',
@@ -416,7 +416,81 @@ function AuditRow({ action, detail, actor, timestamp, severity }) {
 
 export default function AdminDashboardPage() {
   const [auditFilter, setAuditFilter] = useState('all');
-  const [lastRefreshed] = useState(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
+  const [lastRefreshed, setLastRefreshed] = useState(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
+  const [liveMetrics, setLiveMetrics] = useState(DEFAULT_METRICS);
+  const [totalUserCount, setTotalUserCount] = useState(0);
+
+  // Fetch live stats from backend
+  useEffect(() => {
+    (async () => {
+      try {
+        const [usersRes, medsRes] = await Promise.allSettled([
+          adminAPI.getUsers(),
+          medicineAPI.list(),
+        ]);
+
+        const usersList = usersRes.status === 'fulfilled' && Array.isArray(usersRes.value)
+          ? usersRes.value
+          : (usersRes.status === 'fulfilled' && usersRes.value?.items ? usersRes.value.items : []);
+        
+        const medsList = medsRes.status === 'fulfilled' && Array.isArray(medsRes.value)
+          ? medsRes.value
+          : (medsRes.status === 'fulfilled' && medsRes.value?.items ? medsRes.value.items : []);
+
+        const patientCount = usersList.filter((u) => u.role === 'patient').length;
+        const caregiverCount = usersList.filter((u) => u.role === 'caregiver').length;
+        const medCount = medsList.length;
+
+        setTotalUserCount(usersList.length);
+
+        setLiveMetrics([
+          {
+            id: 'patients',
+            label: 'Active Patients',
+            value: patientCount,
+            delta: patientCount > 0 ? patientCount : 0,
+            period: 'registered accounts',
+            icon: Users,
+            color: 'primary',
+            href: '/admin/users?role=patient',
+          },
+          {
+            id: 'caregivers',
+            label: 'Total Caregivers',
+            value: caregiverCount,
+            delta: caregiverCount > 0 ? caregiverCount : 0,
+            period: 'registered accounts',
+            icon: Heart,
+            color: 'tertiary',
+            href: '/admin/users?role=caregiver',
+          },
+          {
+            id: 'prescriptions',
+            label: 'Prescriptions Tracked',
+            value: medCount,
+            delta: medCount > 0 ? medCount : 0,
+            period: 'in catalog',
+            icon: FileText,
+            color: 'secondary',
+            href: '/medicines',
+          },
+          {
+            id: 'alerts',
+            label: 'System Status',
+            value: 0,
+            delta: 0,
+            period: '0 critical incidents',
+            icon: AlertTriangle,
+            color: 'error',
+            href: '/admin/health',
+          },
+        ]);
+        setLastRefreshed(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
+      } catch (err) {
+        console.error('Failed to fetch admin stats:', err);
+      }
+    })();
+  }, []);
 
   const healthyCount  = SYSTEM_STATUS.filter((s) => s.status === 'healthy').length;
   const degradedCount = SYSTEM_STATUS.filter((s) => s.status === 'degraded').length;
@@ -496,7 +570,7 @@ export default function AdminDashboardPage() {
         {/* ── 1. Key Metric Cards ────────────────────────────────────────── */}
         <section>
           <div className="grid grid-cols-2 xl:grid-cols-4 gap-md">
-            {METRICS.map((m) => (
+            {liveMetrics.map((m) => (
               <MetricCard key={m.id} {...m} />
             ))}
           </div>

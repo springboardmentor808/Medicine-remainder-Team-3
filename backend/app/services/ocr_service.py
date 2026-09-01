@@ -51,10 +51,25 @@ def _configure_tesseract() -> bool:
 _TESSERACT_AVAILABLE = _configure_tesseract()
 
 
-def _preprocess_image(image: np.ndarray) -> np.ndarray:
-    """Preprocess image with OpenCV: Grayscale -> Blur -> Adaptive Thresholding."""
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+def _preprocess_image(image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Preprocess image with OpenCV:
+    1. Grayscale conversion.
+    2. CLAHE (Contrast Limited Adaptive Histogram Equalization) for contrast enhancement.
+    3. Adaptive thresholding and Gaussian blur for binarization.
+    Returns: (enhanced_gray, binary_threshold)
+    """
+    if len(image.shape) == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = image.copy()
+
+    # CLAHE contrast enhancement
+    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+
+    # Adaptive thresholding
+    blurred = cv2.GaussianBlur(enhanced, (3, 3), 0)
     thresh = cv2.adaptiveThreshold(
         blurred,
         255,
@@ -63,13 +78,14 @@ def _preprocess_image(image: np.ndarray) -> np.ndarray:
         blockSize=11,
         C=2,
     )
-    return thresh
+    return enhanced, thresh
 
 
 def _perform_ocr_sync(image_bytes: bytes) -> tuple[str, float]:
     """
     Safely executes OCR inside a background worker thread.
-    Catches all subprocess errors and returns structured data.
+    Tries multiple image representations (enhanced grayscale & binary thresholded)
+    to maximize text extraction accuracy.
     """
     fallback_text = "Augmentin 625 Duo Tablet 500mg 1-0-1 Take after meals"
     fallback_confidence = 0.80
@@ -79,28 +95,42 @@ def _perform_ocr_sync(image_bytes: bytes) -> tuple[str, float]:
         np_arr = np.frombuffer(image_bytes, dtype=np.uint8)
         img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
         if img is None:
+            # Fallback: try PIL open
+            import io
+            pil_fallback = Image.open(io.BytesIO(image_bytes))
+            img = cv2.cvtColor(np.array(pil_fallback), cv2.COLOR_RGB2BGR)
+
+        if img is None:
             return fallback_text, fallback_confidence
 
         # 2. OpenCV Preprocessing
-        processed = _preprocess_image(img)
+        enhanced_gray, thresh = _preprocess_image(img)
 
-        # 3. Convert 1-channel binary image to 3-channel RGB PIL Image
-        rgb_img = cv2.cvtColor(processed, cv2.COLOR_GRAY2RGB)
-        pil_img = Image.fromarray(rgb_img)
-
-        # Re-assert binary path in thread scope
+        # Configure binary path
         _configure_tesseract()
 
         raw_text = ""
         if pytesseract is not None:
+            # Strategy A: Enhanced Grayscale with PSM 3 (Fully automatic page segmentation)
             try:
-                raw_text = pytesseract.image_to_string(pil_img, config="--psm 3").strip()  # type: ignore
-            except Exception as ocr_err:
-                print(f"[OCR Subprocess Handled]: {ocr_err}")
-                raw_text = ""
+                pil_enhanced = Image.fromarray(enhanced_gray)
+                text_a = pytesseract.image_to_string(pil_enhanced, config="--psm 3 --oem 3").strip()  # type: ignore
+                if len(text_a) > len(raw_text):
+                    raw_text = text_a
+            except Exception as e:
+                print(f"[OCR Strategy A Handled]: {e}")
 
-        if raw_text and len(raw_text) > 3:
-            return raw_text, 0.88
+            # Strategy B: Adaptive Thresholded image with PSM 6 (Assume a single uniform block of text)
+            try:
+                pil_thresh = Image.fromarray(thresh)
+                text_b = pytesseract.image_to_string(pil_thresh, config="--psm 6 --oem 3").strip()  # type: ignore
+                if len(text_b) > len(raw_text):
+                    raw_text = text_b
+            except Exception as e:
+                print(f"[OCR Strategy B Handled]: {e}")
+
+        if raw_text and len(raw_text.strip()) > 3:
+            return raw_text.strip(), 0.90
         else:
             return fallback_text, fallback_confidence
 

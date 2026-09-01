@@ -5,12 +5,19 @@ Provides endpoints for:
     - GET   /pending          — Get pending due reminders from Redis queue.
     - GET   /overdue          — Get past-due reminders from Redis queue.
     - POST  /schedule-today   — Bulk-load today's schedules into Redis reminder queue.
+    - POST  /notify           — Send test or broadcast notification.
+    - POST  /notify-patient   — Send direct medication reminder to a specific patient.
     - GET   /notifications    — Get user's in-app notification list.
     - PATCH /notifications/{id}/read — Mark a notification as read.
     - GET   /stats            — Get reminder queue statistics.
 """
 
+import uuid
+from datetime import datetime, timezone
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -18,9 +25,12 @@ from app.core.security import get_current_user
 from app.models.user import User
 from app.services.adherence_service import AdherenceService
 from app.services.notification_service import (
+    NotificationChannel,
+    NotificationType,
     get_unread_count,
     get_user_notifications,
     mark_notification_read,
+    send_notification,
 )
 from app.services.reminder_service import (
     get_overdue_reminders,
@@ -31,6 +41,19 @@ from app.services.reminder_service import (
 
 
 router = APIRouter(prefix="/reminders", tags=["Reminders & Notifications"])
+
+
+class NotificationBroadcastRequest(BaseModel):
+    channel: Optional[str] = "all"
+    title: str = Field(..., example="Medication Reminder")
+    message: str = Field(..., example="Please take your scheduled dose.")
+    patient_id: Optional[str] = None
+
+
+class PatientReminderRequest(BaseModel):
+    patient_id: uuid.UUID = Field(..., description="Target patient UUID")
+    message: Optional[str] = "Please take your scheduled medication."
+    title: Optional[str] = "Caregiver Dose Reminder"
 
 
 # ---------------------------------------------------------------------------
@@ -85,19 +108,31 @@ async def schedule_today_endpoint(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Fetch active schedules from DB and bulk-load into Redis queue."""
+    """Fetch active schedules from DB and bulk-load into Redis queue for today."""
     schedules = await AdherenceService.get_user_schedules(db, current_user.id)
 
+    today = datetime.now(timezone.utc)
     reminder_items = []
     for s in schedules:
         if not s.medicine:
             continue
 
-        # Compute scheduled timestamp for today
-        now = s.created_at
-        scheduled_dt = now.replace(
-            hour=s.scheduled_time.hour,
-            minute=s.scheduled_time.minute,
+        # Determine scheduled hour and minute
+        hour, minute = 8, 0
+        if hasattr(s.scheduled_time, "hour"):
+            hour = s.scheduled_time.hour
+            minute = s.scheduled_time.minute
+        elif isinstance(s.scheduled_time, str) and ":" in s.scheduled_time:
+            parts = s.scheduled_time.split(":")
+            try:
+                hour = int(parts[0])
+                minute = int(parts[1][:2])
+            except ValueError:
+                pass
+
+        scheduled_dt = today.replace(
+            hour=hour,
+            minute=minute,
             second=0,
             microsecond=0,
         )
@@ -118,6 +153,61 @@ async def schedule_today_endpoint(
         "message": f"Enqueued {count} reminder(s) for today.",
         "enqueued_count": count,
     }
+
+
+# ---------------------------------------------------------------------------
+# POST /notify — Broadcast / Test Notification
+# ---------------------------------------------------------------------------
+@router.post(
+    "/notify",
+    status_code=status.HTTP_200_OK,
+    summary="Send Broadcast Notification",
+    description="Dispatch an in-app and channel notification to user or broadcast.",
+)
+async def send_broadcast_notification(
+    payload: NotificationBroadcastRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    target_uid = current_user.id
+    if payload.patient_id:
+        try:
+            target_uid = uuid.UUID(payload.patient_id)
+        except ValueError:
+            pass
+
+    result = await send_notification(
+        user_id=target_uid,
+        title=payload.title,
+        message=payload.message,
+        notification_type=NotificationType.REMINDER,
+        channel=NotificationChannel.IN_APP,
+        metadata={"sender": str(current_user.id), "channel": payload.channel},
+    )
+    return {"message": "Notification dispatched successfully.", "data": result}
+
+
+# ---------------------------------------------------------------------------
+# POST /notify-patient — Direct Caregiver-to-Patient Reminder
+# ---------------------------------------------------------------------------
+@router.post(
+    "/notify-patient",
+    status_code=status.HTTP_200_OK,
+    summary="Notify Patient Directly",
+    description="Caregiver or Admin dispatches an immediate dose reminder alert to a patient.",
+)
+async def notify_patient_endpoint(
+    payload: PatientReminderRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    result = await send_notification(
+        user_id=payload.patient_id,
+        title=payload.title or "Caregiver Medication Reminder",
+        message=payload.message or "Please take your scheduled medication now.",
+        notification_type=NotificationType.REMINDER,
+        channel=NotificationChannel.IN_APP,
+        metadata={"caregiver_id": str(current_user.id), "sender_name": current_user.full_name or current_user.username},
+    )
+    return {"message": "Dose reminder dispatched to patient.", "notification": result}
 
 
 # ---------------------------------------------------------------------------

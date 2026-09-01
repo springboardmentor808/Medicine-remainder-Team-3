@@ -12,7 +12,7 @@ import ErrorMessage from '@/components/ui/ErrorMessage';
 import AddMedicineModal from '@/components/forms/AddMedicineModal';
 import EditMedicineModal from '@/components/forms/EditMedicineModal';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
-import { medicineAPI, exportAPI } from '@/lib/api';
+import { medicineAPI, exportAPI, patientAPI } from '@/lib/api';
 
 const CATEGORIES = [
   'All',
@@ -25,81 +25,10 @@ const CATEGORIES = [
   'Heart Medications',
 ];
 
-const DEFAULT_FALLBACK_MEDICINES = [
-  {
-    id: 'med-1',
-    name: 'Amlodipine',
-    dosage: '5mg',
-    dosage_form: 'Tablet',
-    frequency: 'Once Daily',
-    food_instruction: 'Take after meal',
-    current_stock: 4,
-    total_stock: 30,
-    prescribing_doctor: 'Dr. Sarah Jenkins',
-    disease_category: 'Blood Pressure',
-    status: 'low_stock',
-    notes: 'Take at 9:00 PM (Night)',
-  },
-  {
-    id: 'med-2',
-    name: 'Lisinopril',
-    dosage: '10mg',
-    dosage_form: 'Tablet',
-    frequency: 'Once Daily',
-    food_instruction: 'Take with water',
-    current_stock: 22,
-    total_stock: 30,
-    prescribing_doctor: 'Dr. Sarah Jenkins',
-    disease_category: 'Blood Pressure',
-    status: 'normal',
-    notes: 'Take at 8:00 AM (Morning)',
-  },
-  {
-    id: 'med-3',
-    name: 'Metformin',
-    dosage: '500mg',
-    dosage_form: 'Tablet',
-    frequency: 'Twice Daily',
-    food_instruction: 'Take with food',
-    current_stock: 45,
-    total_stock: 60,
-    prescribing_doctor: 'Dr. Robert Vance',
-    disease_category: 'Diabetes',
-    status: 'normal',
-    notes: 'Take with breakfast and dinner',
-  },
-  {
-    id: 'med-4',
-    name: 'Levothyroxine',
-    dosage: '50mcg',
-    dosage_form: 'Tablet',
-    frequency: 'Once Daily',
-    food_instruction: '30 mins before breakfast',
-    current_stock: 18,
-    total_stock: 30,
-    prescribing_doctor: 'Dr. Elena Rostova',
-    disease_category: 'Thyroid',
-    status: 'normal',
-    notes: 'Take on empty stomach at 6:30 AM',
-  },
-  {
-    id: 'med-5',
-    name: 'Atorvastatin',
-    dosage: '20mg',
-    dosage_form: 'Tablet',
-    frequency: 'Once Daily',
-    food_instruction: 'With or without food',
-    current_stock: 28,
-    total_stock: 30,
-    prescribing_doctor: 'Dr. Sarah Jenkins',
-    disease_category: 'Heart Medications',
-    status: 'normal',
-    notes: 'Take at 1:00 PM (Afternoon)',
-  },
-];
+
 
 function MedicinesPageInner() {
-  const [medicines, setMedicines] = useState(DEFAULT_FALLBACK_MEDICINES);
+  const [medicines, setMedicines] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [toast, setToast] = useState(null);
@@ -131,18 +60,21 @@ function MedicinesPageInner() {
     setError('');
     try {
       const res = await medicineAPI.list();
-      const items = res.data?.items || res.data;
-      if (Array.isArray(items) && items.length > 0) {
-        setMedicines(items);
-        setIsDemoData(false);
-      } else {
-        setMedicines(DEFAULT_FALLBACK_MEDICINES);
-        setIsDemoData(false);
-      }
+      // Backend returns array directly or wrapped in .medicines / .items / .data
+      const items = Array.isArray(res) ? res : (res?.medicines || res?.items || res?.data || []);
+      setMedicines(Array.isArray(items) ? items : []);
+      setIsDemoData(false);
     } catch (err) {
-      console.log('Using default medicine catalog fallback:', err.message);
-      setMedicines(DEFAULT_FALLBACK_MEDICINES);
-      setIsDemoData(true);
+      const msg = err.message || '';
+      if (msg.toLowerCase().includes('401') || msg.toLowerCase().includes('unauthorized') || msg.toLowerCase().includes('credentials')) {
+        setError('Session expired. Please log in again to view your medicines.');
+      } else if (msg.toLowerCase().includes('cannot connect') || msg.toLowerCase().includes('network')) {
+        setError('Cannot connect to the server. Please ensure the backend is running on port 8000.');
+      } else {
+        setError(msg || 'Failed to load medicines.');
+      }
+      setMedicines([]);
+      setIsDemoData(false);
     } finally {
       setLoading(false);
     }
@@ -165,7 +97,7 @@ function MedicinesPageInner() {
   }, [searchParams]);
 
   // Safe list guard
-  const medList = Array.isArray(medicines) ? medicines : DEFAULT_FALLBACK_MEDICINES;
+  const medList = Array.isArray(medicines) ? medicines : [];
 
   // Filter logic
   const filteredMedicines = medList.filter((m) => {
@@ -190,7 +122,7 @@ function MedicinesPageInner() {
   const handleDelete = async (id, name) => {
     if (!window.confirm(`Are you sure you want to remove ${name}?`)) return;
     try {
-      await medicineAPI.delete(id);
+      await medicineAPI.remove(id);
       setToast({ type: 'success', message: `${name} has been removed from inventory.` });
       fetchMedicines();
     } catch (err) {
@@ -198,16 +130,18 @@ function MedicinesPageInner() {
     }
   };
 
-  // Quick Log Dose
+  // Quick Log Dose — routes through adherence record endpoint
   const handleLogDose = async (med) => {
     try {
-      await medicineAPI.logDose(med.id, {
-        scheduled_time: new Date().toISOString(),
-        taken_at: new Date().toISOString(),
-        notes: 'Logged from Medicine Cabinet page',
+      const today = new Date().toISOString().split('T')[0];
+      const timeNow = new Date().toTimeString().slice(0, 5);
+      await patientAPI.recordAction({
+        medicine_id: med.id,
+        scheduled_date: today,
+        scheduled_time: timeNow,
+        action: 'TAKEN',
       });
       setToast({ type: 'success', message: `Dose logged for ${med.name}!` });
-      fetchMedicines();
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to log dose.' });
     }
@@ -219,9 +153,7 @@ function MedicinesPageInner() {
     if (!stockModalMed) return;
     setUpdatingStock(true);
     try {
-      await medicineAPI.update(stockModalMed.id, {
-        current_stock: Number(newStockVal),
-      });
+      await medicineAPI.updateStock(stockModalMed.id, Number(newStockVal));
       setToast({ type: 'success', message: `Stock updated for ${stockModalMed.name}!` });
       setStockModalMed(null);
       fetchMedicines();
@@ -241,12 +173,12 @@ function MedicinesPageInner() {
     formData.append('file', file);
     try {
       const res = await medicineAPI.ocrScan(formData);
-      const data = res.data;
+      const data = res?.data || res;
       setOcrData(data);
       setIsAddOpen(true);
       setToast({
         type: 'success',
-        message: data.medicine_name
+        message: data?.medicine_name
           ? `Prescription scanned: Detected ${data.medicine_name} (${data.dosage || ''})`
           : 'Prescription scanned! Please review details.',
       });

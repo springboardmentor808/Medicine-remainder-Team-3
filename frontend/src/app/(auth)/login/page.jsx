@@ -57,12 +57,15 @@ function LoginFormContent() {
     if (Object.keys(errs).length) { setErrors(errs); return; }
     setLoading(true);
     try {
+      // authAPI.login returns the response body directly (axios already unwraps .data)
       const res = await authAPI.login({ email: form.email, password: form.password });
-      const { access_token, refresh_token, user } = res.data;
+      const { access_token, refresh_token, user } = res;
       if (typeof window !== 'undefined') {
-        localStorage.setItem('pillsync_access_token', access_token);
+        // Store under the same keys the api.js interceptor reads
+        localStorage.setItem('access_token', access_token);
+        localStorage.setItem('token', access_token);
         if (refresh_token) localStorage.setItem('pillsync_refresh_token', refresh_token);
-        localStorage.setItem('pillsync_user', JSON.stringify(user));
+        if (user) localStorage.setItem('pillsync_user', JSON.stringify(user));
         if (form.remember) localStorage.setItem('pillsync_remember', '1');
       }
       // Route by role
@@ -75,105 +78,7 @@ function LoginFormContent() {
     }
   };
 
-  const createMockJWT = (user) => {
-    try {
-      const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-      const payload = btoa(JSON.stringify({
-        sub: user.id,
-        email: user.email,
-        role: user.role,
-        exp: Math.floor(Date.now() / 1000) + (86400 * 30), // 30 days
-      }));
-      return `${header}.${payload}.demo_sig_${user.role}_${Date.now()}`;
-    } catch {
-      return `demo_token_${user.role}_${Date.now()}`;
-    }
-  };
 
-  const handleDemoLogin = (role) => {
-    setLoading(true);
-    try {
-      const demoUsers = {
-        admin: {
-          id: 'demo_admin_01',
-          email: 'admin@pillsync.com',
-          full_name: 'Admin Superuser',
-          role: 'admin',
-          username: 'admin',
-        },
-        caregiver: {
-          id: 'demo_caregiver_01',
-          email: 'caregiver@pillsync.com',
-          full_name: 'Dr. Sarah Kim',
-          role: 'caregiver',
-          username: 'drsarah',
-        },
-        patient: {
-          id: 'demo_patient_01',
-          email: 'patient@pillsync.com',
-          full_name: 'Eleanor Martinez',
-          role: 'patient',
-          username: 'eleanor',
-        },
-      };
-
-      const user = demoUsers[role] || demoUsers.patient;
-      const token = createMockJWT(user);
-
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('pillsync_access_token', token);
-        localStorage.setItem('pillsync_user', JSON.stringify(user));
-        localStorage.setItem('pillsync_remember', '1');
-      }
-
-      router.push(`/dashboard/${role}`);
-    } catch {
-      setServerError('Demo authentication failed.');
-      setLoading(false);
-    }
-  };
-
-  const handleGoogleLogin = () => {
-    setLoading(true);
-    try {
-      const googleUser = {
-        id: 'google_user_' + Date.now(),
-        email: 'user.google@pillsync.com',
-        full_name: 'Google Authenticated User',
-        role: 'patient',
-      };
-      const token = createMockJWT(googleUser);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('pillsync_access_token', token);
-        localStorage.setItem('pillsync_user', JSON.stringify(googleUser));
-      }
-      router.push('/dashboard/patient');
-    } catch {
-      setServerError('Google authentication failed.');
-      setLoading(false);
-    }
-  };
-
-  const handleAppleLogin = () => {
-    setLoading(true);
-    try {
-      const appleUser = {
-        id: 'apple_user_' + Date.now(),
-        email: 'user.apple@pillsync.com',
-        full_name: 'Apple Authenticated User',
-        role: 'patient',
-      };
-      const token = createMockJWT(appleUser);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('pillsync_access_token', token);
-        localStorage.setItem('pillsync_user', JSON.stringify(appleUser));
-      }
-      router.push('/dashboard/patient');
-    } catch {
-      setServerError('Apple authentication failed.');
-      setLoading(false);
-    }
-  };
 
   return (
     <main className="relative min-h-screen flex">
@@ -351,84 +256,6 @@ function LoginFormContent() {
             </Button>
           </form>
 
-          {/* Quick Demo Logins */}
-          <div className="mt-6 p-3.5 rounded-xl bg-surface-container-low border border-primary/20">
-            <p className="text-[11px] font-bold text-primary uppercase tracking-wider text-center mb-2.5 flex items-center justify-center gap-1">
-              <span className="material-symbols-outlined text-[15px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                bolt
-              </span>
-              1-Click Instant Demo Login
-            </p>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => handleDemoLogin('admin')}
-                className="px-2 py-2 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 text-caption font-bold flex flex-col items-center gap-0.5 transition-all active:scale-95"
-              >
-                <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                  shield_person
-                </span>
-                <span>Admin</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDemoLogin('caregiver')}
-                className="px-2 py-2 rounded-lg bg-secondary/10 hover:bg-secondary/20 text-secondary border border-secondary/30 text-caption font-bold flex flex-col items-center gap-0.5 transition-all active:scale-95"
-              >
-                <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                  favorite
-                </span>
-                <span>Caregiver</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDemoLogin('patient')}
-                className="px-2 py-2 rounded-lg bg-tertiary/10 hover:bg-tertiary/20 text-tertiary border border-tertiary/30 text-caption font-bold flex flex-col items-center gap-0.5 transition-all active:scale-95"
-              >
-                <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                  person
-                </span>
-                <span>Patient</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Divider */}
-          <div className="my-lg relative flex items-center">
-            <div className="flex-1 border-t border-outline-variant/50" />
-            <span className="px-md text-caption text-on-surface-variant">or continue with</span>
-            <div className="flex-1 border-t border-outline-variant/50" />
-          </div>
-
-          {/* OAuth Buttons */}
-          <div className="grid grid-cols-2 gap-sm">
-            {/* Google */}
-            <button
-              type="button"
-              onClick={handleGoogleLogin}
-              className="h-touch-target w-full bg-surface-container-lowest text-on-surface border border-outline-variant hover:bg-surface-container-low rounded-md font-semibold text-caption flex items-center justify-center gap-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer active:scale-95"
-            >
-              <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-              </svg>
-              Google
-            </button>
-            {/* Apple */}
-            <button
-              type="button"
-              onClick={handleAppleLogin}
-              className="h-touch-target w-full bg-surface-container-lowest text-on-surface border border-outline-variant hover:bg-surface-container-low rounded-md font-semibold text-caption flex items-center justify-center gap-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer active:scale-95"
-            >
-              <svg className="w-5 h-5 shrink-0" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.19 2.24-.86 3.44-.86 1.81.19 2.95.78 3.74 2.14-3.25 1.94-2.61 5.92.35 7.21-.76 1.55-1.57 2.89-2.61 3.68zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
-              </svg>
-              Apple
-            </button>
-          </div>
-
           {/* Sign up link */}
           <p className="text-center text-body-sm text-on-surface-variant mt-section-gap">
             Don&apos;t have an account?{' '}
@@ -436,7 +263,7 @@ function LoginFormContent() {
               href="/register"
               className="text-primary font-semibold hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded px-0.5"
             >
-              Get Started
+              Create Account
             </Link>
           </p>
         </div>

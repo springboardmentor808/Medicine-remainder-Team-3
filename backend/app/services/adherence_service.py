@@ -207,25 +207,63 @@ class AdherenceService:
         Record a dose log action (Taken, Missed, Snooze).
         Decrements current medicine stock when action is Taken.
         """
-        try:
-            sch_uuid = uuid.UUID(req.schedule_id) if isinstance(req.schedule_id, str) else req.schedule_id
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid schedule_id format. Expected valid UUID.",
-            )
+        schedule = None
+        sch_uuid = None
 
-        sch_result = await db.execute(
-            select(Schedule).where(
-                Schedule.id == sch_uuid,
-                Schedule.user_id == user_id,
-            )
-        )
-        schedule = sch_result.scalar_one_or_none()
+        if req.schedule_id:
+            try:
+                sch_uuid = uuid.UUID(str(req.schedule_id))
+                sch_result = await db.execute(
+                    select(Schedule).where(
+                        Schedule.id == sch_uuid,
+                        Schedule.user_id == user_id,
+                    )
+                )
+                schedule = sch_result.scalar_one_or_none()
+            except (ValueError, TypeError):
+                sch_uuid = None
+
+        if not schedule and req.medicine_id:
+            try:
+                med_uuid = uuid.UUID(str(req.medicine_id))
+                sch_result = await db.execute(
+                    select(Schedule).where(
+                        Schedule.medicine_id == med_uuid,
+                        Schedule.user_id == user_id,
+                    ).limit(1)
+                )
+                schedule = sch_result.scalar_one_or_none()
+                if schedule:
+                    sch_uuid = schedule.id
+            except (ValueError, TypeError):
+                pass
+
+        if not schedule and req.medicine_id:
+            try:
+                med_uuid = uuid.UUID(str(req.medicine_id))
+                med_result = await db.execute(
+                    select(Medicine).where(Medicine.id == med_uuid, Medicine.user_id == user_id)
+                )
+                med_obj = med_result.scalar_one_or_none()
+                if med_obj:
+                    new_sch = Schedule(
+                        user_id=user_id,
+                        medicine_id=med_uuid,
+                        scheduled_time=time(8, 0),
+                        dose_label="Daily Dose",
+                        is_active=True,
+                    )
+                    db.add(new_sch)
+                    await db.flush()
+                    schedule = new_sch
+                    sch_uuid = new_sch.id
+            except Exception:
+                pass
+
         if not schedule:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Schedule not found for current user.",
+                detail="Schedule or medicine not found for current user.",
             )
 
         # Determine scheduled_date early for duplicate check
@@ -241,7 +279,17 @@ class AdherenceService:
             scheduled_d = datetime.now(timezone.utc).date()
 
         # --- Duplicate dose prevention ---
-        action_str = req.action.value if hasattr(req.action, "value") else str(req.action)
+        raw_act = req.action.value if hasattr(req.action, "value") else str(req.action)
+        act_lower = raw_act.strip().lower()
+        if act_lower in ["taken", "take"]:
+            action_str = "Taken"
+        elif act_lower in ["missed", "miss", "skip", "skipped"]:
+            action_str = "Missed"
+        elif act_lower in ["snooze", "snoozed"]:
+            action_str = "Snooze"
+        else:
+            action_str = "Taken"
+
         existing_log = await db.execute(
             select(DoseLog).where(
                 DoseLog.schedule_id == sch_uuid,
@@ -251,20 +299,18 @@ class AdherenceService:
         )
         existing = existing_log.scalar_one_or_none()
         if existing:
-            # Allow updating action (e.g. Missed → Taken), but not duplicate same action
+            # Allow updating action (e.g. Missed → Taken), but if identical return existing
             if existing.action == action_str:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Dose already recorded as '{action_str}' for this schedule on {scheduled_d}.",
-                )
-            # Update existing log instead of creating duplicate
+                return existing
+            prev_action = existing.action
             existing.action = action_str
             existing.action_time = datetime.now(timezone.utc)
             if action_str in ["Snooze", "Snoozed"]:
                 existing.snooze_minutes = req.snooze_minutes
-            existing.notes = req.notes
-            # Stock depletion if changing TO Taken
-            if action_str == "Taken":
+            if req.notes:
+                existing.notes = req.notes
+            # Stock depletion if changing TO Taken from non-Taken
+            if action_str == "Taken" and prev_action != "Taken":
                 med_result = await db.execute(
                     select(Medicine).where(Medicine.id == schedule.medicine_id)
                 )

@@ -23,6 +23,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import LogoutButton from '@/components/ui/LogoutButton';
+import { exportAPI } from '@/lib/api';
 
 /**
  * Sidebar — PillSync
@@ -43,7 +44,7 @@ const NAV_ITEMS = {
   caregiver: [
     { href: '/dashboard/caregiver', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/medicines', label: 'Patient Medicines', icon: Pill },
-    { href: '/reminders', label: 'Schedules', icon: Bell },
+    { href: '/reminders', label: 'Schedules & Alarms', icon: Bell },
     { href: '/adherence', label: 'Adherence Reports', icon: BarChart3 },
     { href: '/refill', label: 'Refill Tracker', icon: Package },
     { href: '/interactions', label: 'AI Drug Safety', icon: Shield },
@@ -73,15 +74,19 @@ export default function Sidebar() {
     } catch {}
   }, []);
 
-  // Determine effective role from stored user role (primary source of truth)
-  // Fallback to path-based detection only when no user data is available
-  const userRole = user?.role || null;
+  // Determine effective role from stored user role or current path
+  const userRole = (user?.role || '').toLowerCase();
   const isAdminPath = pathname?.startsWith('/admin') || pathname === '/dashboard/admin';
-  const isCaregiverPath = pathname === '/dashboard/caregiver';
-  const effectiveRole = userRole || (isAdminPath ? 'admin' : isCaregiverPath ? 'caregiver' : 'patient');
+  const isCaregiverPath = pathname?.startsWith('/dashboard/caregiver') || pathname === '/dashboard/caregiver';
+
+  const effectiveRole = userRole === 'admin' || isAdminPath
+    ? 'admin'
+    : userRole === 'caregiver' || isCaregiverPath
+    ? 'caregiver'
+    : 'patient';
 
   const items = NAV_ITEMS[effectiveRole] || NAV_ITEMS.patient;
-  const initials = (user?.full_name || user?.name || user?.username || (effectiveRole === 'admin' ? 'AU' : 'U'))
+  const initials = (user?.full_name || user?.name || user?.username || (effectiveRole === 'admin' ? 'AU' : effectiveRole === 'caregiver' ? 'CG' : 'PT'))
     .split(' ')
     .map((w) => w[0])
     .join('')
@@ -167,20 +172,7 @@ export default function Sidebar() {
           <button
             onClick={async () => {
               try {
-                const token = localStorage.getItem('pillsync_access_token');
-                const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-                const res = await fetch(`${base}/api/v1/export/medicines/pdf`, {
-                  method: 'GET',
-                  headers: { 'Authorization': `Bearer ${token}` },
-                });
-                if (!res.ok) throw new Error('Export failed');
-                const blob = await res.blob();
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'medicines_report.pdf';
-                a.click();
-                URL.revokeObjectURL(url);
+                await exportAPI.medicinesPDF();
               } catch (err) {
                 console.error('Export error:', err);
               }

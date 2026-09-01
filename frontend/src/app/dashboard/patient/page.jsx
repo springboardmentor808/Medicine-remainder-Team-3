@@ -29,98 +29,12 @@ import LogoutButton from '@/components/ui/LogoutButton';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import ReminderWidget from '@/components/dashboard/ReminderWidget';
 import PushNotificationPrompt from '@/components/patient/PushNotificationPrompt';
-import { exportAPI, medicineAPI } from '@/lib/api';
+import { exportAPI, medicineAPI, patientAPI, analyticsAPI } from '@/lib/api';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const SNOOZE_MINUTES = 15;
-
-// ── Mock Data (replace with API: GET /patient/schedule/today) ────────────────
-
-const INITIAL_SCHEDULE = [
-  {
-    id: 'm-001',
-    name: 'Metformin',
-    strength: '500mg',
-    type: 'Diabetes',
-    instructions: 'Take with food',
-    slot: 'morning',
-    time: '08:00 AM',
-    status: 'pending', // 'pending' | 'taken' | 'snoozed' | 'skipped'
-    snoozedUntil: null,
-    color: 'primary',
-  },
-  {
-    id: 'm-002',
-    name: 'Amlodipine',
-    strength: '5mg',
-    type: 'Blood Pressure',
-    instructions: 'Take at the same time each day',
-    slot: 'morning',
-    time: '08:00 AM',
-    status: 'taken',
-    snoozedUntil: null,
-    color: 'tertiary',
-  },
-  {
-    id: 'm-003',
-    name: 'Atorvastatin',
-    strength: '20mg',
-    type: 'Cholesterol',
-    instructions: 'Can be taken with or without food',
-    slot: 'afternoon',
-    time: '01:00 PM',
-    status: 'pending',
-    snoozedUntil: null,
-    color: 'secondary',
-  },
-  {
-    id: 'm-004',
-    name: 'Omeprazole',
-    strength: '20mg',
-    type: 'Acid Reflux',
-    instructions: 'Take 30 minutes before meal',
-    slot: 'afternoon',
-    time: '01:00 PM',
-    status: 'skipped',
-    snoozedUntil: null,
-    color: 'primary',
-  },
-  {
-    id: 'm-005',
-    name: 'Aspirin',
-    strength: '75mg',
-    type: 'Heart Health',
-    instructions: 'Take after food',
-    slot: 'evening',
-    time: '08:00 PM',
-    status: 'pending',
-    snoozedUntil: null,
-    color: 'tertiary',
-  },
-  {
-    id: 'm-006',
-    name: 'Vitamin D3',
-    strength: '1000 IU',
-    type: 'Supplement',
-    instructions: 'Take with a fatty meal for best absorption',
-    slot: 'evening',
-    time: '08:00 PM',
-    status: 'pending',
-    snoozedUntil: null,
-    color: 'secondary',
-  },
-];
-
-const INVENTORY = [
-  { id: 'i-001', name: 'Metformin 500mg',  totalDays: 30, remainingDays: 2,  pillsLeft: 4  },
-  { id: 'i-002', name: 'Amlodipine 5mg',   totalDays: 30, remainingDays: 12, pillsLeft: 24 },
-  { id: 'i-003', name: 'Atorvastatin 20mg',totalDays: 30, remainingDays: 1,  pillsLeft: 2  },
-  { id: 'i-004', name: 'Omeprazole 20mg',  totalDays: 30, remainingDays: 18, pillsLeft: 36 },
-  { id: 'i-005', name: 'Aspirin 75mg',     totalDays: 60, remainingDays: 29, pillsLeft: 58 },
-  { id: 'i-006', name: 'Vitamin D3 1000IU',totalDays: 90, remainingDays: 3,  pillsLeft: 9  },
-];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -395,7 +309,10 @@ function PatientDashboardInner() {
   const { addToast } = useToast();
 
   // ── State ──────────────────────────────────────────────────────────────────
-  const [schedule, setSchedule] = useState(INITIAL_SCHEDULE);
+  const [schedule, setSchedule] = useState([]);
+  const [inventory, setInventory] = useState([]);
+  const [weeklyTrends, setWeeklyTrends] = useState([]);
+  const [scheduleLoading, setScheduleLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
@@ -411,30 +328,105 @@ function PatientDashboardInner() {
     }
   }, []);
 
-  // Fetch dynamic medicine schedule from backend
+  // Fetch today's schedule from /adherence/schedules, map to display format
+  useEffect(() => {
+    (async () => {
+      setScheduleLoading(true);
+      try {
+        const data = await patientAPI.getTodaySchedule();
+        const list = Array.isArray(data) ? data : (data?.schedules || []);
+        const slotCycle = ['morning', 'afternoon', 'evening'];
+        const colorCycle = ['primary', 'tertiary', 'secondary'];
+        const mapped = list.map((s, idx) => ({
+          id: s.id || `sched-${idx}`,
+          schedule_id: s.id,
+          medicine_id: s.medicine_id,
+          name: s.medicine_name || s.name || 'Medication',
+          strength: s.dosage || s.strength || '',
+          type: s.disease_category || s.dose_label || 'Medication',
+          instructions: s.notes || s.instructions || '',
+          slot: s.dose_label?.toLowerCase().includes('morning')
+            ? 'morning'
+            : s.dose_label?.toLowerCase().includes('afternoon') || s.dose_label?.toLowerCase().includes('noon')
+            ? 'afternoon'
+            : s.dose_label?.toLowerCase().includes('evening') || s.dose_label?.toLowerCase().includes('night')
+            ? 'evening'
+            : slotCycle[idx % 3],
+          time: s.scheduled_time || ['08:00 AM', '01:00 PM', '08:00 PM'][idx % 3],
+          scheduled_time_24: s.scheduled_time || ['08:00', '13:00', '20:00'][idx % 3],
+          status: 'pending',
+          snoozedUntil: null,
+          color: colorCycle[idx % 3],
+        }));
+        setSchedule(mapped);
+      } catch {
+        // If API fails (no schedules created yet), show empty state — not mock data
+        setSchedule([]);
+      } finally {
+        setScheduleLoading(false);
+      }
+    })();
+  }, []);
+
+  // Fetch medicines for inventory widget
   useEffect(() => {
     (async () => {
       try {
         const res = await medicineAPI.list();
-        if (res?.data && Array.isArray(res.data) && res.data.length > 0) {
-          const slotCycle = ['morning', 'afternoon', 'evening'];
-          const colorCycle = ['primary', 'tertiary', 'secondary'];
-          const mapped = res.data.map((med, idx) => ({
-            id: med.id || `dyn-${idx}`,
-            name: med.name || med.medicine_name || 'Unknown',
-            strength: med.dosage || med.strength || '',
-            type: med.form || med.category || 'Medication',
-            instructions: med.instructions || med.notes || '',
-            slot: slotCycle[idx % 3],
-            time: ['08:00 AM', '01:00 PM', '08:00 PM'][idx % 3],
-            status: 'pending',
-            snoozedUntil: null,
-            color: colorCycle[idx % 3],
+        const items = Array.isArray(res) ? res : (res?.items || res?.data || []);
+        if (Array.isArray(items) && items.length > 0) {
+          const mapped = items.map((m, idx) => ({
+            id: m.id || `inv-${idx}`,
+            name: `${m.name} ${m.dosage || ''}`.trim(),
+            totalDays: m.initial_quantity || 30,
+            remainingDays: Math.round(m.days_until_empty || 0),
+            pillsLeft: m.current_stock || 0,
           }));
-          setSchedule(mapped);
+          setInventory(mapped);
         }
       } catch {
-        // Keep INITIAL_SCHEDULE as fallback
+        setInventory([]);
+      }
+    })();
+  }, []);
+
+  // Fetch 7-day adherence trends
+  useEffect(() => {
+    (async () => {
+      try {
+        const trends = await analyticsAPI.getTrends({ days: 7 });
+        if (Array.isArray(trends) && trends.length > 0) {
+          const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+          const todayIso = new Date().toISOString().split('T')[0];
+          const mapped = trends.map((t) => {
+            const d = new Date(t.date);
+            const dayLabel = daysOfWeek[d.getDay()]?.[0] || 'D';
+            return {
+              dayLabel,
+              dayName: t.day_name || daysOfWeek[d.getDay()],
+              percentage: Math.round(t.adherence_rate ?? 100),
+              isToday: t.date === todayIso,
+            };
+          });
+          setWeeklyTrends(mapped);
+        } else {
+          // Default 7-day representation
+          const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+          setWeeklyTrends(days.map((d, i) => ({
+            dayLabel: d,
+            dayName: d,
+            percentage: 100,
+            isToday: i === 6,
+          })));
+        }
+      } catch {
+        const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+        setWeeklyTrends(days.map((d, i) => ({
+          dayLabel: d,
+          dayName: d,
+          percentage: 100,
+          isToday: i === 6,
+        })));
       }
     })();
   }, []);
@@ -455,8 +447,8 @@ function PatientDashboardInner() {
   );
 
   const lowStockCount = useMemo(
-    () => INVENTORY.filter((i) => i.remainingDays <= 3).length,
-    []
+    () => inventory.filter((i) => i.remainingDays <= 3).length,
+    [inventory]
   );
 
   // Grouped by slot
@@ -471,7 +463,9 @@ function PatientDashboardInner() {
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
-  const handleTaken = useCallback((id, undo = false) => {
+  const handleTaken = useCallback(async (id, undo = false) => {
+    const med = schedule.find((m) => m.id === id);
+    // Optimistic update
     setSchedule((prev) =>
       prev.map((m) =>
         m.id === id
@@ -480,38 +474,68 @@ function PatientDashboardInner() {
       )
     );
     if (!undo) {
-      const med = schedule.find((m) => m.id === id);
       addToast({
         title: '✅ Dose Recorded',
         description: `${med?.name} ${med?.strength} marked as taken.`,
         variant: 'success',
         duration: 3500,
       });
+      try {
+        await patientAPI.recordAction({
+          schedule_id: med?.schedule_id,
+          medicine_id: med?.medicine_id,
+          scheduled_date: new Date().toISOString().split('T')[0],
+          scheduled_time: med?.scheduled_time_24 || new Date().toTimeString().slice(0, 5),
+          action: 'TAKEN',
+        });
+      } catch (err) {
+        // Revert optimistic update on failure
+        setSchedule((prev) =>
+          prev.map((m) => (m.id === id ? { ...m, status: 'pending' } : m))
+        );
+        addToast({ title: 'Error', description: err.message || 'Failed to record dose.', variant: 'error' });
+      }
     }
   }, [schedule, addToast]);
 
-  const handleSnooze = useCallback((id) => {
+  const handleSnooze = useCallback(async (id) => {
     const now = new Date();
     now.setMinutes(now.getMinutes() + SNOOZE_MINUTES);
     const snoozedUntil = now.toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
     });
+    const med = schedule.find((m) => m.id === id);
 
+    // Optimistic update
     setSchedule((prev) =>
       prev.map((m) => (m.id === id ? { ...m, status: 'snoozed', snoozedUntil } : m))
     );
 
-    const med = schedule.find((m) => m.id === id);
     addToast({
       title: '⏰ Snoozed',
       description: `Reminder for ${med?.name} set for ${snoozedUntil}.`,
       variant: 'info',
       duration: 3000,
     });
+
+    try {
+      await patientAPI.recordAction({
+        schedule_id: med?.schedule_id,
+        medicine_id: med?.medicine_id,
+        scheduled_date: new Date().toISOString().split('T')[0],
+        scheduled_time: med?.scheduled_time_24 || new Date().toTimeString().slice(0, 5),
+        action: 'SNOOZE',
+        snooze_minutes: SNOOZE_MINUTES,
+      });
+    } catch {
+      // Snooze is best-effort — keep local state even if server fails
+    }
   }, [schedule, addToast]);
 
-  const handleSkip = useCallback((id, undo = false) => {
+  const handleSkip = useCallback(async (id, undo = false) => {
+    const med = schedule.find((m) => m.id === id);
+    // Optimistic update
     setSchedule((prev) =>
       prev.map((m) =>
         m.id === id
@@ -520,7 +544,6 @@ function PatientDashboardInner() {
       )
     );
     if (!undo) {
-      const med = schedule.find((m) => m.id === id);
       addToast({
         title: 'Dose Skipped',
         description: `${med?.name} skipped for this session.`,
@@ -528,7 +551,6 @@ function PatientDashboardInner() {
         duration: 3000,
         action: {
           label: 'Undo',
-          // Inline undo — avoids circular self-reference in useCallback deps
           onClick: () =>
             setSchedule((prev) =>
               prev.map((m) =>
@@ -537,6 +559,17 @@ function PatientDashboardInner() {
             ),
         },
       });
+      try {
+        await patientAPI.recordAction({
+          schedule_id: med?.schedule_id,
+          medicine_id: med?.medicine_id,
+          scheduled_date: new Date().toISOString().split('T')[0],
+          scheduled_time: med?.scheduled_time_24 || new Date().toTimeString().slice(0, 5),
+          action: 'MISSED',
+        });
+      } catch {
+        // Non-critical — keep local state
+      }
     }
   }, [schedule, addToast]);
 
@@ -702,7 +735,7 @@ function PatientDashboardInner() {
             <ReminderWidget />
 
             {/* 3. Inventory & Refill Widget ─────────────────────────── */}
-            <InventoryWidget items={INVENTORY} />
+            <InventoryWidget items={inventory} />
 
             {/* Weekly Adherence Mini-chart ──────────────────────────── */}
             <Card variant="flat" padding="md">
@@ -711,10 +744,9 @@ function PatientDashboardInner() {
                 icon={<TrendingUp className="w-5 h-5 text-tertiary" />}
               />
               <div className="mt-md flex items-end justify-between gap-1 h-20">
-                {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, i) => {
-                  const heights = [90, 75, 100, 60, 85, 95, compliance];
-                  const h  = heights[i];
-                  const isToday = i === 6;
+                {weeklyTrends.map((t, i) => {
+                  const h = t.percentage;
+                  const isToday = t.isToday;
                   return (
                     <div key={i} className="flex flex-col items-center gap-1 flex-1">
                       <div className="w-full relative flex flex-col items-center justify-end" style={{ height: 64 }}>
@@ -723,12 +755,12 @@ function PatientDashboardInner() {
                             'w-full rounded-sm transition-all duration-500',
                             isToday ? 'bg-primary' : h >= 80 ? 'bg-tertiary/60' : h >= 60 ? 'bg-secondary/60' : 'bg-error/50',
                           ].join(' ')}
-                          style={{ height: `${(h / 100) * 64}px` }}
-                          title={`${h}%`}
+                          style={{ height: `${Math.max(8, (h / 100) * 64)}px` }}
+                          title={`${t.dayName}: ${h}%`}
                         />
                       </div>
                       <span className={`text-[10px] font-semibold ${isToday ? 'text-primary' : 'text-on-surface-variant'}`}>
-                        {day}
+                        {t.dayLabel}
                       </span>
                     </div>
                   );
@@ -753,7 +785,7 @@ function PatientDashboardInner() {
                 </div>
               </div>
               <div className="mt-sm flex gap-xs">
-                <Link href="/medicines?scan=1" className="flex-1">
+                <Link href="/scan" className="flex-1">
                   <Button variant="primary" size="sm" fullWidth leftIcon={<Camera className="w-4 h-4" />}>
                     Scan Now
                   </Button>

@@ -97,6 +97,7 @@ async def _get_owned_medicine(db, medicine_id, current_user):
 # ---------------------------------------------------------------------------
 # POST / — Create Medicine
 # ---------------------------------------------------------------------------
+@router.post("", response_model=MedicineResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 @router.post(
     "/",
     response_model=MedicineResponse,
@@ -117,6 +118,7 @@ async def create_medicine_endpoint(
 # ---------------------------------------------------------------------------
 # GET / — List Medicines (Paginated + Filterable)
 # ---------------------------------------------------------------------------
+@router.get("", response_model=MedicineListResponse, status_code=status.HTTP_200_OK, include_in_schema=False)
 @router.get(
     "/",
     response_model=MedicineListResponse,
@@ -286,6 +288,7 @@ async def update_stock_endpoint(
     return StockUpdateResponse(
         previous_stock=previous,
         new_stock=new,
+        current_stock=new,
         adjustment=new - previous,
         medicine=_to_response(medicine),
     )

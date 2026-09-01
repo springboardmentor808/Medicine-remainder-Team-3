@@ -98,19 +98,26 @@ class ScheduleResponse(BaseModel):
     dose_label: Optional[str] = None
     is_active: bool
     created_at: datetime
+    medicine_name: Optional[str] = None
+    dosage: Optional[str] = None
+    disease_category: Optional[str] = None
+    notes: Optional[str] = None
 
 class ScheduleBatchCreateResponse(BaseModel):
     message: str
     schedules: List[ScheduleResponse]
 
-# Module 4 & 5: Reminder & Adherence Schemas
 class RecordActionRequest(BaseModel):
-    schedule_id: str
-    action: ReminderAction
+    schedule_id: Optional[str] = None
+    action: str = Field(..., description="Action: Taken, Missed, Snooze (case-insensitive)")
+    medicine_id: Optional[str] = None
     action_time: Optional[str] = None
     scheduled_date: Optional[str] = None  # YYYY-MM-DD
+    scheduled_time: Optional[str] = None
     snooze_minutes: Optional[int] = Field(default=15, ge=1, le=1440)
     notes: Optional[str] = None
+
+    model_config = {"extra": "allow"}
 
 class DoseLogResponse(BaseModel):
     id: str

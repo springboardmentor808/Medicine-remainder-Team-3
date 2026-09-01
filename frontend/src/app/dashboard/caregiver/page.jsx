@@ -33,7 +33,7 @@ import LogoutButton from '@/components/ui/LogoutButton';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import ReminderWidget from '@/components/dashboard/ReminderWidget';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
-import { exportAPI, notificationAPI } from '@/lib/api';
+import { exportAPI, notificationAPI, caregiverAPI } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 
 /**
@@ -55,104 +55,6 @@ import { useRouter } from 'next/navigation';
  *   └─────────────────────────────────────────────────────────┘
  */
 
-// ── Mock Data ─────────────────────────────────────────────────────────────────
-// Replace with API calls: GET /caregiver/patients, GET /caregiver/alerts
-
-const MOCK_PATIENTS = [
-  {
-    id: 'p-001',
-    name: 'Eleanor Martinez',
-    age: 72,
-    relation: 'Mother',
-    adherenceScore: 94,
-    pendingDosesCount: 0,
-    lastDoseStatus: 'taken',
-    image: null,
-    nextMedication: { name: 'Metformin 500mg', time: '2:00 PM', dosage: '1 tablet' },
-  },
-  {
-    id: 'p-002',
-    name: 'Robert Chen',
-    age: 68,
-    relation: 'Father',
-    adherenceScore: 73,
-    pendingDosesCount: 1,
-    lastDoseStatus: 'missed',
-    image: null,
-    nextMedication: { name: 'Amlodipine 5mg', time: '6:00 PM', dosage: '1 tablet' },
-  },
-  {
-    id: 'p-003',
-    name: 'Margaret Davis',
-    age: 81,
-    relation: 'Grandmother',
-    adherenceScore: 45,
-    pendingDosesCount: 3,
-    lastDoseStatus: 'missed',
-    image: null,
-    nextMedication: { name: 'Warfarin 2.5mg', time: '8:00 AM', dosage: '1 tablet' },
-  },
-  {
-    id: 'p-004',
-    name: 'James Wilson',
-    age: 55,
-    relation: 'Uncle',
-    adherenceScore: 88,
-    pendingDosesCount: 0,
-    lastDoseStatus: 'taken',
-    image: null,
-    nextMedication: { name: 'Atorvastatin 20mg', time: '9:00 PM', dosage: '1 tablet' },
-  },
-  {
-    id: 'p-005',
-    name: 'Patricia Thompson',
-    age: 76,
-    relation: 'Aunt',
-    adherenceScore: 62,
-    pendingDosesCount: 2,
-    lastDoseStatus: 'missed',
-    image: null,
-    nextMedication: { name: 'Lisinopril 10mg', time: '12:00 PM', dosage: '1 tablet' },
-  },
-  {
-    id: 'p-006',
-    name: 'David Anderson',
-    age: 79,
-    relation: 'Father-in-law',
-    adherenceScore: 97,
-    pendingDosesCount: 0,
-    lastDoseStatus: 'taken',
-    image: null,
-    nextMedication: { name: 'Omeprazole 20mg', time: '7:30 AM', dosage: '1 capsule' },
-  },
-];
-
-const MOCK_ALERTS = [
-  {
-    id: 'a-001',
-    patientName: 'Margaret Davis',
-    patientId: 'p-003',
-    message: 'Missed 3 consecutive doses of Warfarin 2.5mg',
-    severity: 'critical',
-    time: '15 min ago',
-  },
-  {
-    id: 'a-002',
-    patientName: 'Robert Chen',
-    patientId: 'p-002',
-    message: 'Missed evening dose of Amlodipine 5mg',
-    severity: 'warning',
-    time: '1 hour ago',
-  },
-  {
-    id: 'a-003',
-    patientName: 'Patricia Thompson',
-    patientId: 'p-005',
-    message: 'Low medication stock — Lisinopril (3 pills remaining)',
-    severity: 'warning',
-    time: '2 hours ago',
-  },
-];
 
 // ── Filter Options ────────────────────────────────────────────────────────────
 
@@ -171,6 +73,128 @@ function getGreeting() {
   return 'Good Evening';
 }
 
+// ── Patient Schedule Modal ───────────────────────────────────────────────────
+
+function PatientScheduleModal({ patient, isOpen, onClose, onSendReminder }) {
+  const [schedules, setSchedules] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (patient?.id && isOpen) {
+      setLoading(true);
+      setError('');
+      (async () => {
+        try {
+          const res = await caregiverAPI.getPatientSchedule(patient.id);
+          const list = Array.isArray(res) ? res : (res?.schedules || []);
+          setSchedules(list);
+        } catch (err) {
+          setError(err.message || 'Failed to load patient schedule.');
+        } finally {
+          setLoading(false);
+        }
+      })();
+    }
+  }, [patient, isOpen]);
+
+  if (!patient) return null;
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Active Medication Schedule — ${patient.name}`}
+      description={`Daily dose calendar & reminders for ${patient.relation || 'Patient'} (${patient.email || 'No email'})`}
+      size="lg"
+    >
+      <div className="space-y-md">
+        {/* Patient quick overview */}
+        <div className="flex items-center justify-between p-sm rounded-lg bg-surface-container-low border border-outline-variant/30">
+          <div className="flex items-center gap-sm">
+            <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center text-primary font-bold text-caption">
+              {patient.name.slice(0, 2).toUpperCase()}
+            </div>
+            <div>
+              <p className="text-caption font-bold text-on-surface">{patient.name}</p>
+              <p className="text-label-caps text-on-surface-variant">
+                {patient.age ? `${patient.age} yrs · ` : ''}{patient.relation || 'Patient'}
+              </p>
+            </div>
+          </div>
+          <Badge variant={patient.adherenceScore >= 80 ? 'taken' : patient.adherenceScore >= 60 ? 'snoozed' : 'missed'} size="sm">
+            {patient.adherenceScore || 0}% Adherence
+          </Badge>
+        </div>
+
+        {/* Schedules list */}
+        {loading ? (
+          <div className="py-8 text-center text-caption text-on-surface-variant">
+            Loading patient medication schedule...
+          </div>
+        ) : error ? (
+          <div className="p-sm rounded-md bg-error/10 text-error text-caption">
+            {error}
+          </div>
+        ) : schedules.length === 0 ? (
+          <div className="py-8 text-center space-y-2">
+            <Pill className="w-8 h-8 text-on-surface-variant mx-auto opacity-50" />
+            <p className="text-body-sm font-semibold text-on-surface">No Active Schedules</p>
+            <p className="text-caption text-on-surface-variant">
+              This patient has not configured any daily medication reminder times yet.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-xs max-h-72 overflow-y-auto pr-1">
+            {schedules.map((s) => (
+              <div
+                key={s.id}
+                className="flex items-center justify-between p-sm rounded-lg border border-outline-variant/40 bg-surface-container-lowest hover:border-primary/40 transition-colors"
+              >
+                <div className="flex items-center gap-sm">
+                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+                    <Pill className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="text-caption font-semibold text-on-surface">
+                      {s.medicine_name || s.name || 'Medication'}
+                      {s.dosage ? ` (${s.dosage})` : ''}
+                    </p>
+                    <p className="text-label-caps text-on-surface-variant">
+                      {s.dose_label || 'Scheduled Dose'} · {s.scheduled_time || '08:00'}
+                      {s.disease_category ? ` · ${s.disease_category}` : ''}
+                    </p>
+                  </div>
+                </div>
+
+                <span className="text-label-caps px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+                  {s.scheduled_time || '08:00'}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <Modal.Footer>
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Close
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            leftIcon={<Bell className="w-4 h-4" />}
+            onClick={() => {
+              onSendReminder?.(patient.id);
+            }}
+          >
+            Send Dose Reminder
+          </Button>
+        </Modal.Footer>
+      </div>
+    </Modal>
+  );
+}
+
 // ── Main Page Component ───────────────────────────────────────────────────────
 
 function CaregiverDashboardInner() {
@@ -187,7 +211,10 @@ function CaregiverDashboardInner() {
   const [linkError, setLinkError] = useState('');
   const [linkSuccess, setLinkSuccess] = useState(false);
   const [dismissedAlerts, setDismissedAlerts] = useState([]);
-  const [patients, setPatients] = useState(MOCK_PATIENTS);
+  const [patients, setPatients] = useState([]);
+  const [patientsLoading, setPatientsLoading] = useState(true);
+  const [scheduleModalPatient, setScheduleModalPatient] = useState(null);
+  const [alerts, setAlerts] = useState([]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -200,12 +227,39 @@ function CaregiverDashboardInner() {
     }
   }, []);
 
+  // Fetch live patients assigned to this caregiver
+  useEffect(() => {
+    (async () => {
+      setPatientsLoading(true);
+      try {
+        const data = await caregiverAPI.getPatients();
+        const list = Array.isArray(data) ? data : [];
+        const mapped = list.map((u) => ({
+          id: u.id,
+          name: u.full_name || u.username || 'Patient',
+          age: u.age || null,
+          relation: u.relationship || 'Monitored Patient',
+          adherenceScore: 92,
+          pendingDosesCount: 0,
+          lastDoseStatus: 'taken',
+          image: null,
+          nextMedication: null,
+          email: u.email,
+        }));
+        setPatients(mapped);
+      } catch {
+        setPatients([]);
+      } finally {
+        setPatientsLoading(false);
+      }
+    })();
+  }, []);
+
   const displayName = currentUser?.full_name || currentUser?.name || currentUser?.username || 'Dr. Sarah Chen';
 
   const filteredPatients = useMemo(() => {
     let list = patients;
 
-    // Text search
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
@@ -215,7 +269,6 @@ function CaregiverDashboardInner() {
       );
     }
 
-    // Tab filter
     if (activeFilter === 'attention') {
       list = list.filter((p) => p.lastDoseStatus === 'missed' || p.pendingDosesCount > 0);
     } else if (activeFilter === 'critical') {
@@ -225,7 +278,6 @@ function CaregiverDashboardInner() {
     return list;
   }, [patients, searchQuery, activeFilter]);
 
-  // Quick stats
   const stats = useMemo(() => {
     const total = patients.length;
     const escalated = patients.filter((p) => p.pendingDosesCount > 0).length;
@@ -236,23 +288,19 @@ function CaregiverDashboardInner() {
     return { total, escalated, avgAdherence };
   }, [patients]);
 
-  // Active alerts (not dismissed)
   const activeAlerts = useMemo(
-    () => MOCK_ALERTS.filter((a) => !dismissedAlerts.includes(a.id)),
-    [dismissedAlerts]
+    () => alerts.filter((a) => !dismissedAlerts.includes(a.id)),
+    [alerts, dismissedAlerts]
   );
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   const handleViewSchedule = useCallback((id) => {
     const target = patients.find((p) => p.id === id);
-    addToast({
-      title: 'Opening Schedule',
-      description: `Viewing medication schedule for ${target?.name || 'Patient'}.`,
-      variant: 'info',
-    });
-    router.push('/reminders');
-  }, [patients, router, addToast]);
+    if (target) {
+      setScheduleModalPatient(target);
+    }
+  }, [patients]);
 
   const handleSendReminder = useCallback(async (id) => {
     const target = patients.find((p) => p.id === id);
@@ -306,87 +354,71 @@ function CaregiverDashboardInner() {
     });
   }, [addToast]);
 
-  // Link Modal state
-  const [linkTab, setLinkTab] = useState('code'); // 'code' | 'manual'
+  // Link Modal state with dynamic inputs
+  const [linkTab, setLinkTab] = useState('manual'); // 'manual' | 'code'
   const [manualQuery, setManualQuery] = useState('');
   const [manualName, setManualName] = useState('');
+  const [manualAge, setManualAge] = useState('');
   const [manualRelation, setManualRelation] = useState('Parent');
+  const [manualNotes, setManualNotes] = useState('');
+  const [manualMedicines, setManualMedicines] = useState('');
 
   const handleLinkPatient = useCallback(async () => {
-    if (linkTab === 'code') {
-      if (!linkCode.trim()) {
-        setLinkError('Please enter a patient pairing code.');
-        return;
-      }
-      setLinkLoading(true);
-      setLinkError('');
-      try {
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        const newPatient = {
-          id: `p-new-${Date.now()}`,
-          name: `Patient (${linkCode.trim()})`,
-          age: 68,
-          relation: 'Linked Patient',
-          adherenceScore: 92,
-          pendingDosesCount: 0,
-          lastDoseStatus: 'taken',
-          image: null,
-          nextMedication: { name: 'Amlodipine 5mg', time: '8:00 PM', dosage: '1 tablet' },
-        };
-        setPatients((prev) => [newPatient, ...prev]);
-        setLinkSuccess(true);
-        addToast({
-          title: 'Patient Linked via Code',
-          description: `Patient code ${linkCode.trim()} successfully paired to your account.`,
-          variant: 'success',
-        });
-      } catch (err) {
-        setLinkError(err.message || 'Failed to link patient. Please check the code.');
-      } finally {
-        setLinkLoading(false);
-      }
-    } else {
-      // Manual Email / Phone search
-      if (!manualQuery.trim()) {
-        setLinkError('Please enter the patient\'s registered email or phone number.');
-        return;
-      }
-      setLinkLoading(true);
-      setLinkError('');
-      try {
-        await new Promise((resolve) => setTimeout(resolve, 900));
-        const patientName = manualName.trim() || (manualQuery.includes('@') ? manualQuery.split('@')[0] : 'Patient');
-        const newPatient = {
-          id: `p-manual-${Date.now()}`,
-          name: patientName.charAt(0).toUpperCase() + patientName.slice(1),
-          age: 70,
-          relation: manualRelation,
-          adherenceScore: 85,
-          pendingDosesCount: 0,
-          lastDoseStatus: 'taken',
-          image: null,
-          nextMedication: { name: 'Metformin 500mg', time: '2:00 PM', dosage: '1 tablet' },
-        };
-        setPatients((prev) => [newPatient, ...prev]);
-        setLinkSuccess(true);
-        addToast({
-          title: 'Link Request Dispatched',
-          description: `Invitation sent to ${manualQuery.trim()}. Patient added to your roster.`,
-          variant: 'success',
-        });
-      } catch (err) {
-        setLinkError(err.message || 'Failed to send link request.');
-      } finally {
-        setLinkLoading(false);
-      }
+    setLinkLoading(true);
+    setLinkError('');
+
+    try {
+      const payload = linkTab === 'code' ? {
+        code: linkCode.trim(),
+        relationship: manualRelation,
+      } : {
+        email: manualQuery.trim().includes('@') ? manualQuery.trim() : undefined,
+        phone: !manualQuery.trim().includes('@') && manualQuery.trim() ? manualQuery.trim() : undefined,
+        patient_name: manualName.trim() || undefined,
+        age: manualAge ? Number(manualAge) : undefined,
+        relationship: manualRelation,
+        notes: manualNotes.trim() || undefined,
+        assigned_medicines: manualMedicines ? manualMedicines.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      };
+
+      const res = await caregiverAPI.linkPatient(payload);
+      setLinkSuccess(true);
+      addToast({
+        title: 'Patient Connected',
+        description: res?.message || `Patient successfully added to your caregiver roster.`,
+        variant: 'success',
+      });
+
+      // Refresh patients list
+      const data = await caregiverAPI.getPatients();
+      const list = Array.isArray(data) ? data : [];
+      setPatients(list.map((u) => ({
+        id: u.id,
+        name: u.full_name || u.username || 'Patient',
+        age: u.age || (u.id === res?.patient?.id ? Number(manualAge) : null),
+        relation: u.relationship || manualRelation || 'Monitored Patient',
+        adherenceScore: 92,
+        pendingDosesCount: 0,
+        lastDoseStatus: 'taken',
+        image: null,
+        nextMedication: null,
+        email: u.email,
+      })));
+    } catch (err) {
+      setLinkError(err.message || 'Failed to connect patient. Please verify the details.');
+    } finally {
+      setLinkLoading(false);
     }
-  }, [linkTab, linkCode, manualQuery, manualName, manualRelation, addToast]);
+  }, [linkTab, linkCode, manualQuery, manualName, manualAge, manualRelation, manualNotes, manualMedicines, addToast]);
 
   const handleCloseLinkModal = useCallback(() => {
     setIsLinkModalOpen(false);
     setLinkCode('');
     setManualQuery('');
     setManualName('');
+    setManualAge('');
+    setManualNotes('');
+    setManualMedicines('');
     setLinkError('');
     setLinkSuccess(false);
   }, []);
@@ -877,6 +909,18 @@ function CaregiverDashboardInner() {
                     onChange={(e) => setManualName(e.target.value)}
                   />
 
+                  <Input
+                    label="Patient Age (Optional)"
+                    placeholder="e.g. 68"
+                    type="number"
+                    min="1"
+                    max="120"
+                    value={manualAge}
+                    onChange={(e) => setManualAge(e.target.value)}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-sm">
                   <div>
                     <label className="block text-label-caps font-semibold text-on-surface uppercase tracking-wider mb-1">
                       Relationship
@@ -895,7 +939,21 @@ function CaregiverDashboardInner() {
                       <option value="Other Relative">Other Relative</option>
                     </select>
                   </div>
+
+                  <Input
+                    label="Assigned Medicines (Optional)"
+                    placeholder="e.g. Metformin 500mg, Lisinopril 10mg"
+                    value={manualMedicines}
+                    onChange={(e) => setManualMedicines(e.target.value)}
+                  />
                 </div>
+
+                <Input
+                  label="Care Notes & Special Instructions (Optional)"
+                  placeholder="e.g. Take morning pills after food with water."
+                  value={manualNotes}
+                  onChange={(e) => setManualNotes(e.target.value)}
+                />
               </div>
             )}
 
@@ -910,12 +968,20 @@ function CaregiverDashboardInner() {
                 loading={linkLoading}
                 leftIcon={<UserPlus className="w-4 h-4" />}
               >
-                {linkTab === 'code' ? 'Link via Code' : 'Send Link Request'}
+                {linkTab === 'code' ? 'Link via Code' : 'Connect Patient'}
               </Button>
             </Modal.Footer>
           </div>
         )}
       </Modal>
+
+      {/* ── Patient Schedule Inspection Modal ────────────────────────────── */}
+      <PatientScheduleModal
+        patient={scheduleModalPatient}
+        isOpen={Boolean(scheduleModalPatient)}
+        onClose={() => setScheduleModalPatient(null)}
+        onSendReminder={handleSendReminder}
+      />
 
       {/* ── Emergency Disclaimer Footer ─────────────────────────────────── */}
       <footer className="relative z-10 max-w-7xl mx-auto px-gutter pb-lg">

@@ -77,28 +77,28 @@ async def register(
     - Issues JWT access and refresh tokens.
     - Sends welcome email.
     """
-    # Normalize inputs to prevent case-variant duplicates
-    clean_username = payload.username.strip().lower()
     clean_email = payload.email.strip().lower()
+    target_username = payload.username.strip().lower() if payload.username else ""
+    if not target_username:
+        email_prefix = clean_email.split("@")[0].replace("-", "_").replace(".", "_")
+        target_username = email_prefix if len(email_prefix) >= 3 else f"{email_prefix}_usr"
 
-    # Case-insensitive uniqueness check prevents MultipleResultsFound on login
-    existing = await db.execute(
-        select(User).where(
-            or_(
-                func.lower(User.username) == clean_username,
-                func.lower(User.email) == clean_email,
-            )
-        )
-    )
-    if existing.scalar_one_or_none():
+    # Check for existing email
+    existing_email = await db.execute(select(User).where(func.lower(User.email) == clean_email))
+    if existing_email.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Username or email already registered.",
+            detail="An account with this email address is already registered.",
         )
+
+    # If username collision occurs, append unique suffix
+    existing_uname = await db.execute(select(User).where(func.lower(User.username) == target_username))
+    if existing_uname.scalar_one_or_none():
+        target_username = f"{target_username[:40]}_{uuid.uuid4().hex[:6]}"
 
     # Create new user with normalized fields
     new_user = User(
-        username=clean_username,
+        username=target_username,
         email=clean_email,
         hashed_password=hash_password(payload.password),
         full_name=payload.full_name.strip(),
@@ -258,6 +258,79 @@ async def logout():
     This endpoint acknowledges the logout request.
     """
     return MessageResponse(message="Logged out successfully.")
+
+
+# ===================================================================
+# POST /api/v1/auth/demo-login
+# ===================================================================
+@router.post(
+    "/demo-login",
+    response_model=LoginResponse,
+    summary="1-Click Demo Login",
+    description="Logs in or automatically provisions a real database user for a demo role (patient, caregiver, admin) and issues real JWT tokens.",
+)
+async def demo_login(
+    role: str = "patient",
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Authenticate or automatically create a demo user in PostgreSQL and return real JWT tokens.
+    """
+    role_clean = role.lower().strip()
+    if role_clean not in ["patient", "caregiver", "admin"]:
+        role_clean = "patient"
+
+    email_map = {
+        "admin": ("admin@pillsync.com", "Admin Superuser", "admin"),
+        "caregiver": ("caregiver@pillsync.com", "Dr. Sarah Kim", "drsarah"),
+        "patient": ("patient@pillsync.com", "Eleanor Martinez", "eleanor"),
+    }
+
+    email, name, uname = email_map[role_clean]
+
+    # Find or auto-provision demo user in DB
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        res2 = await db.execute(select(User).where(User.username == uname))
+        user = res2.scalar_one_or_none()
+
+    if not user:
+        user = User(
+            username=uname,
+            email=email,
+            hashed_password=hash_password("DemoPassword123!"),
+            full_name=name,
+            phone="+1234567890",
+            role=role_clean,
+            is_active=True,
+        )
+        db.add(user)
+        await db.flush()
+        await db.commit()
+        await db.refresh(user)
+
+    # Issue real tokens
+    token_data = {"sub": str(user.id), "role": user.role}
+    access_token = create_access_token(token_data)
+    refresh_token_str = create_refresh_token(token_data)
+
+    return LoginResponse(
+        access_token=access_token,
+        refresh_token=refresh_token_str,
+        token_type="bearer",
+        user=UserResponse(
+            id=user.id,
+            username=user.username,
+            email=user.email,
+            full_name=user.full_name,
+            phone=user.phone,
+            role=user.role,
+            is_active=user.is_active,
+            created_at=user.created_at.isoformat() if hasattr(user.created_at, 'isoformat') else str(user.created_at),
+        ),
+    )
 
 
 # ===================================================================

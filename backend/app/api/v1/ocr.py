@@ -28,13 +28,15 @@ from app.services.prescription_service import (
 
 router = APIRouter(prefix="/ocr", tags=["OCR Scanner"])
 
-# Allowed image MIME types
+# Allowed image / document MIME types
 _ALLOWED_CONTENT_TYPES = {
     "image/jpeg",
+    "image/jpg",
     "image/png",
     "image/bmp",
     "image/tiff",
     "image/webp",
+    "application/pdf",
 }
 
 
@@ -44,9 +46,9 @@ _ALLOWED_CONTENT_TYPES = {
     status_code=status.HTTP_200_OK,
     summary="Scan Prescription Image",
     description=(
-        "Upload a prescription image (JPEG, PNG, BMP, TIFF, or WebP). "
+        "Upload a prescription image (JPEG, PNG, WebP, PDF). "
         "The OCR engine extracts raw text, the NLP parser identifies medicine details, "
-        "and the result is automatically stored in MongoDB."
+        "and the result is automatically stored."
     ),
 )
 async def scan_prescription(
@@ -67,7 +69,11 @@ async def scan_prescription(
         5. Return structured result.
     """
     # --- Validate file type ---
-    if file.content_type not in _ALLOWED_CONTENT_TYPES:
+    is_valid_type = (
+        file.content_type in _ALLOWED_CONTENT_TYPES
+        or (file.content_type and file.content_type.startswith("image/"))
+    )
+    if not is_valid_type:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(

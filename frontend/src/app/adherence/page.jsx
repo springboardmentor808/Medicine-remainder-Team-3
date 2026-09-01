@@ -29,7 +29,7 @@ import Button from '@/components/ui/Button';
 import EmptyState from '@/components/ui/EmptyState';
 import AdherenceRing from '@/components/ui/AdherenceRing';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
-import { exportAPI } from '@/lib/api';
+import { exportAPI, patientAPI, medicineAPI } from '@/lib/api';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -49,39 +49,13 @@ const ACTION_CONFIG = {
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-// ── Mock Data ────────────────────────────────────────────────────────────────
+// ── Default Fallbacks for new accounts ────────────────────────────────────────
 
-const MOCK_SUMMARY = {
-  '7d':  { overall: 87, taken: 42, missed: 3, snoozed: 3, total: 48, streakDays: 5 },
-  '30d': { overall: 82, taken: 164, missed: 18, snoozed: 14, total: 196, streakDays: 5 },
-  '90d': { overall: 79, taken: 460, missed: 62, snoozed: 46, total: 568, streakDays: 5 },
+const DEFAULT_SUMMARY = {
+  '7d':  { overall: 0, taken: 0, missed: 0, snoozed: 0, total: 0, streakDays: 0 },
+  '30d': { overall: 0, taken: 0, missed: 0, snoozed: 0, total: 0, streakDays: 0 },
+  '90d': { overall: 0, taken: 0, missed: 0, snoozed: 0, total: 0, streakDays: 0 },
 };
-
-const MOCK_PER_MEDICINE = [
-  { id: 'med-1', name: 'Metformin',     strength: '500mg',   type: 'Diabetes',       adherence: 92, taken: 26, total: 28, trend: 'up' },
-  { id: 'med-2', name: 'Amlodipine',    strength: '5mg',     type: 'Blood Pressure', adherence: 86, taken: 12, total: 14, trend: 'stable' },
-  { id: 'med-3', name: 'Atorvastatin',  strength: '20mg',    type: 'Cholesterol',    adherence: 78, taken: 11, total: 14, trend: 'down' },
-  { id: 'med-4', name: 'Levothyroxine', strength: '50mcg',   type: 'Thyroid',        adherence: 95, taken: 27, total: 28, trend: 'up' },
-  { id: 'med-5', name: 'Aspirin',       strength: '75mg',    type: 'Heart Health',   adherence: 71, taken: 10, total: 14, trend: 'down' },
-  { id: 'med-6', name: 'Vitamin D3',    strength: '1000 IU', type: 'Supplement',     adherence: 100, taken: 14, total: 14, trend: 'stable' },
-];
-
-const MOCK_DOSE_HISTORY = [
-  { id: 'dl-01', medicineName: 'Metformin 500mg',     date: '2026-08-17', time: '08:05 AM', action: 'taken',   notes: '' },
-  { id: 'dl-02', medicineName: 'Amlodipine 5mg',      date: '2026-08-17', time: '08:02 AM', action: 'taken',   notes: '' },
-  { id: 'dl-03', medicineName: 'Levothyroxine 50mcg', date: '2026-08-17', time: '06:32 AM', action: 'taken',   notes: '' },
-  { id: 'dl-04', medicineName: 'Atorvastatin 20mg',   date: '2026-08-16', time: '01:15 PM', action: 'taken',   notes: '' },
-  { id: 'dl-05', medicineName: 'Aspirin 75mg',        date: '2026-08-16', time: '',          action: 'missed',  notes: 'Forgot — was traveling' },
-  { id: 'dl-06', medicineName: 'Metformin 500mg',     date: '2026-08-16', time: '09:00 PM', action: 'snoozed', notes: 'Snoozed 15 min' },
-  { id: 'dl-07', medicineName: 'Metformin 500mg',     date: '2026-08-16', time: '09:18 PM', action: 'taken',   notes: 'Took after snooze' },
-  { id: 'dl-08', medicineName: 'Amlodipine 5mg',      date: '2026-08-16', time: '08:00 AM', action: 'taken',   notes: '' },
-  { id: 'dl-09', medicineName: 'Levothyroxine 50mcg', date: '2026-08-16', time: '06:30 AM', action: 'taken',   notes: '' },
-  { id: 'dl-10', medicineName: 'Vitamin D3 1000 IU',  date: '2026-08-16', time: '09:10 AM', action: 'taken',   notes: '' },
-  { id: 'dl-11', medicineName: 'Atorvastatin 20mg',   date: '2026-08-15', time: '',          action: 'skipped', notes: 'Side effects — nausea' },
-  { id: 'dl-12', medicineName: 'Aspirin 75mg',        date: '2026-08-15', time: '06:20 PM', action: 'taken',   notes: '' },
-  { id: 'dl-13', medicineName: 'Metformin 500mg',     date: '2026-08-15', time: '08:10 AM', action: 'taken',   notes: '' },
-  { id: 'dl-14', medicineName: 'Metformin 500mg',     date: '2026-08-15', time: '09:05 PM', action: 'taken',   notes: '' },
-];
 
 // ── Generate Weekly Heatmap Data ─────────────────────────────────────────────
 
@@ -115,22 +89,74 @@ function AdherencePageInner() {
   const { addToast } = useToast();
   const [selectedPeriod, setSelectedPeriod] = useState('7d');
   const [historyFilter, setHistoryFilter] = useState('all'); // 'all' | 'taken' | 'missed' | 'snoozed'
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [liveSummary, setLiveSummary] = useState(DEFAULT_SUMMARY);
+  const [perMedicine, setPerMedicine] = useState([]);
+  const [doseHistory, setDoseHistory] = useState([]);
 
-  const summary = MOCK_SUMMARY[selectedPeriod] || MOCK_SUMMARY['7d'];
+  // Fetch live adherence report and medicines
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const [reportRes, medsRes] = await Promise.allSettled([
+          patientAPI.getWeeklyAdherence(),
+          medicineAPI.list(),
+        ]);
+
+        const meds = medsRes.status === 'fulfilled' && Array.isArray(medsRes.value)
+          ? medsRes.value
+          : (medsRes.status === 'fulfilled' && medsRes.value?.items ? medsRes.value.items : []);
+
+        if (reportRes.status === 'fulfilled' && reportRes.value) {
+          const rep = reportRes.value;
+          const overallPct = Math.round(rep.overall_adherence_rate || rep.adherence_percentage || 0);
+          const totalDoses = rep.total_scheduled_doses || rep.total_doses || 0;
+          const takenDoses = rep.total_taken_doses || rep.taken_doses || 0;
+          const missedDoses = rep.total_missed_doses || rep.missed_doses || 0;
+          const snoozedDoses = rep.total_snoozed_doses || rep.snoozed_doses || 0;
+
+          setLiveSummary({
+            '7d':  { overall: overallPct, taken: takenDoses, missed: missedDoses, snoozed: snoozedDoses, total: totalDoses, streakDays: rep.streak_days || 0 },
+            '30d': { overall: overallPct, taken: takenDoses, missed: missedDoses, snoozed: snoozedDoses, total: totalDoses, streakDays: rep.streak_days || 0 },
+            '90d': { overall: overallPct, taken: takenDoses, missed: missedDoses, snoozed: snoozedDoses, total: totalDoses, streakDays: rep.streak_days || 0 },
+          });
+        }
+
+        if (meds.length > 0) {
+          setPerMedicine(meds.map((m, idx) => ({
+            id: m.id || `med-${idx}`,
+            name: m.name,
+            strength: m.dosage || '',
+            type: m.disease_category || 'Medication',
+            adherence: 100,
+            taken: m.current_stock ? Math.max(0, m.initial_quantity - m.current_stock) : 0,
+            total: m.initial_quantity || 30,
+            trend: 'stable',
+          })));
+        }
+      } catch (err) {
+        console.error('Failed to load adherence data:', err);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const summary = liveSummary[selectedPeriod] || liveSummary['7d'];
   const heatmapData = useMemo(() => generateHeatmapData(4), []);
 
   // Sort medicines by adherence (lowest first for attention)
   const sortedMedicines = useMemo(
-    () => [...MOCK_PER_MEDICINE].sort((a, b) => a.adherence - b.adherence),
-    []
+    () => [...perMedicine].sort((a, b) => a.adherence - b.adherence),
+    [perMedicine]
   );
 
   // Filtered dose history
   const filteredHistory = useMemo(() => {
-    if (historyFilter === 'all') return MOCK_DOSE_HISTORY;
-    return MOCK_DOSE_HISTORY.filter((d) => d.action === historyFilter);
-  }, [historyFilter]);
+    if (historyFilter === 'all') return doseHistory;
+    return doseHistory.filter((d) => d.action === historyFilter);
+  }, [doseHistory, historyFilter]);
 
   // Group history by date
   const groupedHistory = useMemo(() => {

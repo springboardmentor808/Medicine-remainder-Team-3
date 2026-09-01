@@ -35,6 +35,7 @@ import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
 import { playWebAudioAlarm } from '@/lib/alarm_service';
 import AddReminderModal from '@/components/patient/AddReminderModal';
+import { patientAPI, medicineAPI } from '@/lib/api';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -55,29 +56,87 @@ const STATUS_CONFIG = {
   overdue:  { label: 'Overdue',  variant: 'missed',   Icon: AlertTriangle,textCls: 'text-error',     bgCls: 'bg-error/5' },
 };
 
-// ── Mock Schedule Data ───────────────────────────────────────────────────────
-
-const MOCK_SCHEDULE = [
-  { id: 'r-001', name: 'Metformin',      strength: '500mg',   type: 'Diabetes',       slot: 'morning',   time: '08:00 AM', status: 'taken',   instructions: 'Take with food',                 takenAt: '08:05 AM' },
-  { id: 'r-002', name: 'Amlodipine',     strength: '5mg',     type: 'Blood Pressure', slot: 'morning',   time: '08:00 AM', status: 'taken',   instructions: 'Take at the same time each day', takenAt: '08:02 AM' },
-  { id: 'r-003', name: 'Vitamin D3',     strength: '1000 IU', type: 'Supplement',     slot: 'morning',   time: '09:00 AM', status: 'pending', instructions: 'Take after breakfast' },
-  { id: 'r-004', name: 'Atorvastatin',   strength: '20mg',    type: 'Cholesterol',    slot: 'afternoon', time: '01:00 PM', status: 'pending', instructions: 'Can be taken with or without food' },
-  { id: 'r-005', name: 'Omeprazole',     strength: '20mg',    type: 'Acid Reflux',    slot: 'afternoon', time: '01:00 PM', status: 'pending', instructions: 'Take 30 minutes before meal' },
-  { id: 'r-006', name: 'Aspirin',        strength: '75mg',    type: 'Heart Health',   slot: 'evening',   time: '06:00 PM', status: 'pending', instructions: 'Take after food' },
-  { id: 'r-007', name: 'Lisinopril',     strength: '10mg',    type: 'Blood Pressure', slot: 'evening',   time: '07:00 PM', status: 'pending', instructions: 'Take with water' },
-  { id: 'r-008', name: 'Metformin',      strength: '500mg',   type: 'Diabetes',       slot: 'night',     time: '09:00 PM', status: 'pending', instructions: 'Take with food' },
-  { id: 'r-009', name: 'Levothyroxine',  strength: '50mcg',   type: 'Thyroid',        slot: 'morning',   time: '06:30 AM', status: 'taken',   instructions: '30 mins before breakfast', takenAt: '06:32 AM' },
-];
-
 // ── Inner Page Component ─────────────────────────────────────────────────────
 
 function RemindersPageInner() {
   const { addToast } = useToast();
-  const [schedule, setSchedule] = useState(MOCK_SCHEDULE);
-  const [loading, setLoading] = useState(false);
+  const [schedule, setSchedule] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [alarmEnabled, setAlarmEnabled] = useState(true);
   const [activeSlotFilter, setActiveSlotFilter] = useState('all');
+
+  // Fetch live schedule from API
+  const fetchSchedules = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await patientAPI.getTodaySchedule();
+      const list = Array.isArray(data) ? data : (data?.schedules || []);
+      if (list.length > 0) {
+        const slotMap = {
+          '08:00': 'morning', '08:00 AM': 'morning',
+          '13:00': 'afternoon', '01:00 PM': 'afternoon',
+          '18:00': 'evening', '06:00 PM': 'evening',
+          '20:00': 'evening', '08:00 PM': 'evening',
+          '21:00': 'night', '09:00 PM': 'night',
+        };
+        const mapped = list.map((s, idx) => ({
+          id: s.id || `sched-${idx}`,
+          schedule_id: s.id,
+          medicine_id: s.medicine_id,
+          name: s.medicine_name || s.name || 'Medication',
+          strength: s.dosage || s.strength || '',
+          type: s.disease_category || s.dose_label || 'Prescription',
+          slot: s.dose_label?.toLowerCase().includes('morning')
+            ? 'morning'
+            : s.dose_label?.toLowerCase().includes('afternoon') || s.dose_label?.toLowerCase().includes('noon')
+            ? 'afternoon'
+            : s.dose_label?.toLowerCase().includes('evening')
+            ? 'evening'
+            : s.dose_label?.toLowerCase().includes('night')
+            ? 'night'
+            : slotMap[s.scheduled_time] || (idx % 2 === 0 ? 'morning' : 'evening'),
+          time: s.scheduled_time || '08:00 AM',
+          scheduled_time_24: s.scheduled_time || '08:00',
+          status: 'pending',
+          instructions: s.notes || s.instructions || 'Take with water',
+        }));
+        setSchedule(mapped);
+      } else {
+        // If no schedules exist, try listing medicines to populate default reminders
+        const medsRes = await medicineAPI.list();
+        const meds = Array.isArray(medsRes) ? medsRes : (medsRes?.items || medsRes?.data || []);
+        if (meds.length > 0) {
+          const slots = ['morning', 'afternoon', 'evening', 'night'];
+          const times = ['08:00 AM', '01:00 PM', '06:00 PM', '09:00 PM'];
+          const times24 = ['08:00', '13:00', '18:00', '21:00'];
+          const mapped = meds.map((m, idx) => ({
+            id: m.id || `med-${idx}`,
+            medicine_id: m.id,
+            name: m.name,
+            strength: m.dosage || '',
+            type: m.disease_category || 'Medication',
+            slot: slots[idx % 4],
+            time: times[idx % 4],
+            scheduled_time_24: times24[idx % 4],
+            status: 'pending',
+            instructions: m.notes || 'Take as prescribed',
+          }));
+          setSchedule(mapped);
+        } else {
+          setSchedule([]);
+        }
+      }
+    } catch {
+      setSchedule([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSchedules();
+  }, [fetchSchedules]);
 
   // Modals
   const [snoozeModal, setSnoozeModal] = useState(null);   // reminder item
@@ -126,7 +185,7 @@ function RemindersPageInner() {
   }, [schedule]);
 
   // ── Actions ─────────────────────────────────────────────────────────
-  const handleTakeDose = useCallback((item) => {
+  const handleTakeDose = useCallback(async (item) => {
     const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     setSchedule((prev) =>
       prev.map((r) => r.id === item.id ? { ...r, status: 'taken', takenAt: now } : r)
@@ -139,33 +198,72 @@ function RemindersPageInner() {
       description: `${item.name} ${item.strength} marked as taken at ${now}`,
       variant: 'success',
     });
+
+    try {
+      await patientAPI.recordAction({
+        schedule_id: item.schedule_id,
+        medicine_id: item.medicine_id,
+        scheduled_date: new Date().toISOString().split('T')[0],
+        scheduled_time: item.scheduled_time_24 || '08:00',
+        action: 'TAKEN',
+      });
+    } catch (err) {
+      console.warn('Record action API error:', err.message);
+    }
   }, [alarmEnabled, addToast]);
 
-  const handleSkipDose = useCallback(() => {
+  const handleSkipDose = useCallback(async () => {
     if (!skipModal) return;
+    const itemToSkip = skipModal;
     setSchedule((prev) =>
-      prev.map((r) => r.id === skipModal.id ? { ...r, status: 'skipped', skipReason: skipReason } : r)
+      prev.map((r) => r.id === itemToSkip.id ? { ...r, status: 'skipped', skipReason: skipReason } : r)
     );
     addToast({
       title: 'Dose Skipped',
-      description: `${skipModal.name} ${skipModal.strength} has been skipped`,
+      description: `${itemToSkip.name} ${itemToSkip.strength} has been skipped`,
       variant: 'warning',
     });
     setSkipModal(null);
     setSkipReason('');
+
+    try {
+      await patientAPI.recordAction({
+        schedule_id: itemToSkip.schedule_id,
+        medicine_id: itemToSkip.medicine_id,
+        scheduled_date: new Date().toISOString().split('T')[0],
+        scheduled_time: itemToSkip.scheduled_time_24 || '08:00',
+        action: 'MISSED',
+      });
+    } catch (err) {
+      console.warn('Record action API error:', err.message);
+    }
   }, [skipModal, skipReason, addToast]);
 
-  const handleSnoozeDose = useCallback((minutes) => {
+  const handleSnoozeDose = useCallback(async (minutes) => {
     if (!snoozeModal) return;
+    const itemToSnooze = snoozeModal;
     setSchedule((prev) =>
-      prev.map((r) => r.id === snoozeModal.id ? { ...r, status: 'snoozed', snoozedMinutes: minutes } : r)
+      prev.map((r) => r.id === itemToSnooze.id ? { ...r, status: 'snoozed', snoozedMinutes: minutes } : r)
     );
     addToast({
       title: 'Reminder Snoozed',
-      description: `${snoozeModal.name} snoozed for ${minutes} minutes`,
+      description: `${itemToSnooze.name} snoozed for ${minutes} minutes`,
       variant: 'info',
     });
     setSnoozeModal(null);
+
+    try {
+      await patientAPI.recordAction({
+        schedule_id: itemToSnooze.schedule_id,
+        medicine_id: itemToSnooze.medicine_id,
+        scheduled_date: new Date().toISOString().split('T')[0],
+        scheduled_time: itemToSnooze.scheduled_time_24 || '08:00',
+        action: 'SNOOZE',
+        snooze_minutes: minutes,
+      });
+    } catch (err) {
+      console.warn('Record action API error:', err.message);
+    }
   }, [snoozeModal, addToast]);
 
   const handleUndoAction = useCallback((item) => {

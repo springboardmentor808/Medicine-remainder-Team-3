@@ -165,38 +165,6 @@ const TICKET_STATUSES = {
   closed:      { label: 'Closed',      variant: 'missed',   Icon: XCircle },
 };
 
-// ── Mock Ticket History ──────────────────────────────────────────────────────
-
-const MOCK_TICKETS = [
-  {
-    id: 'TKT-2026-001',
-    subject: 'Reminder sound not playing on Android',
-    category: 'reminder_problem',
-    priority: 'high',
-    status: 'in_progress',
-    created: '2026-08-15',
-    updated: '2026-08-16',
-  },
-  {
-    id: 'TKT-2026-002',
-    subject: 'OCR scanner not recognizing generic medicine labels',
-    category: 'bug_report',
-    priority: 'medium',
-    status: 'open',
-    created: '2026-08-14',
-    updated: '2026-08-14',
-  },
-  {
-    id: 'TKT-2026-003',
-    subject: 'Unable to link caregiver account',
-    category: 'account_help',
-    priority: 'medium',
-    status: 'resolved',
-    created: '2026-08-10',
-    updated: '2026-08-12',
-  },
-];
-
 // ── Inner Page Component ─────────────────────────────────────────────────────
 
 function HelpPageInner() {
@@ -205,7 +173,7 @@ function HelpPageInner() {
   const [expandedCategory, setExpandedCategory] = useState(null);
   const [expandedArticle, setExpandedArticle] = useState(null);
   const [activeTab, setActiveTab] = useState('faq'); // 'faq' | 'tickets' | 'new-ticket'
-  const [tickets, setTickets] = useState(MOCK_TICKETS);
+  const [tickets, setTickets] = useState([]);
 
   // ── Feedback state ──────────────────────────────────────────────
   const [feedbackGiven, setFeedbackGiven] = useState({});

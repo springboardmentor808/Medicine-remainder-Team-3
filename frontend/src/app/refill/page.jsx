@@ -10,16 +10,11 @@ import Modal from '@/components/ui/Modal';
 import EmptyState from '@/components/ui/EmptyState';
 import ErrorMessage from '@/components/ui/ErrorMessage';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
+import PharmacyMapView from '@/components/dashboard/PharmacyMapView';
 import { medicineAPI, refillAPI } from '@/lib/api';
 
-const DEFAULT_FALLBACK_MEDS = [
-  { id: 'med-1', name: 'Amlodipine 5mg', current_stock: 4, total_stock: 30, disease_category: 'Blood Pressure', prescribing_doctor: 'Dr. Sarah Jenkins' },
-  { id: 'med-4', name: 'Levothyroxine 50mcg', current_stock: 18, total_stock: 30, disease_category: 'Thyroid', prescribing_doctor: 'Dr. Elena Rostova' },
-  { id: 'med-2', name: 'Lisinopril 10mg', current_stock: 22, total_stock: 30, disease_category: 'Blood Pressure', prescribing_doctor: 'Dr. Sarah Jenkins' },
-];
-
 export default function RefillPage() {
-  const [medicines, setMedicines] = useState(DEFAULT_FALLBACK_MEDS);
+  const [medicines, setMedicines] = useState([]);
   const [loadingMeds, setLoadingMeds] = useState(true);
   const [toast, setToast] = useState(null);
 
@@ -29,6 +24,7 @@ export default function RefillPage() {
   const [pharmacyError, setPharmacyError] = useState('');
   const [searchRadius, setSearchRadius] = useState(5); // 5km
   const [userCoords, setUserCoords] = useState({ lat: 28.6139, lng: 77.209 }); // Default New Delhi
+  const [showMap, setShowMap] = useState(true);
 
   // Quick Refill Modal
   const [selectedMedForRefill, setSelectedMedForRefill] = useState(null);
@@ -40,14 +36,10 @@ export default function RefillPage() {
     setLoadingMeds(true);
     try {
       const res = await medicineAPI.list();
-      const items = res.data?.items || res.data;
-      if (Array.isArray(items) && items.length > 0) {
-        setMedicines(items);
-      } else {
-        setMedicines(DEFAULT_FALLBACK_MEDS);
-      }
-    } catch (err) {
-      setMedicines(DEFAULT_FALLBACK_MEDS);
+      const items = Array.isArray(res) ? res : (res?.items || res?.data || []);
+      setMedicines(Array.isArray(items) ? items : []);
+    } catch {
+      setMedicines([]);
     } finally {
       setLoadingMeds(false);
     }
@@ -59,11 +51,12 @@ export default function RefillPage() {
     try {
       const res = await refillAPI.nearbyPharmacies({
         lat: lat || userCoords.lat,
+        lon: lng || userCoords.lng,
         lng: lng || userCoords.lng,
         radius_km: radius || searchRadius,
       });
-      const data = res.data?.pharmacies || res.data || [];
-      setPharmacies(data);
+      const data = res?.pharmacies || res?.data?.pharmacies || (Array.isArray(res) ? res : []);
+      setPharmacies(Array.isArray(data) ? data : []);
     } catch (err) {
       setPharmacyError(err.message || 'Failed to locate nearby pharmacies.');
     } finally {
@@ -272,6 +265,15 @@ export default function RefillPage() {
             </select>
 
             <Button
+              variant={showMap ? 'primary' : 'outlined'}
+              size="sm"
+              onClick={() => setShowMap(!showMap)}
+              leftIcon={<span className="material-symbols-outlined text-[18px]">map</span>}
+            >
+              {showMap ? 'Hide Map' : 'Show Map'}
+            </Button>
+
+            <Button
               variant="outlined"
               size="sm"
               onClick={() => fetchNearbyPharmacies(userCoords.lat, userCoords.lng, searchRadius)}
@@ -281,6 +283,21 @@ export default function RefillPage() {
             </Button>
           </div>
         </div>
+
+        {/* Interactive OpenStreetMap Container */}
+        {showMap && (
+          <div className="pt-2">
+            <PharmacyMapView
+              userCoords={userCoords}
+              pharmacies={pharmacies}
+              selectedPharmacy={pharmacies.find((p) => p.name === selectedPharmacy)}
+              onSelectPharmacy={(p) => {
+                if (p?.name) setSelectedPharmacy(p.name);
+              }}
+              searchRadius={searchRadius}
+            />
+          </div>
+        )}
 
         {pharmacyLoading ? (
           <div className="text-center py-12">

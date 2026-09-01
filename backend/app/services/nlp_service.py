@@ -22,8 +22,8 @@ try:
     import spacy as _spacy_mod  # type: ignore[import-not-found]
     spacy = _spacy_mod
     HAS_SPACY = True
-except ImportError:
-    pass
+except Exception:
+    HAS_SPACY = False
 
 # ---------------------------------------------------------------------------
 # spaCy Model — Lazy Singleton Load
