@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     SMTP_FROM_NAME: str = "PillSync"
     SMTP_USE_TLS: bool = True
 
+    # --- Twilio SMS Gateway (Optional) ---
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: str = ""
+    TWILIO_PHONE_NUMBER: str = ""
+
     # --- Frontend URL (for password reset links) ---
     FRONTEND_URL: str = "http://localhost:3000"
 
