@@ -57,26 +57,34 @@ function LoginFormContent() {
     if (Object.keys(errs).length) { setErrors(errs); return; }
     setLoading(true);
     try {
-      // authAPI.login returns the response body directly (axios already unwraps .data)
-      const res = await authAPI.login({ email: form.email, password: form.password });
-      const { access_token, refresh_token, user } = res;
+      const response = await authAPI.login({ email: form.email, password: form.password });
+      const payload = response?.data || response;
+      const { access_token, refresh_token, user } = payload;
+
+      if (!access_token || !user) {
+        throw new Error('Authentication succeeded but invalid token received.');
+      }
+
       if (typeof window !== 'undefined') {
-        // Store under the same keys the api.js interceptor reads
+        localStorage.setItem('pillsync_access_token', access_token);
         localStorage.setItem('access_token', access_token);
         localStorage.setItem('token', access_token);
         if (refresh_token) localStorage.setItem('pillsync_refresh_token', refresh_token);
-        if (user) localStorage.setItem('pillsync_user', JSON.stringify(user));
+        localStorage.setItem('pillsync_user', JSON.stringify(user));
+        sessionStorage.setItem('pillsync_selected_role', user.role || 'patient');
         if (form.remember) localStorage.setItem('pillsync_remember', '1');
       }
+
       // Route by role
-      const role = user?.role || 'patient';
-      router.push(`/dashboard/${role}`);
+      const role = (user.role || 'patient').toLowerCase();
+      router.replace(`/dashboard/${role}`);
     } catch (err) {
       setServerError(err.message || 'Invalid credentials. Please try again.');
     } finally {
       setLoading(false);
     }
   };
+
 
 
 

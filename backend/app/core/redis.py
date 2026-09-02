@@ -12,6 +12,18 @@ import time
 import json
 from typing import Any, Optional, Dict, Tuple
 
+try:
+    import redis.asyncio as aioredis
+except ImportError:
+    try:
+        import aioredis  # type: ignore
+    except ImportError:
+        aioredis = None
+
+from app.core.config import settings
+
+
+
 # ---------------------------------------------------------------------------
 # In-Memory Fallback Client for Standalone / Dev Mode
 # ---------------------------------------------------------------------------

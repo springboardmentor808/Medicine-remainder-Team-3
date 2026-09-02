@@ -24,7 +24,9 @@ import {
   UserPlus,
   HeartHandshake,
   Download,
+  FileText,
 } from 'lucide-react';
+
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
@@ -510,6 +512,7 @@ function AssignCaregiverModal({ user, caregivers, isOpen, onClose, onAssign }) {
   );
 }
 
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 function AdminUsersPageInner() {
@@ -517,13 +520,17 @@ function AdminUsersPageInner() {
   const searchParams = useSearchParams();
 
   // ── Filter state ──────────────────────────────────────────────────────────
-  const [search, setSearch]         = useState('');
-  const [roleFilter, setRoleFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [sortField, setSortField]   = useState('name');
-  const [sortDir, setSortDir]       = useState('asc');
-  const [page, setPage]             = useState(1);
-  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [search, setSearch]                   = useState('');
+  const [roleFilter, setRoleFilter]           = useState('all');
+  const [statusFilter, setStatusFilter]       = useState('all');
+  const [caregiverFilter, setCaregiverFilter] = useState('all'); // all | assigned | unassigned
+  const [sortField, setSortField]             = useState('name');
+  const [sortDir, setSortDir]                 = useState('asc');
+  const [page, setPage]                       = useState(1);
+  const [pageSize, setPageSize]               = useState(10); // 5 | 10 | 25 | 50
+  const [loadingUsers, setLoadingUsers]       = useState(false);
+  const [exportingPdf, setExportingPdf]       = useState(false);
+  const [exportingCsv, setExportingCsv]       = useState(false);
 
   // ── Modal state ───────────────────────────────────────────────────────────
   const [roleModal, setRoleModal]     = useState({ open: false, user: null });
@@ -557,7 +564,6 @@ function AdminUsersPageInner() {
       }));
       setUsers(mapped);
     } catch {
-      // If API fails, show empty state (not mock data)
       setUsers([]);
     } finally {
       setLoadingUsers(false);
@@ -636,6 +642,38 @@ function AdminUsersPageInner() {
     setPage(1);
   }, []);
 
+  const handleExportCSV = useCallback(() => {
+    setExportingCsv(true);
+    try {
+      exportAPI.auditCSV();
+      addToast({
+        title: 'User Roster CSV Downloaded',
+        description: 'System user database exported in CSV format.',
+        variant: 'info',
+      });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setTimeout(() => setExportingCsv(false), 1000);
+    }
+  }, [addToast]);
+
+  const handleExportPDF = useCallback(() => {
+    setExportingPdf(true);
+    try {
+      exportAPI.auditPDF();
+      addToast({
+        title: 'User Roster PDF Generated',
+        description: 'Clinical HIPAA user audit document downloaded.',
+        variant: 'success',
+      });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setTimeout(() => setExportingPdf(false), 1200);
+    }
+  }, [addToast]);
+
   // ── Filtered + sorted + paginated data ────────────────────────────────────
 
   const filtered = useMemo(() => {
@@ -644,11 +682,16 @@ function AdminUsersPageInner() {
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(
-        (u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
+        (u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || u.role.toLowerCase().includes(q)
       );
     }
     if (roleFilter !== 'all')   list = list.filter((u) => u.role === roleFilter);
     if (statusFilter !== 'all') list = list.filter((u) => u.status === statusFilter);
+    if (caregiverFilter === 'assigned') {
+      list = list.filter((u) => !!u.assignedCaregiver);
+    } else if (caregiverFilter === 'unassigned') {
+      list = list.filter((u) => u.role === 'patient' && !u.assignedCaregiver);
+    }
 
     list = [...list].sort((a, b) => {
       const av = a[sortField] ?? '';
@@ -657,16 +700,17 @@ function AdminUsersPageInner() {
     });
 
     return list;
-  }, [users, search, roleFilter, statusFilter, sortField, sortDir]);
+  }, [users, search, roleFilter, statusFilter, caregiverFilter, sortField, sortDir]);
 
-  const totalPages  = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalPages  = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage    = Math.min(page, totalPages);
-  const pageSlice   = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pageSlice   = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   // Stats
   const totalActive    = users.filter((u) => u.status === 'active').length;
   const totalSuspended = users.filter((u) => u.status === 'suspended').length;
   const totalAdmins    = users.filter((u) => u.role === 'admin').length;
+  const totalPatients  = users.filter((u) => u.role === 'patient').length;
 
   // Sort header helper
   function SortIcon({ field }) {
@@ -690,23 +734,34 @@ function AdminUsersPageInner() {
           <div>
             <h1 className="text-headline-sm font-bold text-on-surface">User Management</h1>
             <p className="text-caption text-on-surface-variant mt-0.5">
-              Manage roles, status and passwords for all {users.length} platform users.
+              Manage roles, clinician assignments, status and passwords for all {users.length} platform users.
             </p>
           </div>
-          <div className="flex items-center gap-sm">
+          <div className="flex flex-wrap items-center gap-sm">
             <Button
               variant="outline"
               size="sm"
-              leftIcon={<Download className="w-4 h-4" />}
-              onClick={() => exportAPI.allCSV()}
+              leftIcon={<Download className={`w-4 h-4 ${exportingCsv ? 'animate-spin' : ''}`} />}
+              onClick={handleExportCSV}
+              disabled={exportingCsv}
             >
               Export CSV
             </Button>
             <Button
               variant="primary"
               size="sm"
-              leftIcon={<RefreshCw className="w-4 h-4" />}
-              onClick={() => window.location.reload()}
+              leftIcon={<FileText className={`w-4 h-4 ${exportingPdf ? 'animate-spin' : ''}`} />}
+              onClick={handleExportPDF}
+              disabled={exportingPdf}
+            >
+              Audit PDF
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              leftIcon={<RefreshCw className={`w-4 h-4 ${loadingUsers ? 'animate-spin' : ''}`} />}
+              onClick={fetchUsers}
+              disabled={loadingUsers}
             >
               Refresh
             </Button>
@@ -716,10 +771,11 @@ function AdminUsersPageInner() {
         {/* ── Summary Stat Pills ───────────────────────────────────────── */}
         <div className="flex flex-wrap gap-sm">
           {[
-            { icon: Users,     label: 'Total Users',  value: users.length,    color: 'primary' },
-            { icon: UserCheck, label: 'Active',        value: totalActive,     color: 'tertiary' },
-            { icon: UserX,     label: 'Suspended',     value: totalSuspended,  color: 'secondary' },
-            { icon: ShieldCheck,label: 'Admins',       value: totalAdmins,     color: 'primary' },
+            { icon: Users,       label: 'Total Users',  value: users.length,    color: 'primary' },
+            { icon: UserCheck,   label: 'Patients',     value: totalPatients,   color: 'primary' },
+            { icon: CheckCircle2,label: 'Active',        value: totalActive,     color: 'tertiary' },
+            { icon: UserX,       label: 'Suspended',     value: totalSuspended,  color: 'secondary' },
+            { icon: ShieldCheck, label: 'Admins',       value: totalAdmins,     color: 'primary' },
           ].map(({ icon: Icon, label, value, color }) => (
             <div
               key={label}
@@ -732,14 +788,14 @@ function AdminUsersPageInner() {
           ))}
         </div>
 
-        {/* ── 1. Search & Filter Bar ───────────────────────────────────── */}
+        {/* ── 1. Search & Advanced Filter Bar ──────────────────────────── */}
         <Card variant="flat" padding="md">
-          <div className="flex flex-col md:flex-row gap-sm">
+          <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-sm">
             {/* Search */}
             <div className="flex-1">
               <Input
                 type="search"
-                placeholder="Search by name or email…"
+                placeholder="Search by name, email, or role…"
                 value={search}
                 onChange={(e) => { setSearch(e.target.value); setPage(1); }}
                 clearable
@@ -752,7 +808,7 @@ function AdminUsersPageInner() {
               <select
                 value={roleFilter}
                 onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}
-                className="h-touch-target pl-md pr-10 rounded-md border border-outline-variant bg-surface-container-lowest text-caption text-on-surface appearance-none focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer"
+                className="h-touch-target pl-md pr-10 rounded-md border border-outline-variant bg-surface-container-lowest text-caption text-on-surface appearance-none focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer w-full"
               >
                 <option value="all">All Roles</option>
                 {ROLES.map((r) => (
@@ -767,7 +823,7 @@ function AdminUsersPageInner() {
               <select
                 value={statusFilter}
                 onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-                className="h-touch-target pl-md pr-10 rounded-md border border-outline-variant bg-surface-container-lowest text-caption text-on-surface appearance-none focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer"
+                className="h-touch-target pl-md pr-10 rounded-md border border-outline-variant bg-surface-container-lowest text-caption text-on-surface appearance-none focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer w-full"
               >
                 <option value="all">All Statuses</option>
                 <option value="active">Active</option>
@@ -775,10 +831,42 @@ function AdminUsersPageInner() {
               </select>
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant pointer-events-none" />
             </div>
+
+            {/* Caregiver Assignment Filter */}
+            <div className="relative">
+              <select
+                value={caregiverFilter}
+                onChange={(e) => { setCaregiverFilter(e.target.value); setPage(1); }}
+                className="h-touch-target pl-md pr-10 rounded-md border border-outline-variant bg-surface-container-lowest text-caption text-on-surface appearance-none focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer w-full"
+              >
+                <option value="all">All Assignments</option>
+                <option value="assigned">Assigned Caregiver</option>
+                <option value="unassigned">Unassigned Patients</option>
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant pointer-events-none" />
+            </div>
+
+            {/* Rows Per Page Dropdown */}
+            <div className="relative flex items-center gap-1.5 pl-1">
+              <span className="text-label-caps text-on-surface-variant whitespace-nowrap">Rows:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
+                className="h-touch-target px-3 rounded-md border border-outline-variant bg-surface-container-lowest text-caption text-on-surface appearance-none focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer font-semibold"
+              >
+                <option value={5}>5 / page</option>
+                <option value={10}>10 / page</option>
+                <option value={25}>25 / page</option>
+                <option value={50}>50 / page</option>
+              </select>
+            </div>
           </div>
 
           {/* Active filter chips */}
-          {(search || roleFilter !== 'all' || statusFilter !== 'all') && (
+          {(search || roleFilter !== 'all' || statusFilter !== 'all' || caregiverFilter !== 'all') && (
             <div className="flex flex-wrap items-center gap-xs mt-sm">
               <span className="text-label-caps text-on-surface-variant">Filters:</span>
               {search && (
@@ -796,8 +884,13 @@ function AdminUsersPageInner() {
                   Status: {statusFilter}
                 </Badge>
               )}
+              {caregiverFilter !== 'all' && (
+                <Badge variant="primary" size="sm" removable onRemove={() => setCaregiverFilter('all')}>
+                  Assignment: {caregiverFilter === 'assigned' ? 'Assigned' : 'Unassigned'}
+                </Badge>
+              )}
               <button
-                onClick={() => { setSearch(''); setRoleFilter('all'); setStatusFilter('all'); setPage(1); }}
+                onClick={() => { setSearch(''); setRoleFilter('all'); setStatusFilter('all'); setCaregiverFilter('all'); setPage(1); }}
                 className="text-label-caps text-error hover:underline"
               >
                 Clear all
@@ -825,7 +918,7 @@ function AdminUsersPageInner() {
                     </button>
                   </th>
 
-                  {/* Email — hidden on small screens */}
+                  {/* Email */}
                   <th className="py-sm px-md hidden lg:table-cell">
                     <span className="text-label-caps font-semibold text-on-surface-variant uppercase tracking-wider">
                       Email
@@ -840,6 +933,13 @@ function AdminUsersPageInner() {
                     >
                       Role <SortIcon field="role" />
                     </button>
+                  </th>
+
+                  {/* Assigned Caregiver / Clinician */}
+                  <th className="py-sm px-md hidden md:table-cell">
+                    <span className="text-label-caps font-semibold text-on-surface-variant uppercase tracking-wider">
+                      Caregiver Link
+                    </span>
                   </th>
 
                   {/* Joined */}
@@ -871,68 +971,85 @@ function AdminUsersPageInner() {
                 </tr>
               </thead>
 
-              <tbody className="divide-y divide-outline-variant/20">
-                {pageSlice.length === 0 ? (
+              <tbody className="divide-y divide-outline-variant/30">
+                {loadingUsers ? (
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <tr key={i} className="animate-pulse">
+                      <td className="py-md px-md"><div className="w-8 h-8 rounded-full bg-surface-container" /></td>
+                      <td className="py-md px-md"><div className="h-4 w-32 rounded bg-surface-container" /></td>
+                      <td className="py-md px-md hidden lg:table-cell"><div className="h-4 w-44 rounded bg-surface-container" /></td>
+                      <td className="py-md px-md"><div className="h-4 w-16 rounded bg-surface-container" /></td>
+                      <td className="py-md px-md hidden md:table-cell"><div className="h-4 w-28 rounded bg-surface-container" /></td>
+                      <td className="py-md px-md hidden md:table-cell"><div className="h-4 w-20 rounded bg-surface-container" /></td>
+                      <td className="py-md px-md"><div className="h-4 w-14 rounded bg-surface-container" /></td>
+                      <td className="py-md px-md text-right"><div className="h-4 w-8 rounded bg-surface-container ml-auto" /></td>
+                    </tr>
+                  ))
+                ) : pageSlice.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-xl text-center">
-                      <Users className="w-10 h-10 mx-auto text-on-surface-variant/40 mb-sm" />
-                      <p className="text-caption text-on-surface-variant">No users match your filters.</p>
-                      <button
-                        onClick={() => { setSearch(''); setRoleFilter('all'); setStatusFilter('all'); }}
-                        className="text-caption text-primary hover:underline mt-xs"
-                      >
-                        Clear filters
-                      </button>
+                    <td colSpan={8} className="py-xl text-center">
+                      <div className="flex flex-col items-center gap-sm">
+                        <Users className="w-8 h-8 text-on-surface-variant opacity-40" />
+                        <p className="text-caption font-semibold text-on-surface">No users found</p>
+                        <p className="text-label-caps text-on-surface-variant max-w-xs">
+                          {search || roleFilter !== 'all' || statusFilter !== 'all'
+                            ? 'Try adjusting your search or filters.'
+                            : 'No users registered yet.'}
+                        </p>
+                      </div>
                     </td>
                   </tr>
                 ) : (
                   pageSlice.map((user) => {
-                    const rm = ROLE_META[user.role] ?? ROLE_META.patient;
-                    const sm = STATUS_META[user.status] ?? STATUS_META.active;
+                    const rm = ROLE_META[user.role]   || ROLE_META.patient;
+                    const sm = STATUS_META[user.status] || STATUS_META.active;
                     const SIcon = sm.Icon;
 
                     return (
                       <tr
                         key={user.id}
-                        className="group hover:bg-surface-container-low/60 transition-colors"
+                        className="hover:bg-surface-container-low transition-colors"
                       >
                         {/* Avatar */}
                         <td className="py-sm px-md">
-                          <div className={`w-9 h-9 rounded-full ${avatarColor(user.id)} flex items-center justify-center text-label-caps font-bold shrink-0`}>
+                          <div
+                            className={`w-8 h-8 rounded-full ${avatarColor(user.id)} flex items-center justify-center text-label-caps font-bold shrink-0`}
+                          >
                             {getInitials(user.name)}
                           </div>
                         </td>
 
-                        {/* Name */}
+                        {/* Name + phone */}
                         <td className="py-sm px-md">
                           <p className="text-caption font-semibold text-on-surface">{user.name}</p>
-                          <p className="text-label-caps text-on-surface-variant lg:hidden truncate max-w-[140px]">{user.email}</p>
-                          {user.assignedCaregiver && user.role === 'patient' && (
-                            <div className="flex items-center gap-1 mt-0.5">
-                              <span className="text-[10px] text-secondary font-medium flex items-center gap-0.5 bg-secondary/8 px-1.5 py-0.5 rounded">
-                                🩺 {user.assignedCaregiver}
-                              </span>
-                            </div>
-                          )}
+                          <p className="text-label-caps text-on-surface-variant lg:hidden">{user.email}</p>
                         </td>
 
                         {/* Email */}
-                        <td className="py-sm px-md hidden lg:table-cell">
-                          <p className="text-caption text-on-surface-variant">{user.email}</p>
+                        <td className="py-sm px-md hidden lg:table-cell text-caption text-on-surface-variant font-mono">
+                          {user.email}
                         </td>
 
                         {/* Role */}
                         <td className="py-sm px-md">
-                          <Badge variant={rm.variant} size="sm">
-                            {rm.label}
-                          </Badge>
+                          <Badge variant={rm.variant} size="xs">{rm.label}</Badge>
                         </td>
 
-                        {/* Joined */}
-                        <td className="py-sm px-md hidden md:table-cell">
-                          <span className="text-caption text-on-surface-variant">
-                            {formatDate(user.joinedDate)}
-                          </span>
+                        {/* Assigned Caregiver */}
+                        <td className="py-sm px-md hidden md:table-cell text-caption text-on-surface-variant">
+                          {user.assignedCaregiver ? (
+                            <span className="inline-flex items-center gap-1 font-semibold text-[#00685f]">
+                              <HeartHandshake className="w-3.5 h-3.5" />
+                              {user.assignedCaregiver}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 italic text-xs">Unassigned</span>
+                          )}
+                        </td>
+
+                        {/* Joined Date */}
+                        <td className="py-sm px-md hidden md:table-cell text-caption text-on-surface-variant">
+                          {formatDate(user.joinedDate)}
                         </td>
 
                         {/* Status */}
@@ -943,7 +1060,7 @@ function AdminUsersPageInner() {
                           </div>
                         </td>
 
-                        {/* 3. Actions */}
+                        {/* Actions */}
                         <td className="py-sm px-md text-right">
                           <ActionMenu
                             user={user}
@@ -966,8 +1083,8 @@ function AdminUsersPageInner() {
             <p className="text-label-caps text-on-surface-variant">
               Showing{' '}
               <span className="font-semibold text-on-surface">
-                {filtered.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1}–
-                {Math.min(safePage * PAGE_SIZE, filtered.length)}
+                {filtered.length === 0 ? 0 : (safePage - 1) * pageSize + 1}–
+                {Math.min(safePage * pageSize, filtered.length)}
               </span>{' '}
               of <span className="font-semibold text-on-surface">{filtered.length}</span> users
             </p>
@@ -1002,7 +1119,7 @@ function AdminUsersPageInner() {
                         className={[
                           'w-8 h-8 rounded-md text-caption font-semibold transition-colors',
                           p === safePage
-                            ? 'bg-primary text-on-primary'
+                            ? 'bg-primary text-on-primary font-bold'
                             : 'text-on-surface-variant hover:bg-surface-container',
                         ].join(' ')}
                       >

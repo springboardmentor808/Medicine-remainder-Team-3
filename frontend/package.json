@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "cross-env NODE_OPTIONS=--max-old-space-size=4096 next dev --turbopack",
+    "dev": "cross-env NODE_OPTIONS=--max-old-space-size=4096 next dev",
     "build": "cross-env NODE_OPTIONS=--max-old-space-size=4096 next build",
+
     "start": "cross-env NODE_OPTIONS=--max-old-space-size=4096 next start",
     "lint": "next lint",
     "test": "jest --passWithNoTests --watchAll=false"

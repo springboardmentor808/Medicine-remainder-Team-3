@@ -93,16 +93,48 @@ app = FastAPI(
 )
 
 
+import time
+from fastapi import Request
+
+# ---------------------------------------------------------------------------
+# High-Precision Performance Monitoring Middleware
+# ---------------------------------------------------------------------------
+@app.middleware("http")
+async def performance_timing_middleware(request: Request, call_next):
+    """Measures and logs exact HTTP pipeline duration; tags response with X-Process-Time."""
+    start_time = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = (time.perf_counter() - start_time) * 1000
+
+    # Attach performance metric header
+    response.headers["X-Process-Time"] = f"{duration_ms:.2f}ms"
+
+    if duration_ms > 200:
+        print(f"⚠️  [SLOW ENDPOINT] {request.method} {request.url.path} - {duration_ms:.2f}ms")
+    elif settings.DEBUG:
+        print(f"⚡ [PERF] {request.method} {request.url.path} - {duration_ms:.2f}ms")
+
+    return response
+
+
 # ---------------------------------------------------------------------------
 # CORS Middleware
 # ---------------------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
+    allow_origins=settings.cors_origins_list + [
+        "http://127.0.0.1:3000",
+        "http://localhost:3000",
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+    ],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
 
 
 # ---------------------------------------------------------------------------

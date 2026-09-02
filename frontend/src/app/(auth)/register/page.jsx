@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { authAPI } from '@/lib/api';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
+import InlineOtpInput from '@/components/forms/InlineOtpInput';
 
 // Disposable email domain blacklist (client-side check)
 const DISPOSABLE_DOMAINS = new Set([
@@ -31,7 +32,7 @@ const FAKE_PHONE_PATTERNS = new Set([
 /**
  * Register Page — PillSync
  * Design: Stitch screen "Registration - Step 1" (036684dd96a64b4f9e626397481ed04e)
- * Full-width centered registration form with role pre-configured from onboarding.
+ * Full-width centered registration form with inline dual Email & Phone OTP verification.
  */
 
 function RegisterFormContent() {
@@ -46,6 +47,8 @@ function RegisterFormContent() {
     role: 'patient',
     agree: false,
   });
+  const [isEmailVerified, setIsEmailVerified] = useState(false);
+  const [isPhoneVerified, setIsPhoneVerified] = useState(false);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [serverError, setServerError] = useState('');
@@ -66,6 +69,16 @@ function RegisterFormContent() {
       const hasPlus = value.startsWith('+');
       const digitsOnly = value.replace(/[^\d]/g, '');
       sanitized = (hasPlus ? '+' : '') + digitsOnly;
+      // If phone value changed, reset verification
+      if (sanitized !== form.phone && isPhoneVerified) {
+        setIsPhoneVerified(false);
+      }
+    }
+    if (name === 'email') {
+      // If email value changed, reset verification
+      if (sanitized !== form.email && isEmailVerified) {
+        setIsEmailVerified(false);
+      }
     }
     setForm((prev) => ({ ...prev, [name]: sanitized }));
     if (errors[name]) setErrors((prev) => ({ ...prev, [name]: '' }));
@@ -76,16 +89,21 @@ function RegisterFormContent() {
     const errs = {};
     if (!form.name.trim() || form.name.trim().length < 2)
       errs.name = 'Full name must be at least 2 characters';
+    
+    // Email validation
     if (!form.email.trim())
       errs.email = 'Email address is required';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
       errs.email = 'Please enter a valid email address';
     else {
-      // Disposable email check
       const domain = form.email.split('@')[1]?.toLowerCase();
       if (domain && DISPOSABLE_DOMAINS.has(domain))
         errs.email = 'Temporary/disposable email addresses are not permitted. Please use a real email.';
+      else if (!isEmailVerified)
+        errs.email = 'Please verify your email address using the 6-digit OTP code.';
     }
+
+    // Phone validation
     if (!form.phone.trim())
       errs.phone = 'Phone number is required';
     else {
@@ -94,19 +112,26 @@ function RegisterFormContent() {
         errs.phone = 'Phone number must be 7-15 digits';
       else if (FAKE_PHONE_PATTERNS.has(digits) || new Set(digits).size === 1)
         errs.phone = 'This phone number appears invalid. Please enter a real phone number.';
+      else if (!isPhoneVerified)
+        errs.phone = 'Please verify your mobile number using the 6-digit OTP code.';
     }
+
+    // Password validation
     if (!form.password)
       errs.password = 'Password is required';
     else if (form.password.length < 8)
       errs.password = 'Password must be at least 8 characters';
     else if (!/(?=.*[A-Z])(?=.*[0-9])/.test(form.password))
       errs.password = 'Must contain at least 1 uppercase letter and 1 number';
+    
     if (!form.confirmPassword)
       errs.confirmPassword = 'Please confirm your password';
     else if (form.password !== form.confirmPassword)
       errs.confirmPassword = 'Passwords do not match';
+    
     if (!form.agree)
       errs.agree = 'You must accept the terms to continue';
+    
     return errs;
   };
 
@@ -114,6 +139,12 @@ function RegisterFormContent() {
     e.preventDefault();
     const errs = validate();
     if (Object.keys(errs).length) { setErrors(errs); return; }
+    
+    if (!isEmailVerified || !isPhoneVerified) {
+      setServerError('Please complete OTP verification for both Email and Phone before creating your account.');
+      return;
+    }
+
     setLoading(true);
     try {
       // Derive a clean, valid username from email prefix (at least 3 characters)
@@ -121,14 +152,14 @@ function RegisterFormContent() {
       const username = emailPrefix.length >= 3 ? emailPrefix.slice(0, 50) : `${emailPrefix}_usr`.slice(0, 50);
       const cleanRole = (form.role || 'patient').toLowerCase();
 
-      // Only pass fields matching the backend Pydantic schema (exclude confirmPassword, agree)
+      // Only pass fields matching the backend Pydantic schema
       const payload = {
         username,
         full_name: form.name.trim(),
         email: form.email.trim().toLowerCase(),
         password: form.password,
         role: cleanRole,
-        ...(form.phone?.trim() ? { phone: form.phone.trim() } : {}),
+        phone: form.phone.trim(),
       };
 
       await authAPI.register(payload);
@@ -159,6 +190,8 @@ function RegisterFormContent() {
     'bg-tertiary',
     'bg-tertiary',
   ][passStrength];
+
+  const isFormComplete = isEmailVerified && isPhoneVerified;
 
   return (
     <main className="relative min-h-screen flex items-center justify-center p-md py-xl">
@@ -257,8 +290,8 @@ function RegisterFormContent() {
                 leftIcon={<span className="material-symbols-outlined text-[20px]">badge</span>}
               />
 
-              {/* Email */}
-              <Input
+              {/* Email Address with Inline OTP Verification */}
+              <InlineOtpInput
                 label="Email Address"
                 id="email"
                 name="email"
@@ -268,12 +301,18 @@ function RegisterFormContent() {
                 onChange={handleChange}
                 error={errors.email}
                 required
-                autoComplete="email"
+                channel="email"
+                isVerified={isEmailVerified}
+                onVerified={() => {
+                  setIsEmailVerified(true);
+                  setErrors((prev) => ({ ...prev, email: '' }));
+                }}
+                onResetVerification={() => setIsEmailVerified(false)}
                 leftIcon={<span className="material-symbols-outlined text-[20px]">mail</span>}
               />
 
-              {/* Phone */}
-              <Input
+              {/* Phone Number with Inline OTP Verification */}
+              <InlineOtpInput
                 label="Phone Number"
                 id="phone"
                 name="phone"
@@ -283,9 +322,15 @@ function RegisterFormContent() {
                 onChange={handleChange}
                 error={errors.phone}
                 required
-                autoComplete="tel"
+                channel="phone"
+                isVerified={isPhoneVerified}
+                onVerified={() => {
+                  setIsPhoneVerified(true);
+                  setErrors((prev) => ({ ...prev, phone: '' }));
+                }}
+                onResetVerification={() => setIsPhoneVerified(false)}
                 leftIcon={<span className="material-symbols-outlined text-[20px]">phone</span>}
-                helper="For SMS reminders and OTP verification"
+                helper="For SMS dose reminders and clinical alerts"
               />
 
               {/* Password */}
@@ -369,11 +414,26 @@ function RegisterFormContent() {
                 )}
               </div>
 
-              {/* Submit */}
+              {/* Verification Readiness Hint */}
+              {!isFormComplete && (
+                <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center gap-2 text-[12px] text-amber-700 dark:text-amber-400">
+                  <span className="material-symbols-outlined text-[16px] shrink-0">info</span>
+                  <span>
+                    {!isEmailVerified && !isPhoneVerified
+                      ? 'Please verify both your Email and Phone Number above to enable account registration.'
+                      : !isEmailVerified
+                      ? 'Please verify your Email Address with the OTP code to proceed.'
+                      : 'Please verify your Phone Number with the OTP code to proceed.'}
+                  </span>
+                </div>
+              )}
+
+              {/* Submit Button */}
               <Button
                 type="submit"
                 fullWidth
                 loading={loading}
+                disabled={!isFormComplete || loading}
                 size="lg"
                 rightIcon={
                   !loading && (

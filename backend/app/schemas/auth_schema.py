@@ -165,15 +165,27 @@ class ChangePasswordRequest(BaseModel):
 
 
 class SendOTPRequest(BaseModel):
-    """POST /api/v1/auth/send-otp — Dispatch 6-digit cryptographic verification code."""
-    email: EmailStr = Field(..., description="Target verified email address")
-    purpose: str = Field(default="VERIFY", description="Purpose: 'VERIFY' or 'PASSWORD_RESET'")
+    """POST /api/v1/auth/send-otp — Dispatch 6-digit cryptographic verification code (Email or Phone)."""
+    channel: str = Field(default="email", description="Channel: 'email' or 'phone'")
+    destination: Optional[str] = Field(None, description="Target email address or phone number")
+    email: Optional[EmailStr] = Field(None, description="Legacy field for email address")
+    phone: Optional[str] = Field(None, description="Phone number")
+    purpose: str = Field(default="VERIFY", description="Purpose: 'VERIFY' or 'PASSWORD_RESET' or 'REGISTRATION'")
+
+    @field_validator("destination", mode="before")
+    @classmethod
+    def resolve_destination(cls, v: Optional[str], values) -> Optional[str]:
+        return v.strip() if isinstance(v, str) else v
 
 
 class VerifyOTPRequest(BaseModel):
     """POST /api/v1/auth/verify-otp — Validate 6-digit OTP code."""
-    email: EmailStr = Field(..., description="Target email address")
+    channel: str = Field(default="email", description="Channel: 'email' or 'phone'")
+    destination: Optional[str] = Field(None, description="Target email or phone")
+    email: Optional[EmailStr] = Field(None, description="Legacy email field")
+    phone: Optional[str] = Field(None, description="Phone field")
     otp: str = Field(..., min_length=6, max_length=6, description="6-digit verification code")
+    purpose: str = Field(default="VERIFY", description="Purpose matching send-otp")
 
     @field_validator("otp")
     @classmethod
@@ -182,6 +194,15 @@ class VerifyOTPRequest(BaseModel):
         if not re.match(r"^\d{6}$", cleaned):
             raise ValueError("OTP must be exactly 6 numeric digits.")
         return cleaned
+
+
+class OTPVerificationResponse(BaseModel):
+    """Response returned when an OTP is successfully verified."""
+    verified: bool = True
+    channel: str
+    destination: str
+    message: str = "Verified successfully."
+
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -223,8 +244,9 @@ class TokenResponse(BaseModel):
     """Access token response schema."""
     access_token: str
     token_type: str = "bearer"
-    expires_in: int
+    expires_in: int = 3600
     refresh_token: Optional[str] = None
+
 
 
 class UserProfileResponse(BaseModel):
