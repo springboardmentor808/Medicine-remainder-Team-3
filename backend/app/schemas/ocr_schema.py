@@ -82,8 +82,8 @@ class PrescriptionHistoryItem(BaseModel):
         default_factory=dict,
         description="NLP-parsed fields (medicine_name, dosage, frequency)",
     )
-    created_at: datetime = Field(
-        ...,
+    created_at: Optional[datetime] = Field(
+        default=None,
         description="Timestamp of the scan",
     )
 
@@ -106,4 +106,4 @@ class PrescriptionDetailResponse(BaseModel):
     raw_text: str
     confidence_score: float
     parsed_data: dict = Field(default_factory=dict)
-    created_at: datetime
+    created_at: Optional[datetime] = None

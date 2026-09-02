@@ -416,12 +416,13 @@ function AuditRow({ action, detail, actor, timestamp, severity }) {
 
 export default function AdminDashboardPage() {
   const [auditFilter, setAuditFilter] = useState('all');
-  const [lastRefreshed, setLastRefreshed] = useState(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
+  const [lastRefreshed, setLastRefreshed] = useState('');
   const [liveMetrics, setLiveMetrics] = useState(DEFAULT_METRICS);
   const [totalUserCount, setTotalUserCount] = useState(0);
 
   // Fetch live stats from backend
   useEffect(() => {
+    setLastRefreshed(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
     (async () => {
       try {
         const [usersRes, medsRes] = await Promise.allSettled([

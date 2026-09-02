@@ -45,8 +45,8 @@ router = APIRouter(prefix="/reminders", tags=["Reminders & Notifications"])
 
 class NotificationBroadcastRequest(BaseModel):
     channel: Optional[str] = "all"
-    title: str = Field(..., example="Medication Reminder")
-    message: str = Field(..., example="Please take your scheduled dose.")
+    title: str = Field(..., json_schema_extra={"example": "Medication Reminder"})
+    message: str = Field(..., json_schema_extra={"example": "Please take your scheduled dose."})
     patient_id: Optional[str] = None
 
 
@@ -187,8 +187,6 @@ async def send_broadcast_notification(
 
 
 # ---------------------------------------------------------------------------
-# POST /notify-patient — Direct Caregiver-to-Patient Reminder
-# ---------------------------------------------------------------------------
 @router.post(
     "/notify-patient",
     status_code=status.HTTP_200_OK,
@@ -197,8 +195,18 @@ async def send_broadcast_notification(
 )
 async def notify_patient_endpoint(
     payload: PatientReminderRequest,
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
+    """Caregiver or Admin dispatches an immediate dose reminder alert with RBAC verification."""
+    if current_user.role != "admin" and current_user.id != payload.patient_id:
+        assigned_ids = [p.id for p in getattr(current_user, "assigned_patients", [])]
+        if payload.patient_id not in assigned_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: You are not an assigned caregiver for this patient.",
+            )
+
     result = await send_notification(
         user_id=payload.patient_id,
         title=payload.title or "Caregiver Medication Reminder",

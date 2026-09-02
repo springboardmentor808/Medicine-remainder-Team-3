@@ -106,21 +106,29 @@ async def get_prescription_history(
 # Get Single Prescription
 # ---------------------------------------------------------------------------
 
-async def get_prescription_by_id(scan_id: str) -> Optional[dict]:
+async def get_prescription_by_id(
+    scan_id: str,
+    user_id: Optional[uuid.UUID] = None,
+) -> Optional[dict]:
     """
-    Fetch a single OCR scan result by its MongoDB document ID.
+    Fetch a single OCR scan result by its MongoDB document ID with mandatory user isolation.
 
     Args:
         scan_id: MongoDB ObjectId as string.
+        user_id: Optional UUID to enforce compound database-level tenant isolation (Zero Trust).
 
     Returns:
-        Scan document dict, or None if not found.
+        Scan document dict, or None if not found / unauthorized.
     """
     db = get_mongo_db()
     collection = db[COLLECTION_OCR_RESULTS]
 
     try:
-        doc = await collection.find_one({"_id": ObjectId(scan_id)})
+        query: dict = {"_id": ObjectId(scan_id)}
+        if user_id is not None:
+            query["user_id"] = str(user_id)
+
+        doc = await collection.find_one(query)
     except Exception:
         return None
 

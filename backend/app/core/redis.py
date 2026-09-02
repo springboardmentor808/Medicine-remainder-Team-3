@@ -8,33 +8,55 @@ Provides an async Redis connection for:
     - Rate Limiting: API request counting per user/IP.
 """
 
+import time
 import json
-from typing import Any, Optional
+from typing import Any, Optional, Dict, Tuple
 
-import redis.asyncio as aioredis
+try:
+    import redis.asyncio as aioredis
+except ImportError:
+    try:
+        import aioredis  # type: ignore
+    except ImportError:
+        aioredis = None
 
 from app.core.config import settings
+
 
 
 # ---------------------------------------------------------------------------
 # In-Memory Fallback Client for Standalone / Dev Mode
 # ---------------------------------------------------------------------------
 class InMemoryRedisFallback:
-    """Provides in-memory Redis-like operations when Redis server is offline."""
+    """Provides in-memory Redis-like operations with TTL support when Redis server is offline."""
     def __init__(self):
-        self._store = {}
-        self._lists = {}
-        self._zsets = {}
+        # Key -> (Value, ExpirationTimestamp | None)
+        self._store: Dict[str, Tuple[str, Optional[float]]] = {}
+        self._lists: Dict[str, list] = {}
+        self._zsets: Dict[str, dict] = {}
+
+    def _is_expired(self, key: str) -> bool:
+        """Helper to lazily evict expired keys."""
+        if key not in self._store:
+            return True
+        _, expires_at = self._store[key]
+        if expires_at is not None and time.time() > expires_at:
+            del self._store[key]
+            return True
+        return False
 
     async def ping(self):
         return True
 
     async def get(self, key: str):
-        val = self._store.get(key)
-        return val
+        if self._is_expired(key):
+            return None
+        return self._store[key][0]
 
     async def set(self, key: str, value: Any, ex: Optional[int] = None):
-        self._store[key] = str(value) if not isinstance(value, str) else value
+        expires_at = (time.time() + ex) if ex else None
+        str_val = str(value) if not isinstance(value, str) else value
+        self._store[key] = (str_val, expires_at)
         return True
 
     async def delete(self, *keys: str):
@@ -45,12 +67,21 @@ class InMemoryRedisFallback:
         return True
 
     async def incr(self, key: str):
-        cur = int(self._store.get(key, 0)) + 1
-        self._store[key] = str(cur)
+        if self._is_expired(key):
+            cur = 1
+            expires_at = None
+        else:
+            val_str, expires_at = self._store[key]
+            cur = int(val_str) + 1
+        self._store[key] = (str(cur), expires_at)
         return cur
 
     async def expire(self, key: str, seconds: int):
-        return True
+        if key in self._store:
+            val, _ = self._store[key]
+            self._store[key] = (val, time.time() + seconds)
+            return True
+        return False
 
     async def lpush(self, key: str, value: str):
         if key not in self._lists:

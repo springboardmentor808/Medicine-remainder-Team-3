@@ -134,6 +134,45 @@ async def get_medicine_by_id(
     return med
 
 
+async def get_medicine_by_id_and_user(
+    db: AsyncSession,
+    medicine_id: uuid.UUID | str,
+    user_id: uuid.UUID | str,
+) -> Medicine | None:
+    """Fetch a medicine record ensuring strict tenant isolation via compound DB filter."""
+    if isinstance(medicine_id, str):
+        try:
+            medicine_id = uuid.UUID(medicine_id)
+        except ValueError:
+            return None
+    if isinstance(user_id, str):
+        try:
+            user_id = uuid.UUID(user_id)
+        except ValueError:
+            return None
+
+    result = await db.execute(
+        select(Medicine).where(
+            Medicine.id == medicine_id,
+            Medicine.user_id == user_id,
+        )
+    )
+    med = result.scalar_one_or_none()
+    if med is None:
+        from sqlalchemy import or_, cast, String
+        med_str = str(medicine_id)
+        u_str = str(user_id)
+        result = await db.execute(
+            select(Medicine).where(
+                cast(Medicine.id, String) == med_str,
+                cast(Medicine.user_id, String) == u_str,
+            )
+        )
+        med = result.scalar_one_or_none()
+
+    return med
+
+
 # ---------------------------------------------------------------------------
 # Read — Paginated List with Filters
 # ---------------------------------------------------------------------------

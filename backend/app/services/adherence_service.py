@@ -14,7 +14,7 @@ from typing import List, Optional
 import uuid
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, update, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -309,15 +309,21 @@ class AdherenceService:
                 existing.snooze_minutes = req.snooze_minutes
             if req.notes:
                 existing.notes = req.notes
-            # Stock depletion if changing TO Taken from non-Taken
+            # Atomic stock depletion if changing TO Taken from non-Taken
             if action_str == "Taken" and prev_action != "Taken":
-                med_result = await db.execute(
-                    select(Medicine).where(Medicine.id == schedule.medicine_id)
+                stmt = (
+                    update(Medicine)
+                    .where(Medicine.id == schedule.medicine_id)
+                    .values(
+                        current_stock=case(
+                            (Medicine.current_stock >= func.coalesce(Medicine.quantity_per_dose, 1),
+                             Medicine.current_stock - func.coalesce(Medicine.quantity_per_dose, 1)),
+                            else_=0
+                        )
+                    )
                 )
-                medicine = med_result.scalar_one_or_none()
-                if medicine and medicine.current_stock > 0:
-                    qty_deduct = getattr(medicine, "quantity_per_dose", 1) or 1
-                    medicine.current_stock = max(0, medicine.current_stock - qty_deduct)
+                await db.execute(stmt)
+
             await db.flush()
             await db.refresh(existing)
             return existing
@@ -343,15 +349,20 @@ class AdherenceService:
         )
         db.add(dose_log)
 
-        # Stock depletion logic if Taken
+        # Atomic stock depletion logic if Taken
         if action_str == "Taken":
-            med_result = await db.execute(
-                select(Medicine).where(Medicine.id == schedule.medicine_id)
+            stmt = (
+                update(Medicine)
+                .where(Medicine.id == schedule.medicine_id)
+                .values(
+                    current_stock=case(
+                        (Medicine.current_stock >= func.coalesce(Medicine.quantity_per_dose, 1),
+                         Medicine.current_stock - func.coalesce(Medicine.quantity_per_dose, 1)),
+                        else_=0
+                    )
+                )
             )
-            medicine = med_result.scalar_one_or_none()
-            if medicine and medicine.current_stock > 0:
-                qty_deduct = getattr(medicine, "quantity_per_dose", 1) or 1
-                medicine.current_stock = max(0, medicine.current_stock - qty_deduct)
+            await db.execute(stmt)
 
         await db.flush()
         await db.refresh(dose_log)

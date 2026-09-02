@@ -1,9 +1,21 @@
 {
+  "include": [
+    "app",
+    "tests"
+  ],
+  "exclude": [
+    "**/__pyrefly_virtual__",
+    "**/inmemory",
+    "**/node_modules",
+    "**/.venv",
+    "**/scratch"
+  ],
   "pythonPath": ".venv/Scripts/python.exe",
   "venvPath": ".",
   "venv": ".venv",
   "extraPaths": [
     ".",
+    "app",
     ".venv/Lib/site-packages"
   ]
 }

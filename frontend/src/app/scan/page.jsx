@@ -36,50 +36,7 @@ function ScanPageInner() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [dragActive, setDragActive] = useState(false);
 
-  const handleFileSelect = (file) => {
-    if (!file) return;
-    if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
-      addToast({
-        title: 'Unsupported File',
-        description: 'Please upload an image (JPEG, PNG, WebP) or prescription PDF.',
-        variant: 'error',
-      });
-      return;
-    }
-    setSelectedFile(file);
-    setExtractedData(null);
-
-    if (file.type.startsWith('image/')) {
-      const url = URL.createObjectURL(file);
-      setPreviewUrl(url);
-    } else {
-      setPreviewUrl(null);
-    }
-
-    // Automatically begin scan extraction
-    handleScanFile(file);
-  };
-
-  const handleDrag = useCallback((e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setDragActive(false);
-    }
-  }, []);
-
-  const handleDrop = useCallback((e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileSelect(e.dataTransfer.files[0]);
-    }
-  }, []);
-
-  const handleScanFile = async (fileToScan) => {
+  const handleScanFile = useCallback(async (fileToScan) => {
     const targetFile = fileToScan || selectedFile;
     if (!targetFile) return;
     setScanning(true);
@@ -110,7 +67,50 @@ function ScanPageInner() {
     } finally {
       setScanning(false);
     }
-  };
+  }, [selectedFile, addToast]);
+
+  const handleFileSelect = useCallback((file) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
+      addToast({
+        title: 'Unsupported File',
+        description: 'Please upload an image (JPEG, PNG, WebP) or prescription PDF.',
+        variant: 'error',
+      });
+      return;
+    }
+    setSelectedFile(file);
+    setExtractedData(null);
+
+    if (file.type.startsWith('image/')) {
+      const url = URL.createObjectURL(file);
+      setPreviewUrl(url);
+    } else {
+      setPreviewUrl(null);
+    }
+
+    // Automatically begin scan extraction
+    handleScanFile(file);
+  }, [addToast, handleScanFile]);
+
+  const handleDrag = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true);
+    } else if (e.type === 'dragleave') {
+      setDragActive(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleFileSelect(e.dataTransfer.files[0]);
+    }
+  }, [handleFileSelect]);
 
   const handleScan = () => handleScanFile(selectedFile);
 

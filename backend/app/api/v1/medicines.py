@@ -32,6 +32,7 @@ from app.services.medication_service import (
     create_medicine,
     delete_medicine,
     get_medicine_by_id,
+    get_medicine_by_id_and_user,
     get_medicines_by_user,
     get_medicines_grouped_by_disease,
     update_medicine,
@@ -76,20 +77,12 @@ def _to_response(medicine) -> MedicineResponse:
 
 
 async def _get_owned_medicine(db, medicine_id, current_user):
-    """Fetch a medicine and verify ownership. Raises 404/403 on failure."""
-    medicine = await get_medicine_by_id(db, medicine_id)
+    """Fetch a medicine enforcing tenant isolation via compound DB filter."""
+    medicine = await get_medicine_by_id_and_user(db, medicine_id, current_user.id)
     if medicine is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Medicine with id '{medicine_id}' not found.",
-        )
-    # Normalize UUID comparison — handles both Postgres (UUID objects) and SQLite (hex strings)
-    med_uid = str(uuid.UUID(str(medicine.user_id))).lower()
-    cur_uid = str(uuid.UUID(str(current_user.id))).lower()
-    if med_uid != cur_uid:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have access to this medicine.",
         )
     return medicine
 
@@ -274,7 +267,7 @@ async def update_stock_endpoint(
     # Validate: at least one field must be provided
     if payload.adjustment is None and payload.new_stock is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Provide either 'adjustment' or 'new_stock'.",
         )
 

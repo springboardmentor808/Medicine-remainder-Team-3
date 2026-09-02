@@ -1,20 +1,21 @@
 """
-PillSync OCR Service.
+PillSync Clinical OCR Service (Production Hardened).
 
-Handles image preprocessing using OpenCV and text extraction
-via Tesseract OCR (pytesseract). Designed for prescription
-label / document scanning.
+Handles image preprocessing using OpenCV (Grayscale, CLAHE contrast enhancement,
+deskewing, and adaptive binarization) and text extraction via Tesseract OCR.
+Enforces strict clinical safety error boundaries — ZERO silent/hallucinatory fallbacks.
 """
 
 import asyncio
+import io
 import os
 import platform
 import cv2
 import numpy as np
-from fastapi import UploadFile
+from fastapi import UploadFile, HTTPException, status
 from PIL import Image
 
-# -- pytesseract import with robust fallback --
+# -- pytesseract import with safe initialization --
 pytesseract = None
 HAS_PYTESSERACT = False
 
@@ -23,50 +24,107 @@ try:
     pytesseract = _pytesseract_mod
     HAS_PYTESSERACT = True
 except ImportError:
-    print("[OCR Service] pytesseract package is not installed – OCR will use fallback text.")
+    pass
 
-# Directly enforce the exact 64-bit Windows executable path
-_EXACT_WINDOWS_EXE = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-_EXACT_TESSDATA = r"C:\Program Files\Tesseract-OCR\tessdata"
+# Standard Windows Tesseract binary paths
+_WINDOWS_EXE_PATHS = [
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+]
+_WINDOWS_TESSDATA_PATHS = [
+    r"C:\Program Files\Tesseract-OCR\tessdata",
+    r"C:\Program Files (x86)\Tesseract-OCR\tessdata",
+]
 
 
 def _configure_tesseract() -> bool:
-    """Explicitly sets pytesseract binary path, avoiding user-directory path conflicts."""
+    """Configures pytesseract binary and tessdata environment safely."""
     if pytesseract is None:
         return False
 
     if platform.system() == "Windows":
-        if os.path.isfile(_EXACT_WINDOWS_EXE):
-            pytesseract.pytesseract.tesseract_cmd = _EXACT_WINDOWS_EXE
-            if os.path.isdir(_EXACT_TESSDATA):
-                os.environ["TESSDATA_PREFIX"] = _EXACT_TESSDATA
-            return True
-        else:
-            print(f"[OCR Service] Tesseract binary not found at {_EXACT_WINDOWS_EXE}")
-            return False
+        for exe_path, data_path in zip(_WINDOWS_EXE_PATHS, _WINDOWS_TESSDATA_PATHS):
+            if os.path.isfile(exe_path):
+                pytesseract.pytesseract.tesseract_cmd = exe_path
+                if os.path.isdir(data_path):
+                    os.environ["TESSDATA_PREFIX"] = data_path
+                return True
+        return False
     return True
 
 
-# Initialize configuration on module load
 _TESSERACT_AVAILABLE = _configure_tesseract()
+
+
+def _deskew_image(image: np.ndarray) -> np.ndarray:
+    """
+    Detects skew angle in document and rotates image to upright position.
+    """
+    try:
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image.copy()
+
+        # Invert colors: text as foreground
+        _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
+        pts = cv2.findNonZero(thresh)
+        if pts is None or len(pts) < 50:
+            return image
+
+        rect = cv2.minAreaRect(pts)
+        angle = rect[-1]
+        if angle < -45.0:
+            angle = -(90.0 + angle)
+        else:
+            angle = -angle
+
+        if 0.5 < abs(angle) < 45.0:
+            (h, w) = image.shape[:2]
+            center = (w // 2, h // 2)
+            M = cv2.getRotationMatrix2D(center, angle, 1.0)
+            rotated = cv2.warpAffine(
+                image, M, (w, h),
+                flags=cv2.INTER_CUBIC,
+                borderMode=cv2.BORDER_REPLICATE
+            )
+            return rotated
+    except Exception:
+        pass
+    return image
 
 
 def _preprocess_image(image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
-    Preprocess image with OpenCV:
-    1. Grayscale conversion.
-    2. CLAHE (Contrast Limited Adaptive Histogram Equalization) for contrast enhancement.
-    3. Adaptive thresholding and Gaussian blur for binarization.
+    Clinical-grade image preprocessing pipeline:
+    1. Downsample if image exceeds 2000px on longest edge (prevents heap memory explosion).
+    2. Deskewing to normalize scan angle.
+    3. Grayscale conversion.
+    4. CLAHE (Contrast Limited Adaptive Histogram Equalization).
+    5. Adaptive thresholding with Gaussian blur.
     Returns: (enhanced_gray, binary_threshold)
     """
-    if len(image.shape) == 3:
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    # Protect against multi-megapixel decompression bombs
+    max_dim = max(image.shape[:2])
+    if max_dim > 2000:
+        scale = 2000.0 / max_dim
+        new_w = int(image.shape[1] * scale)
+        new_h = int(image.shape[0] * scale)
+        image = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+    deskewed = _deskew_image(image)
+
+    if len(deskewed.shape) == 3:
+        gray = cv2.cvtColor(deskewed, cv2.COLOR_BGR2GRAY)
     else:
-        gray = image.copy()
+        gray = deskewed.copy()
+
+    # Denoise
+    denoised = cv2.fastNlMeansDenoising(gray, h=10)
 
     # CLAHE contrast enhancement
     clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
-    enhanced = clahe.apply(gray)
+    enhanced = clahe.apply(denoised)
 
     # Adaptive thresholding
     blurred = cv2.GaussianBlur(enhanced, (3, 3), 0)
@@ -81,86 +139,142 @@ def _preprocess_image(image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return enhanced, thresh
 
 
-def _perform_ocr_sync(image_bytes: bytes) -> tuple[str, float]:
+def _perform_ocr_sync(image_bytes: bytes) -> tuple[str, float, str]:
     """
-    Safely executes OCR inside a background worker thread.
-    Tries multiple image representations (enhanced grayscale & binary thresholded)
-    to maximize text extraction accuracy.
+    Executes OCR in a worker thread.
+    Returns: (raw_text, confidence_score, status)
+    Zero hallucinatory text fallback — clinical safety compliance.
     """
-    fallback_text = "Augmentin 625 Duo Tablet 500mg 1-0-1 Take after meals"
-    fallback_confidence = 0.80
+    if not image_bytes or len(image_bytes) < 100:
+        return "", 0.0, "UNREADABLE"
 
     try:
-        # 1. Decode raw image bytes
+        # Decode raw image bytes
         np_arr = np.frombuffer(image_bytes, dtype=np.uint8)
         img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
         if img is None:
-            # Fallback: try PIL open
-            import io
             pil_fallback = Image.open(io.BytesIO(image_bytes))
             img = cv2.cvtColor(np.array(pil_fallback), cv2.COLOR_RGB2BGR)
 
         if img is None:
-            return fallback_text, fallback_confidence
+            return "", 0.0, "UNREADABLE"
 
-        # 2. OpenCV Preprocessing
+        # Preprocessing
         enhanced_gray, thresh = _preprocess_image(img)
 
-        # Configure binary path
-        _configure_tesseract()
+        # Configure Tesseract binary
+        has_tess = _configure_tesseract()
+        if not has_tess or pytesseract is None:
+            return "", 0.0, "OCR_ENGINE_UNAVAILABLE"
 
         raw_text = ""
-        if pytesseract is not None:
-            # Strategy A: Enhanced Grayscale with PSM 3 (Fully automatic page segmentation)
-            try:
-                pil_enhanced = Image.fromarray(enhanced_gray)
-                text_a = pytesseract.image_to_string(pil_enhanced, config="--psm 3 --oem 3").strip()  # type: ignore
-                if len(text_a) > len(raw_text):
-                    raw_text = text_a
-            except Exception as e:
-                print(f"[OCR Strategy A Handled]: {e}")
+        best_conf = 0.0
 
-            # Strategy B: Adaptive Thresholded image with PSM 6 (Assume a single uniform block of text)
-            try:
-                pil_thresh = Image.fromarray(thresh)
-                text_b = pytesseract.image_to_string(pil_thresh, config="--psm 6 --oem 3").strip()  # type: ignore
-                if len(text_b) > len(raw_text):
-                    raw_text = text_b
-            except Exception as e:
-                print(f"[OCR Strategy B Handled]: {e}")
+        # Strategy A: Enhanced Grayscale with PSM 3
+        try:
+            pil_enhanced = Image.fromarray(enhanced_gray)
+            data_dict = pytesseract.image_to_data(pil_enhanced, config="--psm 3 --oem 3", output_type=pytesseract.Output.DICT)
+            if isinstance(data_dict, dict):
+                confs_a = [int(c) for c in data_dict.get("conf", []) if str(c).lstrip("-").isdigit() and int(c) > 0]
+                avg_conf_a = (sum(confs_a) / len(confs_a) / 100.0) if confs_a else 0.0
+            else:
+                avg_conf_a = 0.0
+            text_a = str(pytesseract.image_to_string(pil_enhanced, config="--psm 3 --oem 3")).strip()
+            if len(text_a) > len(raw_text):
+                raw_text = text_a
+                best_conf = max(best_conf, avg_conf_a)
+        except Exception:
+            pass
 
-        if raw_text and len(raw_text.strip()) > 3:
-            return raw_text.strip(), 0.90
-        else:
-            return fallback_text, fallback_confidence
+        # Strategy B: Adaptive Thresholded Image with PSM 6
+        try:
+            pil_thresh = Image.fromarray(thresh)
+            data_dict_b = pytesseract.image_to_data(pil_thresh, config="--psm 6 --oem 3", output_type=pytesseract.Output.DICT)
+            if isinstance(data_dict_b, dict):
+                confs_b = [int(c) for c in data_dict_b.get("conf", []) if str(c).lstrip("-").isdigit() and int(c) > 0]
+                avg_conf_b = (sum(confs_b) / len(confs_b) / 100.0) if confs_b else 0.0
+            else:
+                avg_conf_b = 0.0
+            text_b = str(pytesseract.image_to_string(pil_thresh, config="--psm 6 --oem 3")).strip()
+            if len(text_b) > len(raw_text) or avg_conf_b > best_conf:
+                raw_text = text_b
+                best_conf = max(best_conf, avg_conf_b)
+        except Exception:
+            pass
 
-    except Exception as general_error:
-        print(f"[OCR Service Exception Handled]: {general_error}")
-        return fallback_text, fallback_confidence
+        cleaned_text = raw_text.strip()
+        if cleaned_text and len(cleaned_text) >= 4 and best_conf >= 0.30:
+            status_code = "SUCCESS" if best_conf >= 0.55 else "LOW_CONFIDENCE"
+            return cleaned_text, round(best_conf, 2), status_code
+
+        return "", 0.0, "UNREADABLE"
+
+    except Exception:
+        return "", 0.0, "UNREADABLE"
+
+
+MAX_OCR_FILE_SIZE = 10 * 1024 * 1024  # 10 MB limit
+CHUNK_READ_SIZE = 1024 * 1024  # 1 MB
 
 
 async def extract_text_from_image(file: UploadFile) -> dict:
     """
     Asynchronously extracts text from an uploaded prescription image.
-    Offloads execution to a background thread pool.
+    Enforces strict clinical safety bounds and 10MB memory limits.
     """
     try:
-        contents = await file.read()
-        if not contents:
+        total_bytes = bytearray()
+        while True:
+            chunk = await file.read(CHUNK_READ_SIZE)
+            if not chunk:
+                break
+            total_bytes.extend(chunk)
+            if len(total_bytes) > MAX_OCR_FILE_SIZE:
+                return {
+                    "raw_text": "",
+                    "confidence_score": 0.0,
+                    "status": "PAYLOAD_TOO_LARGE",
+                    "message": "Uploaded prescription exceeds maximum allowable size of 10 MB.",
+                }
+
+        contents = bytes(total_bytes)
+        if not contents or len(contents) < 50:
             return {
-                "raw_text": "Augmentin 625 Duo Tablet 500mg 1-0-1",
-                "confidence_score": 0.75,
+                "raw_text": "",
+                "confidence_score": 0.0,
+                "status": "UNREADABLE",
+                "message": "Uploaded file is empty or corrupted. Please upload a clear image.",
             }
 
-        raw_text, confidence = await asyncio.to_thread(_perform_ocr_sync, contents)
+        raw_text, confidence, status_str = await asyncio.to_thread(_perform_ocr_sync, contents)
+
+        if status_str == "UNREADABLE":
+            return {
+                "raw_text": "",
+                "confidence_score": 0.0,
+                "status": "UNREADABLE",
+                "message": "Could not recognize prescription text with clinical certainty. Please enter medication details manually.",
+            }
+
+        if status_str == "OCR_ENGINE_UNAVAILABLE":
+            return {
+                "raw_text": "",
+                "confidence_score": 0.0,
+                "status": "OCR_ENGINE_UNAVAILABLE",
+                "message": "OCR service is currently operating in offline mode. Please enter prescription details manually.",
+            }
 
         return {
             "raw_text": raw_text,
             "confidence_score": confidence,
+            "status": status_str,
+            "message": "Text extracted successfully." if status_str == "SUCCESS" else "Low confidence extraction. Please review carefully before saving.",
         }
-    except Exception as e:
-        print(f"[OCR Endpoint Exception Handled]: {e}")
+
+    except Exception:
         return {
-            "raw_text": "Augmentin 625 Duo Tablet 500mg 1-0-1",
-            "confidence_score": 0.75,
+            "raw_text": "",
+            "confidence_score": 0.0,
+            "status": "ERROR",
+            "message": "An error occurred while processing the prescription image.",
         }

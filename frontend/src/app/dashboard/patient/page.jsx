@@ -328,89 +328,99 @@ function PatientDashboardInner() {
     }
   }, []);
 
-  // Fetch today's schedule from /adherence/schedules, map to display format
+  // Coordinated Parallel Initial Data Fetching (Zero Waterfalls)
   useEffect(() => {
+    let isMounted = true;
     (async () => {
       setScheduleLoading(true);
       try {
-        const data = await patientAPI.getTodaySchedule();
-        const list = Array.isArray(data) ? data : (data?.schedules || []);
-        const slotCycle = ['morning', 'afternoon', 'evening'];
-        const colorCycle = ['primary', 'tertiary', 'secondary'];
-        const mapped = list.map((s, idx) => ({
-          id: s.id || `sched-${idx}`,
-          schedule_id: s.id,
-          medicine_id: s.medicine_id,
-          name: s.medicine_name || s.name || 'Medication',
-          strength: s.dosage || s.strength || '',
-          type: s.disease_category || s.dose_label || 'Medication',
-          instructions: s.notes || s.instructions || '',
-          slot: s.dose_label?.toLowerCase().includes('morning')
-            ? 'morning'
-            : s.dose_label?.toLowerCase().includes('afternoon') || s.dose_label?.toLowerCase().includes('noon')
-            ? 'afternoon'
-            : s.dose_label?.toLowerCase().includes('evening') || s.dose_label?.toLowerCase().includes('night')
-            ? 'evening'
-            : slotCycle[idx % 3],
-          time: s.scheduled_time || ['08:00 AM', '01:00 PM', '08:00 PM'][idx % 3],
-          scheduled_time_24: s.scheduled_time || ['08:00', '13:00', '20:00'][idx % 3],
-          status: 'pending',
-          snoozedUntil: null,
-          color: colorCycle[idx % 3],
-        }));
-        setSchedule(mapped);
-      } catch {
-        // If API fails (no schedules created yet), show empty state — not mock data
-        setSchedule([]);
-      } finally {
-        setScheduleLoading(false);
-      }
-    })();
-  }, []);
+        const [scheduleRes, inventoryRes, trendsRes] = await Promise.allSettled([
+          patientAPI.getTodaySchedule(),
+          medicineAPI.list(),
+          analyticsAPI.getTrends({ days: 7 }),
+        ]);
 
-  // Fetch medicines for inventory widget
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await medicineAPI.list();
-        const items = Array.isArray(res) ? res : (res?.items || res?.data || []);
-        if (Array.isArray(items) && items.length > 0) {
-          const mapped = items.map((m, idx) => ({
-            id: m.id || `inv-${idx}`,
-            name: `${m.name} ${m.dosage || ''}`.trim(),
-            totalDays: m.initial_quantity || 30,
-            remainingDays: Math.round(m.days_until_empty || 0),
-            pillsLeft: m.current_stock || 0,
+        if (!isMounted) return;
+
+        // 1. Process Schedule
+        if (scheduleRes.status === 'fulfilled') {
+          const data = scheduleRes.value;
+          const list = Array.isArray(data) ? data : (data?.schedules || []);
+          const slotCycle = ['morning', 'afternoon', 'evening'];
+          const colorCycle = ['primary', 'tertiary', 'secondary'];
+          const mapped = list.map((s, idx) => ({
+            id: s.id || `sched-${idx}`,
+            schedule_id: s.id,
+            medicine_id: s.medicine_id,
+            name: s.medicine_name || s.name || 'Medication',
+            strength: s.dosage || s.strength || '',
+            type: s.disease_category || s.dose_label || 'Medication',
+            instructions: s.notes || s.instructions || '',
+            slot: s.dose_label?.toLowerCase().includes('morning')
+              ? 'morning'
+              : s.dose_label?.toLowerCase().includes('afternoon') || s.dose_label?.toLowerCase().includes('noon')
+              ? 'afternoon'
+              : s.dose_label?.toLowerCase().includes('evening') || s.dose_label?.toLowerCase().includes('night')
+              ? 'evening'
+              : slotCycle[idx % 3],
+            time: s.scheduled_time || ['08:00 AM', '01:00 PM', '08:00 PM'][idx % 3],
+            scheduled_time_24: s.scheduled_time || ['08:00', '13:00', '20:00'][idx % 3],
+            status: 'pending',
+            snoozedUntil: null,
+            color: colorCycle[idx % 3],
           }));
-          setInventory(mapped);
-        }
-      } catch {
-        setInventory([]);
-      }
-    })();
-  }, []);
-
-  // Fetch 7-day adherence trends
-  useEffect(() => {
-    (async () => {
-      try {
-        const trends = await analyticsAPI.getTrends({ days: 7 });
-        if (Array.isArray(trends) && trends.length > 0) {
-          const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-          const todayIso = new Date().toISOString().split('T')[0];
-          const mapped = trends.map((t) => {
-            const d = new Date(t.date);
-            const dayLabel = daysOfWeek[d.getDay()]?.[0] || 'D';
-            return {
-              dayLabel,
-              dayName: t.day_name || daysOfWeek[d.getDay()],
-              percentage: Math.round(t.adherence_rate ?? 100),
-              isToday: t.date === todayIso,
-            };
-          });
-          setWeeklyTrends(mapped);
+          setSchedule(mapped);
         } else {
-          // Default 7-day representation
+          setSchedule([]);
+        }
+
+        // 2. Process Inventory
+        if (inventoryRes.status === 'fulfilled') {
+          const res = inventoryRes.value;
+          const items = Array.isArray(res) ? res : (res?.items || res?.data || []);
+          if (Array.isArray(items) && items.length > 0) {
+            const mapped = items.map((m, idx) => ({
+              id: m.id || `inv-${idx}`,
+              name: `${m.name} ${m.dosage || ''}`.trim(),
+              totalDays: m.initial_quantity || 30,
+              remainingDays: Math.round(m.days_until_empty || 0),
+              pillsLeft: m.current_stock || 0,
+            }));
+            setInventory(mapped);
+          } else {
+            setInventory([]);
+          }
+        } else {
+          setInventory([]);
+        }
+
+        // 3. Process Trends
+        if (trendsRes.status === 'fulfilled') {
+          const trends = trendsRes.value;
+          if (Array.isArray(trends) && trends.length > 0) {
+            const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const todayIso = new Date().toISOString().split('T')[0];
+            const mapped = trends.map((t) => {
+              const d = new Date(t.date);
+              const dayLabel = daysOfWeek[d.getDay()]?.[0] || 'D';
+              return {
+                dayLabel,
+                dayName: t.day_name || daysOfWeek[d.getDay()],
+                percentage: Math.round(t.adherence_rate ?? 100),
+                isToday: t.date === todayIso,
+              };
+            });
+            setWeeklyTrends(mapped);
+          } else {
+            const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+            setWeeklyTrends(days.map((d, i) => ({
+              dayLabel: d,
+              dayName: d,
+              percentage: 100,
+              isToday: i === 6,
+            })));
+          }
+        } else {
           const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
           setWeeklyTrends(days.map((d, i) => ({
             dayLabel: d,
@@ -420,16 +430,22 @@ function PatientDashboardInner() {
           })));
         }
       } catch {
-        const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-        setWeeklyTrends(days.map((d, i) => ({
-          dayLabel: d,
-          dayName: d,
-          percentage: 100,
-          isToday: i === 6,
-        })));
+        if (isMounted) {
+          setSchedule([]);
+          setInventory([]);
+        }
+      } finally {
+        if (isMounted) {
+          setScheduleLoading(false);
+        }
       }
     })();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
+
 
   const displayName = currentUser?.full_name || currentUser?.name || currentUser?.username || 'Patient';
 
@@ -693,7 +709,7 @@ function PatientDashboardInner() {
             <section>
               <div className="flex items-center justify-between mb-md">
                 <h2 className="text-body-sm font-bold text-on-surface">
-                  Today's Medications
+                  Today&apos;s Medications
                 </h2>
                 <Link href="/medicines">
                   <Button variant="ghost" size="sm" rightIcon={<ChevronRight className="w-4 h-4" />}>

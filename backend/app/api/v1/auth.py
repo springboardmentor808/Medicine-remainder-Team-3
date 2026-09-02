@@ -17,7 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.config import settings
+from app.core.redis import get_redis
 from app.core.security import (
+
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -36,16 +38,15 @@ from app.schemas.auth_schema import (
     RegisterRequest,
     RegisterResponse,
     ResetPasswordRequest,
+    SendOTPRequest,
     TokenResponse,
     UserResponse,
+    VerifyOTPRequest,
     VerifyOtpRequest,
 )
-from app.services.email_service import (
-    send_otp_email,
-    send_password_reset_link,
-    send_welcome_email,
-)
-from app.core.redis import cache_set, cache_get, cache_delete
+from app.services.otp_service import OTPService
+from app.services.email_service import EmailService
+from app.services.sms_service import SMSService, normalize_phone
 
 logger = logging.getLogger(__name__)
 
@@ -91,8 +92,26 @@ async def register(
             detail="An account with this email address is already registered.",
         )
 
+    # Enforce email verification
+    is_email_ver = await OTPService.is_destination_verified(clean_email, channel="email")
+    if not is_email_ver:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email address has not been verified. Please complete email OTP verification before registering.",
+        )
+
+    # Enforce phone verification if phone is provided
+    if payload.phone:
+        is_phone_ver = await OTPService.is_destination_verified(payload.phone, channel="phone")
+        if not is_phone_ver:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Phone number has not been verified. Please complete mobile OTP verification before registering.",
+            )
+
     # If username collision occurs, append unique suffix
     existing_uname = await db.execute(select(User).where(func.lower(User.username) == target_username))
+
     if existing_uname.scalar_one_or_none():
         target_username = f"{target_username[:40]}_{uuid.uuid4().hex[:6]}"
 
@@ -107,7 +126,8 @@ async def register(
     )
 
     db.add(new_user)
-    await db.flush()  # Flush to get the generated UUID — commit handled by get_db
+    await db.flush()  # Flush to get the generated UUID
+    await db.commit()
     await db.refresh(new_user)
 
     # Generate tokens
@@ -117,7 +137,7 @@ async def register(
 
     # Send welcome email (non-blocking, don't fail registration if email fails)
     try:
-        await send_welcome_email(new_user.email, new_user.full_name)
+        await EmailService.send_welcome_email(new_user.email, new_user.full_name, new_user.role)
     except Exception as e:
         logger.warning(f"[Auth] Welcome email failed for {new_user.email}: {e}")
 
@@ -170,7 +190,7 @@ async def login(
             password = body.get("password")
         except Exception:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Invalid JSON payload.",
             )
     else:
@@ -193,7 +213,7 @@ async def login(
     username_clean = (username or "").strip()
     if not username_clean or not password:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Fields 'username' and 'password' are required.",
         )
 
@@ -249,14 +269,29 @@ async def login(
     "/logout",
     response_model=MessageResponse,
     summary="User logout",
-    description="Invalidate the current session. Client should clear stored tokens.",
+    description="Invalidate the current session and add token to Redis blacklist.",
 )
-async def logout():
+async def logout(request: Request):
     """
     Logout endpoint.
-    Since JWTs are stateless, the client is responsible for clearing tokens.
-    This endpoint acknowledges the logout request.
+    Adds the caller's JWT token to the Redis revocation blacklist for remaining TTL.
     """
+    token = None
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+    elif "pillsync_access_token" in request.cookies:
+        token = request.cookies.get("pillsync_access_token", "").strip()
+
+    if token:
+        try:
+            redis = get_redis()
+            if redis:
+                await redis.set(f"blacklist:{token}", "revoked", ex=3600)
+        except Exception:
+            pass
+
+
     return MessageResponse(message="Logged out successfully.")
 
 
@@ -367,7 +402,7 @@ async def refresh_token(
 
     if not refresh_tok:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="refresh_token is required in body or Authorization header.",
         )
 
@@ -403,8 +438,10 @@ async def refresh_token(
 
     return TokenResponse(
         access_token=new_access,
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         refresh_token=refresh_tok,
     )
+
 
 
 # ===================================================================
@@ -464,148 +501,152 @@ async def change_password(
 # OTP & Password Recovery Endpoints
 # ===================================================================
 
+# ===================================================================
+# OTP & Password Recovery Endpoints
+# ===================================================================
+
+@router.post(
+    "/send-otp",
+    response_model=MessageResponse,
+    summary="Dispatch 6-digit verification code",
+    description="Generates a 6-digit cryptographic OTP, hashes it in Redis (5-min TTL), and dispatches via Email or SMS.",
+)
+async def send_otp(payload: SendOTPRequest):
+    """Generate and dispatch 6-digit OTP verification code."""
+    channel = (payload.channel or "email").strip().lower()
+    dest = (payload.destination or payload.email or payload.phone or "").strip()
+    if not dest:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Destination (email address or phone number) is required.",
+        )
+    if "@" in dest:
+        channel = "email"
+    elif channel != "email" and any(c.isdigit() for c in dest):
+        channel = "phone"
+
+    await OTPService.check_rate_limit(dest, channel=channel)
+    otp_code = await OTPService.generate_otp(dest, channel=channel, purpose=payload.purpose)
+
+    if channel == "email":
+        await EmailService.send_otp_email(dest, otp_code, purpose=payload.purpose)
+    else:
+        await SMSService.send_otp_sms(dest, otp_code, purpose=payload.purpose)
+
+    response = MessageResponse(
+        message=f"A 6-digit verification code has been dispatched to your {channel}.",
+        detail=f"OTP sent to {dest} via {channel}",
+    )
+    if settings.DEBUG:
+        response.debug_otp = otp_code
+    return response
+
+
 @router.post(
     "/forgot-password",
     response_model=MessageResponse,
-    summary="Request password reset OTP",
-    description="Generates and dispatches a 6-digit OTP to the registered email. Also sends a password reset link.",
+    summary="Request password reset",
+    description="Generates a single-use password reset token and OTP, dispatching via email.",
 )
 async def forgot_password(
     payload: ForgotPasswordRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate and send 6-digit OTP code + reset link for password reset."""
+    """Initiate password recovery with single-use reset token and OTP."""
     email_clean = payload.email.strip().lower()
 
-    # Check if user exists
     result = await db.execute(select(User).where(func.lower(User.email) == email_clean))
     user = result.scalar_one_or_none()
 
-    # Generate 6-digit numeric OTP
-    otp_code = f"{random.randint(100000, 999999)}"
-    otp_ttl = 10 * 60  # 10 minutes validity
-
-    # Store OTP in Redis (or in-memory fallback) for multi-worker safety
-    await cache_set(f"otp:{email_clean}", {"otp": otp_code}, ttl_seconds=otp_ttl)
-
-    # Send OTP email
-    try:
-        await send_otp_email(email_clean, otp_code, purpose="password_reset")
-    except Exception as e:
-        logger.warning(f"[Auth] OTP email send failed: {e}")
-
-    # Also send reset link with OTP as token
-    try:
-        await send_password_reset_link(email_clean, otp_code)
-    except Exception as e:
-        logger.warning(f"[Auth] Reset link email send failed: {e}")
+    otp_code = None
+    if user:
+        reset_token = await OTPService.create_password_reset_token(user.id, email_clean)
+        otp_code = await OTPService.generate_otp(email_clean, channel="email", purpose="PASSWORD_RESET")
+        await EmailService.send_password_reset_email(email_clean, reset_token)
+        await EmailService.send_otp_email(email_clean, otp_code, purpose="PASSWORD_RESET")
 
     response = MessageResponse(
-        message="A 6-digit OTP has been dispatched to your registered email. You can also use the reset link sent to your email.",
-        detail=f"OTP sent to {email_clean}",
+        message="If an account exists for this email, password recovery instructions have been dispatched.",
+        detail=f"Recovery sent to {email_clean}",
     )
-
-    # Only include debug_otp in development mode
-    if settings.DEBUG:
+    if settings.DEBUG and otp_code:
         response.debug_otp = otp_code
-
     return response
 
 
 @router.post(
     "/verify-otp",
     response_model=MessageResponse,
-    summary="Verify OTP code",
-    description="Validates that the provided 6-digit OTP is correct and unexpired.",
+    summary="Verify 6-digit OTP code",
+    description="Validates that the provided 6-digit OTP matches Redis hash within 5-min TTL.",
 )
-async def verify_otp(payload: VerifyOtpRequest):
-    """Verify that the submitted OTP matches."""
-    email_clean = payload.email.strip().lower()
-    stored = await cache_get(f"otp:{email_clean}")
-
-    if not stored:
+async def verify_otp(payload: VerifyOTPRequest):
+    """Verify 6-digit OTP code with attempt limiting."""
+    channel = (payload.channel or "email").strip().lower()
+    dest = (payload.destination or payload.email or payload.phone or "").strip()
+    if not dest:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No active OTP found for this email. Please request a new one.",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Destination (email address or phone number) is required.",
         )
+    if "@" in dest:
+        channel = "email"
+    elif channel != "email" and any(c.isdigit() for c in dest):
+        channel = "phone"
 
-    if stored.get("otp") != payload.otp.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid OTP code. Please check and try again.",
-        )
+    await OTPService.verify_otp(dest, payload.otp, channel=channel, purpose=payload.purpose)
+    return MessageResponse(
+        message=f"{channel.capitalize()} verified successfully.",
+        detail=f"{dest} verified",
+    )
 
-    return MessageResponse(message="OTP verified successfully.")
 
 
 @router.post(
     "/resend-otp",
     response_model=MessageResponse,
     summary="Resend OTP code",
-    description="Generates and dispatches a new 6-digit OTP to the registered email.",
+    description="Generates and dispatches a fresh 6-digit OTP code.",
 )
 async def resend_otp(payload: ForgotPasswordRequest):
-    """Resend OTP to the provided email."""
+    """Resend 6-digit OTP to user email."""
     email_clean = payload.email.strip().lower()
-
-    # Generate new OTP
-    otp_code = f"{random.randint(100000, 999999)}"
-    otp_ttl = 10 * 60
-
-    # Store in Redis (or in-memory fallback)
-    await cache_set(f"otp:{email_clean}", {"otp": otp_code}, ttl_seconds=otp_ttl)
-
-    # Send via email
-    try:
-        await send_otp_email(email_clean, otp_code, purpose="password_reset")
-    except Exception as e:
-        logger.warning(f"[Auth] Resend OTP email failed: {e}")
+    otp_code = await OTPService.generate_otp(email_clean, purpose="PASSWORD_RESET")
+    await EmailService.send_otp_email(email_clean, otp_code, purpose="PASSWORD_RESET")
 
     response = MessageResponse(
-        message="A new OTP has been sent to your email.",
+        message="A new 6-digit OTP has been sent to your email.",
         detail=f"OTP resent to {email_clean}",
     )
-
     if settings.DEBUG:
         response.debug_otp = otp_code
-
     return response
 
 
 @router.post(
     "/reset-password",
     response_model=MessageResponse,
-    summary="Reset password with verified OTP",
-    description="Updates user password after successful OTP verification.",
+    summary="Complete password reset",
+    description="Updates user password after consuming a single-use token or verifying OTP.",
 )
 async def reset_password(
     payload: ResetPasswordRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Reset user password after OTP verification."""
-    email_clean = payload.email.strip().lower()
-    stored = await cache_get(f"otp:{email_clean}")
+    """Reset user password using single-use cryptographic token."""
+    user_id_str, email = await OTPService.verify_and_consume_reset_token(payload.token)
 
-    if not stored or stored.get("otp") != payload.otp.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired OTP. Please request a new verification code.",
-        )
-
-    # Find user in database
-    result = await db.execute(select(User).where(func.lower(User.email) == email_clean))
+    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id_str)))
     user = result.scalar_one_or_none()
 
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User with this email not found.",
+            detail="User account associated with this reset token could not be found.",
         )
 
-    # Update password
     user.hashed_password = hash_password(payload.new_password)
+    await db.commit()
+    await db.refresh(user)
 
-    # Clear OTP from Redis
-    await cache_delete(f"otp:{email_clean}")
-
-    return MessageResponse(message="Password reset successfully! You can now log in with your new password.")
+    return MessageResponse(message="Password reset successfully! You can now log in with your new credentials.")

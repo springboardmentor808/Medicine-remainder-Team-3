@@ -25,8 +25,8 @@ const nextConfig = {
   // ── Optimize large icon/component packages ────────────────────────────────
   experimental: {
     optimizePackageImports: ['lucide-react'],
-    cpus: 1,
   },
+
 
   // ── API Proxy to FastAPI backend ──────────────────────────────────────────
   async rewrites() {

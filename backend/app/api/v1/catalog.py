@@ -41,8 +41,8 @@ fhir_converter = FHIRConverter()
 # ===================================================================
 
 class DosageValidationRequest(BaseModel):
-    salt_name: str = Field(..., example="Paracetamol")
-    daily_dose_mg: float = Field(..., example=2000.0, ge=0.1)
+    salt_name: str = Field(..., json_schema_extra={"example": "Paracetamol"})
+    daily_dose_mg: float = Field(..., json_schema_extra={"example": 2000.0}, ge=0.1)
 
 
 # ===================================================================
