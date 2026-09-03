@@ -109,7 +109,7 @@ To preserve production backend stability, prevent dependency conflicts, and ensu
 │                                      │                                     │ • Refill Forecasting (XGBoost)  [✓] │
 │                                      │                                     │ • `/api/v1/catalog` Router      [✓] │
 ├──────────────────────────────────────┼─────────────────────────────────────┼─────────────────────────────────────┤
-│ Status: ⏳ Ready for Sprint 2        │ Status: ⏳ Ready for Sprint 2       │ Status: ✅ COMPLETED & VERIFIED     │
+│ Status: ⏳ ROADMAP TARGET (Sprint 3) │ Status: ✅ COMPLETED & VERIFIED     │ Status: ✅ COMPLETED & VERIFIED     │
 └──────────────────────────────────────┴─────────────────────────────────────┴─────────────────────────────────────┘
 ```
 
