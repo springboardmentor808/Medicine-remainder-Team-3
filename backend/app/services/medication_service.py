@@ -8,7 +8,7 @@ and disease-based grouping. Used by the /api/v1/medicines router.
 import uuid
 from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import cast, func, or_, select, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.medicine import Medicine
@@ -118,7 +118,6 @@ async def get_medicine_by_id(
 
     # Fallback: try string comparison for SQLite which stores UUIDs as hex
     if med is None:
-        from sqlalchemy import or_, cast, String
         med_str = str(medicine_id)
         med_hex = medicine_id.hex
         result = await db.execute(
@@ -159,7 +158,6 @@ async def get_medicine_by_id_and_user(
     )
     med = result.scalar_one_or_none()
     if med is None:
-        from sqlalchemy import or_, cast, String
         med_str = str(medicine_id)
         u_str = str(user_id)
         result = await db.execute(

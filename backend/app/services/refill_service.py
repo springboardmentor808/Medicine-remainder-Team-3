@@ -13,7 +13,7 @@ Also provides async database helpers used by the refill API router.
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import cast, or_, select, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.medicine import Medicine
@@ -93,7 +93,6 @@ async def get_medicine_by_id(
     med = result.scalar_one_or_none()
 
     if med is None:
-        from sqlalchemy import or_, cast, String
         med_str = str(medicine_id)
         med_hex = medicine_id.hex
         result = await db.execute(
@@ -128,7 +127,6 @@ async def get_refill_by_medicine(
     refill = result.scalar_one_or_none()
 
     if refill is None:
-        from sqlalchemy import or_, cast, String
         med_str = str(medicine_id)
         med_hex = medicine_id.hex
         result = await db.execute(

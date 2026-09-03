@@ -240,16 +240,16 @@ function MedicinesPageInner() {
           id="prescription-camera-input"
         />
 
-        {/* Header Banner */}
-        <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-surface-container-low p-6 rounded-2xl border border-outline-variant/30 shadow-sm">
+        {/* Header Banner — Medical Sage Highlight */}
+        <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-[#d8eedf] dark:bg-[#132a22] p-6 rounded-2xl border border-[#bfe3cd] dark:border-[#1e4537] shadow-sm">
           <div>
-            <div className="flex items-center gap-2 text-primary">
-              <span className="material-symbols-outlined text-[28px]" style={{ fontVariationSettings: "'FILL' 1" }}>
+            <div className="flex items-center gap-2 text-[#11382d] dark:text-white">
+              <span className="material-symbols-outlined text-[28px] text-[#164234] dark:text-[#a0e5be]" style={{ fontVariationSettings: "'FILL' 1" }}>
                 pill
               </span>
-              <h1 className="text-headline-md font-bold text-on-surface">Medication Cabinet</h1>
+              <h1 className="text-2xl sm:text-headline-md font-bold text-[#11382d] dark:text-white font-heading">Medication Cabinet</h1>
             </div>
-            <p className="text-body-sm text-on-surface-variant mt-1">
+            <p className="text-body-sm text-[#285445] dark:text-[#c2e4d2] mt-1">
               Manage your prescriptions, dosage schedules, disease groupings, and inventory stock.
             </p>
           </div>

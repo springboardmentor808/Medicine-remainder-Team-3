@@ -69,7 +69,7 @@ class OTPService:
             if current > max_requests:
                 raise HTTPException(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail=f"Too many verification requests. Please wait a few minutes before trying again.",
+                    detail="Too many verification requests. Please wait a few minutes before trying again.",
                 )
         except HTTPException:
             raise
