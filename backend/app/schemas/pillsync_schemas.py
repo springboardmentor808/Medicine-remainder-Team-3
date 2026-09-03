@@ -1,3 +1,4 @@
+from datetime import datetime
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from enum import Enum
@@ -20,6 +21,13 @@ class ReminderAction(str, Enum):
     TAKEN = "Taken"
     MISSED = "Missed"
     SNOOZE = "Snooze"
+
+class DoseFrequencyPattern(str, Enum):
+    ONCE_DAILY_NIGHT = "0-0-1"
+    TWICE_DAILY_MORNING_NIGHT = "1-0-1"
+    TWICE_DAILY_AFTERNOON_NIGHT = "0-1-1"
+    THRICE_DAILY = "1-1-1"
+    CUSTOM = "custom"
 
 # Module 1: Auth & User Schemas
 class LoginRequest(BaseModel):
@@ -72,11 +80,74 @@ class OCRResponse(BaseModel):
     extracted_quantity: Optional[int] = None
     extracted_frequency: Optional[str] = None
 
+# Schedule Schemas
+class ScheduleCreate(BaseModel):
+    medicine_id: str
+    frequency_pattern: Optional[str] = "custom"  # "1-1-1", "1-0-1", "0-1-1", "0-0-1", "custom"
+    scheduled_times: Optional[List[str]] = None  # e.g. ["08:00", "20:00"]
+    day_of_week: Optional[str] = None  # NULL = everyday, or 'monday', etc.
+    is_active: bool = True
+
+class ScheduleResponse(BaseModel):
+    id: str
+    user_id: str
+    medicine_id: str
+    scheduled_time: str
+    day_of_week: Optional[str] = None
+    frequency_pattern: Optional[str] = None
+    dose_label: Optional[str] = None
+    is_active: bool
+    created_at: datetime
+
+class ScheduleBatchCreateResponse(BaseModel):
+    message: str
+    schedules: List[ScheduleResponse]
+
 # Module 4 & 5: Reminder & Adherence Schemas
 class RecordActionRequest(BaseModel):
     schedule_id: str
     action: ReminderAction
     action_time: Optional[str] = None
+    scheduled_date: Optional[str] = None  # YYYY-MM-DD
+    snooze_minutes: Optional[int] = Field(default=15, ge=1, le=1440)
+    notes: Optional[str] = None
+
+class DoseLogResponse(BaseModel):
+    id: str
+    user_id: str
+    medicine_id: str
+    schedule_id: Optional[str] = None
+    scheduled_date: str
+    scheduled_time: str
+    action: ReminderAction
+    action_time: datetime
+    snooze_minutes: Optional[int] = None
+    notes: Optional[str] = None
+    created_at: datetime
+
+class DailyDoseItem(BaseModel):
+    schedule_id: str
+    medicine_id: str
+    medicine_name: str
+    dosage: str
+    scheduled_time: str
+    status: str  # "Taken", "Missed", "Snoozed", "Pending"
+    action_time: Optional[datetime] = None
+    snooze_minutes: Optional[int] = None
+
+class DailyDoseTrackingResponse(BaseModel):
+    date: str
+    total_doses: int
+    taken_count: int
+    missed_count: int
+    snoozed_count: int
+    pending_count: int
+    doses: List[DailyDoseItem]
+
+class AdherenceHistoryResponse(BaseModel):
+    patient_id: str
+    total_records: int
+    logs: List[DoseLogResponse]
 
 class AdherenceReportResponse(BaseModel):
     patient_id: str
@@ -86,6 +157,7 @@ class AdherenceReportResponse(BaseModel):
     snoozed_doses: int
     adherence_percentage: float
     consistency_grade: str
+
 
 # Module 6: AI Refill Prediction Engine Schemas
 class RefillPredictionResponse(BaseModel):
