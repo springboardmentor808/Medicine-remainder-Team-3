@@ -531,12 +531,12 @@ function SystemHealthContent() {
     if (e) e.preventDefault();
     setActionState((p) => ({ ...p, exportCsv: 'loading' }));
     try {
-      exportAPI.auditCSV();
+      exportAPI.healthCSV();
       setTimeout(() => {
         setActionState((p) => ({ ...p, exportCsv: 'done' }));
         addToast({
-          title: 'Audit CSV Downloaded',
-          description: 'System audit log records exported in CSV format.',
+          title: 'System Health CSV Downloaded',
+          description: 'Real-time server infrastructure & latency metrics exported in CSV format.',
           variant: 'info',
         });
         setTimeout(() => setActionState((p) => ({ ...p, exportCsv: 'idle' })), 2000);
@@ -550,12 +550,12 @@ function SystemHealthContent() {
     if (e) e.preventDefault();
     setActionState((p) => ({ ...p, exportPdf: 'loading' }));
     try {
-      exportAPI.auditPDF();
+      exportAPI.healthPDF();
       setTimeout(() => {
         setActionState((p) => ({ ...p, exportPdf: 'done' }));
         addToast({
-          title: 'Audit PDF Generated',
-          description: 'HIPAA-compliant system security report downloaded.',
+          title: 'System Health PDF Generated',
+          description: 'Infrastructure health and latency PDF snapshot downloaded.',
           variant: 'success',
         });
         setTimeout(() => setActionState((p) => ({ ...p, exportPdf: 'idle' })), 2000);

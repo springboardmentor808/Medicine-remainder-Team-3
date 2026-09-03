@@ -44,6 +44,8 @@ function Modal({
   const overlayRef = useRef(null);
   const dialogRef = useRef(null);
   const previousFocusRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   // ── ESC key handler ──────────────────────────────────────────────────────
   const handleKeyDown = useCallback(
@@ -51,7 +53,7 @@ function Modal({
       if (!isOpen) return;
       if (e.key === 'Escape' && closeOnEscape) {
         e.preventDefault();
-        onClose?.();
+        onCloseRef.current?.();
       }
       // Focus trap
       if (e.key === 'Tab' && dialogRef.current) {
@@ -67,7 +69,7 @@ function Modal({
         }
       }
     },
-    [isOpen, closeOnEscape, onClose]
+    [isOpen, closeOnEscape]
   );
 
   // ── Open / Close effects ─────────────────────────────────────────────────
@@ -76,12 +78,16 @@ function Modal({
       previousFocusRef.current = document.activeElement;
       if (preventScroll) document.body.style.overflow = 'hidden';
       document.addEventListener('keydown', handleKeyDown);
-      // Focus first focusable after paint
+
+      // Only auto-focus on initial open if user is not already typing inside the dialog
       requestAnimationFrame(() => {
-        const el = dialogRef.current?.querySelector(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        );
-        el?.focus();
+        if (!dialogRef.current?.contains(document.activeElement)) {
+          const inputEl = dialogRef.current?.querySelector('input:not([type="hidden"]), textarea, select');
+          const firstFocusable = dialogRef.current?.querySelector(
+            'input, textarea, select, button:not([aria-label="Close modal"]), [href], [tabindex]:not([tabindex="-1"])'
+          );
+          (inputEl || firstFocusable)?.focus();
+        }
       });
     } else {
       if (preventScroll) document.body.style.overflow = '';

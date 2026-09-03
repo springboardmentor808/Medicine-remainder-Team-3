@@ -395,6 +395,60 @@ function CaregiverDashboardInner() {
     });
   }, [addToast]);
 
+  // ── Caregiver Emergency Escalation Auto-Popup ─────────────────────────────
+  const [escalationModalOpen, setEscalationModalOpen] = useState(false);
+
+  const topCriticalEscalation = useMemo(() => {
+    if (activeAlerts && activeAlerts.length > 0) {
+      return activeAlerts[0];
+    }
+    const crit = patients.find((p) => p.adherenceScore < 60 || p.pendingDosesCount > 0);
+    if (crit) {
+      return {
+        id: `auto-crit-${crit.id}`,
+        patientId: crit.id,
+        patientName: crit.name,
+        severity: 'critical',
+        message: `Patient ${crit.name} has missed scheduled doses. Current adherence: ${crit.adherenceScore}%.`,
+        time: 'Overdue > 2 hours',
+      };
+    }
+    return null;
+  }, [activeAlerts, patients]);
+
+  // Trigger once per session when dashboard mounts and there are active escalations
+  useEffect(() => {
+    if (!patientsLoading && (activeAlerts.length > 0 || stats.escalated > 0)) {
+      const alreadySeen = typeof window !== 'undefined' ? sessionStorage.getItem('pillsync_caregiver_popup_seen') : null;
+      if (!alreadySeen) {
+        setEscalationModalOpen(true);
+      }
+    }
+  }, [patientsLoading, activeAlerts.length, stats.escalated]);
+
+  const handleDismissEscalationModal = useCallback(() => {
+    if (typeof window !== 'undefined') sessionStorage.setItem('pillsync_caregiver_popup_seen', '1');
+    setEscalationModalOpen(false);
+  }, []);
+
+  const handleCallEscalatedPatient = useCallback(() => {
+    addToast({
+      title: '📞 Initiating Direct Line',
+      description: `Dialing primary contact for ${topCriticalEscalation?.patientName || 'Patient'}...`,
+      variant: 'info',
+    });
+  }, [topCriticalEscalation, addToast]);
+
+  const handleSendEscalatedReminder = useCallback(async () => {
+    if (topCriticalEscalation?.patientId) {
+      await handleSendReminder(topCriticalEscalation.patientId);
+    } else {
+      await handleEmergencyBroadcast();
+    }
+    if (typeof window !== 'undefined') sessionStorage.setItem('pillsync_caregiver_popup_seen', '1');
+    setEscalationModalOpen(false);
+  }, [topCriticalEscalation, handleSendReminder, handleEmergencyBroadcast]);
+
   // Link Modal state with dynamic inputs
   const [linkTab, setLinkTab] = useState('manual'); // 'manual' | 'code'
   const [manualQuery, setManualQuery] = useState('');
@@ -511,67 +565,71 @@ function CaregiverDashboardInner() {
 
         <main className="relative z-10 max-w-7xl mx-auto px-gutter py-lg space-y-lg">
         {/* ── Welcome Banner + Quick Stats ──────────────────────────────── */}
-        <section className="bg-gradient-to-br from-primary via-primary to-primary-container rounded-lg p-card-padding md:p-xl text-on-primary overflow-hidden relative">
+        <section className="bg-[#d8eedf] dark:bg-[#132a22] rounded-2xl p-card-padding md:p-xl border border-[#bfe3cd] dark:border-[#1e4537] shadow-sm overflow-hidden relative">
           {/* Decorative circles */}
-          <div className="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-on-primary/5 blur-sm" aria-hidden="true" />
-          <div className="absolute -bottom-8 -left-8 w-32 h-32 rounded-full bg-on-primary/5 blur-sm" aria-hidden="true" />
+          <div className="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-emerald-400/15 dark:bg-emerald-800/10 blur-xl pointer-events-none" aria-hidden="true" />
+          <div className="absolute -bottom-8 -left-8 w-32 h-32 rounded-full bg-teal-500/10 dark:bg-teal-900/15 blur-xl pointer-events-none" aria-hidden="true" />
 
           <div className="relative z-10">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-lg">
               {/* Greeting */}
               <div>
-                <p className="text-on-primary/70 text-caption font-medium">
-                  {getGreeting()}, Caregiver
+                <p className="text-[11px] font-bold text-[#164234] dark:text-[#a0e5be] tracking-widest uppercase">
+                  PILLSYNC CLINICAL CARE CIRCLE
                 </p>
-                <h1 className="text-headline-sm md:text-headline-md font-bold mt-1 tracking-tight">
-                  {displayName}
+                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold font-heading text-[#11382d] dark:text-white mt-1 tracking-tight">
+                  {getGreeting()}, {displayName}.
                 </h1>
-                <p className="text-on-primary/70 text-caption mt-1">
-                  Clinical Director · {new Date().toLocaleDateString('en-US', {
-                    weekday: 'long',
-                    month: 'long',
-                    day: 'numeric',
-                    year: 'numeric',
-                  })}
-                </p>
+                <div className="flex items-center gap-2 mt-1.5 text-sm text-[#285445] dark:text-[#b4d8c5] flex-wrap">
+                  <span>Care Circle Monitoring & Patient Roster</span>
+                  <span className="text-[#a6d8b6] dark:text-[#275949]">&bull;</span>
+                  <span>
+                    {new Date().toLocaleDateString('en-US', {
+                      weekday: 'long',
+                      month: 'long',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </span>
+                </div>
               </div>
 
               {/* Quick stats cards */}
               <div className="flex flex-wrap gap-sm">
                 {/* Total Patients */}
-                <div className="flex items-center gap-sm bg-on-primary/10 backdrop-blur-sm rounded-md px-md py-sm border border-on-primary/10">
-                  <div className="w-10 h-10 rounded-full bg-on-primary/15 flex items-center justify-center">
-                    <Users className="w-5 h-5 text-on-primary" />
+                <div className="flex items-center gap-sm bg-white/70 dark:bg-white/10 backdrop-blur-sm rounded-xl px-md py-sm border border-[#bfe3cd] dark:border-white/10 shadow-xs">
+                  <div className="w-10 h-10 rounded-full bg-[#c5e6d0] dark:bg-[#1b3d32] flex items-center justify-center">
+                    <Users className="w-5 h-5 text-[#164234] dark:text-[#a0e5be]" />
                   </div>
                   <div>
-                    <p className="text-2xl font-bold leading-none">{stats.total}</p>
-                    <p className="text-label-caps text-on-primary/70 uppercase tracking-wider mt-0.5">
+                    <p className="text-2xl font-bold leading-none text-[#11382d] dark:text-white">{stats.total}</p>
+                    <p className="text-label-caps text-[#285445] dark:text-[#b4d8c5] uppercase tracking-wider mt-0.5">
                       Linked Patients
                     </p>
                   </div>
                 </div>
 
                 {/* Escalated Alerts */}
-                <div className="flex items-center gap-sm bg-on-primary/10 backdrop-blur-sm rounded-md px-md py-sm border border-on-primary/10">
-                  <div className="w-10 h-10 rounded-full bg-error/30 flex items-center justify-center">
-                    <AlertTriangle className="w-5 h-5 text-on-primary" />
+                <div className="flex items-center gap-sm bg-white/70 dark:bg-white/10 backdrop-blur-sm rounded-xl px-md py-sm border border-[#bfe3cd] dark:border-white/10 shadow-xs">
+                  <div className="w-10 h-10 rounded-full bg-error/20 flex items-center justify-center">
+                    <AlertTriangle className="w-5 h-5 text-error" />
                   </div>
                   <div>
-                    <p className="text-2xl font-bold leading-none">{stats.escalated}</p>
-                    <p className="text-label-caps text-on-primary/70 uppercase tracking-wider mt-0.5">
+                    <p className="text-2xl font-bold leading-none text-[#11382d] dark:text-white">{stats.escalated}</p>
+                    <p className="text-label-caps text-[#285445] dark:text-[#b4d8c5] uppercase tracking-wider mt-0.5">
                       Escalated Alerts
                     </p>
                   </div>
                 </div>
 
                 {/* Avg Adherence */}
-                <div className="flex items-center gap-sm bg-on-primary/10 backdrop-blur-sm rounded-md px-md py-sm border border-on-primary/10">
-                  <div className="w-10 h-10 rounded-full bg-on-primary/15 flex items-center justify-center">
-                    <TrendingUp className="w-5 h-5 text-on-primary" />
+                <div className="flex items-center gap-sm bg-white/70 dark:bg-white/10 backdrop-blur-sm rounded-xl px-md py-sm border border-[#bfe3cd] dark:border-white/10 shadow-xs">
+                  <div className="w-10 h-10 rounded-full bg-[#c5e6d0] dark:bg-[#1b3d32] flex items-center justify-center">
+                    <TrendingUp className="w-5 h-5 text-[#164234] dark:text-[#a0e5be]" />
                   </div>
                   <div>
-                    <p className="text-2xl font-bold leading-none">{stats.avgAdherence}%</p>
-                    <p className="text-label-caps text-on-primary/70 uppercase tracking-wider mt-0.5">
+                    <p className="text-2xl font-bold leading-none text-[#11382d] dark:text-white">{stats.avgAdherence}%</p>
+                    <p className="text-label-caps text-[#285445] dark:text-[#b4d8c5] uppercase tracking-wider mt-0.5">
                       Avg Adherence
                     </p>
                   </div>
@@ -1023,6 +1081,68 @@ function CaregiverDashboardInner() {
         onClose={() => setScheduleModalPatient(null)}
         onSendReminder={handleSendReminder}
       />
+
+      {/* ── Auto-Popup: Clinical Escalation Modal (Medical Sage Green + Amber/Rose Alert) ── */}
+      {topCriticalEscalation && (
+        <Modal
+          isOpen={escalationModalOpen}
+          onClose={handleDismissEscalationModal}
+          title=""
+          size="md"
+        >
+          <div className="space-y-md text-left">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-[11px] font-bold tracking-wider uppercase">
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+              URGENT PATIENT ESCALATION
+            </div>
+
+            <div>
+              <h2 className="text-xl sm:text-2xl font-bold text-[#11382d] dark:text-white font-heading">
+                {topCriticalEscalation.patientName} Missed Scheduled Doses
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 mt-1">
+                Trigger: <strong className="text-slate-800 dark:text-white">{topCriticalEscalation.time || 'Overdue > 2 Hours'}</strong> • High-Priority Alert
+              </p>
+            </div>
+
+            {/* Incident Card in Sage Green with Rose accent */}
+            <div className="p-4 rounded-2xl bg-[#d8eedf] dark:bg-[#132a22] border border-[#bfe3cd] dark:border-[#1e4537] space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-[#164234] dark:text-[#a0e5be]">Escalation Reason:</span>
+                <Badge variant="missed" size="sm">
+                  Active Alert
+                </Badge>
+              </div>
+              <p className="text-xs text-[#285445] dark:text-[#c2e4d2] leading-relaxed">
+                {topCriticalEscalation.message}
+              </p>
+            </div>
+
+            <Modal.Footer>
+              <Button variant="ghost" size="sm" onClick={handleDismissEscalationModal}>
+                Acknowledge
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                leftIcon={<Phone className="w-4 h-4" />}
+                onClick={handleCallEscalatedPatient}
+              >
+                Call Patient
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                className="bg-[#164234] hover:bg-[#0f2e24] text-white font-semibold"
+                leftIcon={<Bell className="w-4 h-4" />}
+                onClick={handleSendEscalatedReminder}
+              >
+                Send Direct Reminder
+              </Button>
+            </Modal.Footer>
+          </div>
+        </Modal>
+      )}
 
       {/* ── Emergency Disclaimer Footer ─────────────────────────────────── */}
       <footer className="relative z-10 max-w-7xl mx-auto px-gutter pb-lg">

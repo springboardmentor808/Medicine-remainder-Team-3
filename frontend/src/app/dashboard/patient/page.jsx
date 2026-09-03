@@ -24,6 +24,7 @@ import {
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
+import Modal from '@/components/ui/Modal';
 import AdherenceRing from '@/components/ui/AdherenceRing';
 import LogoutButton from '@/components/ui/LogoutButton';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
@@ -589,6 +590,44 @@ function PatientDashboardInner() {
     }
   }, [schedule, addToast]);
 
+  // ── Auto-Popup for Next Due Medication (Medical Sage Green) ───────────────
+  const [dosePopupOpen, setDosePopupOpen] = useState(false);
+
+  // Identify next due medication
+  const nextDueMed = useMemo(() => {
+    return schedule.find((m) => m.status === 'pending') || schedule.find((m) => m.status === 'snoozed') || null;
+  }, [schedule]);
+
+  // Open auto-popup once per session if pending medication exists
+  useEffect(() => {
+    if (!scheduleLoading && schedule.length > 0) {
+      const alreadySeen = typeof window !== 'undefined' ? sessionStorage.getItem('pillsync_patient_popup_seen') : null;
+      const hasPending = schedule.some((m) => m.status === 'pending');
+      if (!alreadySeen && hasPending) {
+        setDosePopupOpen(true);
+      }
+    }
+  }, [scheduleLoading, schedule]);
+
+  const handleModalTaken = useCallback(async () => {
+    if (!nextDueMed) return;
+    if (typeof window !== 'undefined') sessionStorage.setItem('pillsync_patient_popup_seen', '1');
+    await handleTaken(nextDueMed.id);
+    setDosePopupOpen(false);
+  }, [nextDueMed, handleTaken]);
+
+  const handleModalSnooze = useCallback(async () => {
+    if (!nextDueMed) return;
+    if (typeof window !== 'undefined') sessionStorage.setItem('pillsync_patient_popup_seen', '1');
+    await handleSnooze(nextDueMed.id);
+    setDosePopupOpen(false);
+  }, [nextDueMed, handleSnooze]);
+
+  const handleModalDismiss = useCallback(() => {
+    if (typeof window !== 'undefined') sessionStorage.setItem('pillsync_patient_popup_seen', '1');
+    setDosePopupOpen(false);
+  }, []);
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -641,31 +680,39 @@ function PatientDashboardInner() {
             <PushNotificationPrompt />
 
             {/* 1. Welcome Banner ────────────────────────────────────── */}
-            <section className="relative bg-gradient-to-br from-primary via-primary to-primary-container rounded-lg p-card-padding overflow-hidden text-on-primary">
-              {/* Decorative blobs */}
-              <div className="absolute -top-10 -right-10 w-44 h-44 rounded-full bg-on-primary/5 blur-sm pointer-events-none" aria-hidden="true" />
-              <div className="absolute -bottom-6 -left-6 w-28 h-28 rounded-full bg-on-primary/5 blur-sm pointer-events-none" aria-hidden="true" />
+            <section className="relative bg-[#d8eedf] dark:bg-[#132a22] rounded-2xl p-card-padding overflow-hidden border border-[#bfe3cd] dark:border-[#1e4537] shadow-sm">
+              {/* Decorative subtle medical blobs */}
+              <div className="absolute -top-10 -right-10 w-44 h-44 rounded-full bg-emerald-400/15 dark:bg-emerald-800/10 blur-xl pointer-events-none" aria-hidden="true" />
+              <div className="absolute -bottom-6 -left-6 w-28 h-28 rounded-full bg-teal-500/10 dark:bg-teal-900/15 blur-xl pointer-events-none" aria-hidden="true" />
 
               <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-lg">
                 {/* Greeting */}
                 <div>
-                  <p className="text-on-primary/70 text-caption">{getGreeting()}</p>
-                  <h1 className="text-headline-sm font-bold mt-0.5">{displayName}</h1>
-                  <div className="flex items-center gap-xs mt-1.5 text-on-primary/70">
-                    <Calendar className="w-3.5 h-3.5" />
-                    <span className="text-caption">{formatDate()}</span>
+                  <p className="text-[11px] font-bold text-[#164234] dark:text-[#a0e5be] tracking-widest uppercase">
+                    PILLSYNC CARE SPACE
+                  </p>
+                  <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold font-heading text-[#11382d] dark:text-white mt-1 tracking-tight">
+                    {getGreeting()}, {displayName}.
+                  </h1>
+                  <div className="flex items-center gap-2 mt-1.5 text-sm text-[#285445] dark:text-[#b4d8c5] flex-wrap">
+                    <span>A calm view of your medicine rhythm today</span>
+                    <span className="text-[#a6d8b6] dark:text-[#275949]">&bull;</span>
+                    <span className="flex items-center gap-1 font-medium">
+                      <Calendar className="w-3.5 h-3.5" />
+                      {formatDate()}
+                    </span>
                   </div>
 
                   {/* Quick summary pills */}
                   <div className="flex flex-wrap gap-xs mt-md">
-                    <div className="flex items-center gap-1.5 px-sm py-1 rounded-full bg-on-primary/15 border border-on-primary/10">
+                    <div className="flex items-center gap-1.5 px-sm py-1 rounded-full bg-[#c5e6d0] dark:bg-[#1b3d32] border border-[#a6d8b6] dark:border-[#275949] text-[#164234] dark:text-[#a0e5be]">
                       <CheckCircle2 className="w-3.5 h-3.5" />
                       <span className="text-label-caps font-semibold">
                         {schedule.filter((m) => m.status === 'taken').length} taken today
                       </span>
                     </div>
                     {pendingCount > 0 && (
-                      <div className="flex items-center gap-1.5 px-sm py-1 rounded-full bg-on-primary/15 border border-on-primary/10">
+                      <div className="flex items-center gap-1.5 px-sm py-1 rounded-full bg-[#c5e6d0] dark:bg-[#1b3d32] border border-[#a6d8b6] dark:border-[#275949] text-[#164234] dark:text-[#a0e5be]">
                         <Clock className="w-3.5 h-3.5" />
                         <span className="text-label-caps font-semibold">
                           {pendingCount} remaining
@@ -673,7 +720,7 @@ function PatientDashboardInner() {
                       </div>
                     )}
                     {lowStockCount > 0 && (
-                      <div className="flex items-center gap-1.5 px-sm py-1 rounded-full bg-error/30 border border-error/20">
+                      <div className="flex items-center gap-1.5 px-sm py-1 rounded-full bg-amber-500/20 dark:bg-amber-900/30 border border-amber-500/30 text-amber-900 dark:text-amber-200">
                         <AlertTriangle className="w-3.5 h-3.5" />
                         <span className="text-label-caps font-semibold">
                           {lowStockCount} low stock
@@ -695,9 +742,9 @@ function PatientDashboardInner() {
                     showPercentage
                     theme={compliance >= 80 ? 'success' : compliance >= 50 ? 'warning' : 'danger'}
                     animated
-                    className="[&_text]:fill-on-primary [&_p]:text-on-primary/80"
+                    className="[&_text]:!fill-[#11382d] dark:[&_text]:!fill-white [&_p]:!text-[#285445] dark:[&_p]:!text-[#c2e4d2]"
                   />
-                  <div className="flex items-center gap-1 text-on-primary/70">
+                  <div className="flex items-center gap-1 text-[#285445] dark:text-[#c2e4d2]">
                     <TrendingUp className="w-3.5 h-3.5" />
                     <span className="text-label-caps">Daily Compliance</span>
                   </div>
@@ -847,6 +894,68 @@ function PatientDashboardInner() {
           </p>
         </div>
       </footer>
+
+      {/* ── Auto-Popup: Scheduled Dose Due Alert (Medical Sage Green) ── */}
+      {nextDueMed && (
+        <Modal
+          isOpen={dosePopupOpen}
+          onClose={handleModalDismiss}
+          title=""
+          size="md"
+        >
+          <div className="space-y-md text-left">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#c5e6d0] dark:bg-[#1b3d32] border border-[#a6d8b6] dark:border-[#275949] text-[#164234] dark:text-[#a0e5be] text-[11px] font-bold tracking-wider uppercase">
+              <Pill className="w-3.5 h-3.5" />
+              SCHEDULED DOSE DUE NOW
+            </div>
+
+            <div>
+              <h2 className="text-xl sm:text-2xl font-bold text-[#11382d] dark:text-white font-heading">
+                Time for your {nextDueMed.name} {nextDueMed.strength}
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 mt-1">
+                Scheduled for <strong className="text-slate-800 dark:text-white">{nextDueMed.time}</strong> • {nextDueMed.type || 'Prescribed Regimen'}
+              </p>
+            </div>
+
+            {/* Instruction Card */}
+            <div className="p-4 rounded-2xl bg-[#d8eedf] dark:bg-[#132a22] border border-[#bfe3cd] dark:border-[#1e4537] space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-[#164234] dark:text-[#a0e5be]">Clinical Instruction:</span>
+                <Badge variant={nextDueMed.color || 'primary'} size="sm">
+                  {nextDueMed.slot}
+                </Badge>
+              </div>
+              <p className="text-xs text-[#285445] dark:text-[#c2e4d2] leading-relaxed">
+                {nextDueMed.instructions || 'Take with a glass of plain water after meal.'}
+              </p>
+            </div>
+
+            <Modal.Footer>
+              <Button variant="ghost" size="sm" onClick={handleModalDismiss}>
+                Later
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                leftIcon={<Clock className="w-4 h-4" />}
+                onClick={handleModalSnooze}
+              >
+                Snooze 15m
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                className="bg-[#164234] hover:bg-[#0f2e24] text-white font-semibold"
+                leftIcon={<CheckCircle2 className="w-4 h-4" />}
+                onClick={handleModalTaken}
+              >
+                Mark as Taken
+              </Button>
+            </Modal.Footer>
+          </div>
+        </Modal>
+      )}
       </div>
     </DashboardLayout>
   );

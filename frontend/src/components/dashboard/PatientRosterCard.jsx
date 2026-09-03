@@ -149,6 +149,7 @@ const PatientRosterCard = React.memo(function PatientRosterCard({
         {/* Avatar */}
         <div className={`relative shrink-0 ${doseStatus.ringBorder} rounded-full p-0.5`}>
           {image ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
             <img
               src={image}
               alt={`${name} avatar`}

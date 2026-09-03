@@ -23,6 +23,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import LogoutButton from '@/components/ui/LogoutButton';
+import ExportDataModal from '@/components/dashboard/ExportDataModal';
 import { exportAPI } from '@/lib/api';
 
 /**
@@ -55,7 +56,6 @@ const NAV_ITEMS = {
     { href: '/dashboard/admin', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/admin/users', label: 'User Management', icon: Users },
     { href: '/admin/health', label: 'System Health', icon: Activity },
-    { href: '/interactions', label: 'AI Drug Safety', icon: Shield },
     { href: '/notifications', label: 'Broadcast & Queue', icon: Bell },
     { href: '/help', label: 'Help & Support', icon: HelpCircle },
   ],
@@ -65,6 +65,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
   const [user, setUser] = useState(null);
 
   useEffect(() => {
@@ -113,7 +114,7 @@ export default function Sidebar() {
         </div>
         {!collapsed && (
           <div className="min-w-0 flex-1">
-            <h2 className="text-body-sm font-bold text-on-surface truncate flex items-center justify-between">
+            <h2 className="text-body-sm font-bold font-sans text-on-surface truncate flex items-center justify-between">
               <span>PillSync</span>
               <span className="text-[10px] text-on-surface-variant/60 font-normal group-hover:text-primary transition-colors">
                 ⟨ ⟩
@@ -170,13 +171,7 @@ export default function Sidebar() {
         {/* Export link */}
         <div className={`pt-2 mt-2 border-t border-outline-variant/20`}>
           <button
-            onClick={async () => {
-              try {
-                await exportAPI.medicinesPDF();
-              } catch (err) {
-                console.error('Export error:', err);
-              }
-            }}
+            onClick={() => setExportModalOpen(true)}
             className={`w-full flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg text-sm font-medium text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-all duration-200`}
             title={collapsed ? 'Export Data' : undefined}
           >
@@ -245,6 +240,13 @@ export default function Sidebar() {
       >
         {sidebarContent}
       </aside>
+
+      {/* Clinical Export Center Modal */}
+      <ExportDataModal
+        isOpen={exportModalOpen}
+        onClose={() => setExportModalOpen(false)}
+        userRole={effectiveRole}
+      />
     </>
   );
 }

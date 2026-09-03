@@ -519,20 +519,21 @@ export default function AdminDashboardPage() {
 
             <div className="flex items-center gap-2">
               <Button
-                variant="outlined"
+                variant="primary"
                 size="sm"
-                onClick={() => exportAPI.medicinesPDF()}
+                onClick={() => exportAPI.masterPDF('30d')}
                 leftIcon={<Download className="w-3.5 h-3.5" />}
+                className="bg-[#164234] hover:bg-[#0f2e24] text-white font-semibold"
               >
-                PDF Report
+                Master Dossier (PDF)
               </Button>
               <Button
-                variant="outlined"
+                variant="outline"
                 size="sm"
-                onClick={() => exportAPI.allCSV()}
+                onClick={() => exportAPI.auditCSV()}
                 leftIcon={<Download className="w-3.5 h-3.5" />}
               >
-                Export CSV
+                Audit Log (CSV)
               </Button>
               <LogoutButton variant="icon" />
             </div>
@@ -544,16 +545,20 @@ export default function AdminDashboardPage() {
         {/* ── Page Header ───────────────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-md">
           <div>
-            <p className="text-label-caps text-on-surface-variant uppercase tracking-wider">
-              {getGreeting()}, Superuser
+            <p className="text-[11px] font-bold text-teal-700 dark:text-teal-300 uppercase tracking-widest">
+              PILLSYNC ADMIN CONSOLE
             </p>
-            <h1 className="text-headline-sm font-bold text-on-surface mt-0.5">
-              Admin Overview
+            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold font-heading text-[#11382d] dark:text-white mt-1 tracking-tight">
+              {getGreeting()}, Superuser.
             </h1>
-            <p className="text-caption text-on-surface-variant mt-1">
-              {new Date().toLocaleDateString('en-US', {
-                weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-              })}
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1.5 flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-slate-700 dark:text-slate-300">Admin Overview</span>
+              <span className="text-slate-300 dark:text-slate-600">&bull;</span>
+              <span>
+                {new Date().toLocaleDateString('en-US', {
+                  weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+                })}
+              </span>
             </p>
           </div>
           <div className="flex items-center gap-sm">
@@ -671,9 +676,9 @@ export default function AdminDashboardPage() {
                 size="sm"
                 leftIcon={<Download className="w-3.5 h-3.5" />}
                 className="ml-xs"
-                onClick={() => exportAPI.allCSV()}
+                onClick={() => exportAPI.auditCSV()}
               >
-                Export
+                Export Audit (CSV)
               </Button>
             </div>
           </div>

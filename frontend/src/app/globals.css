@@ -1,5 +1,5 @@
 /* ── Google Fonts Import ───────────────────────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Public+Sans:wght@300;400;500;600;700;800&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400&family=Public+Sans:wght@300;400;500;600;700;800&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -74,6 +74,16 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
+  }
+
+  /* ── Medical Editorial Heading & Subheading Typography ─────────────── */
+  h1, h2, h3, h4, h5, h6,
+  .font-heading,
+  .font-display,
+  .font-serif,
+  .heading-serif {
+    font-family: 'Lora', 'Newsreader', Georgia, 'Times New Roman', serif;
+    letter-spacing: -0.015em;
   }
 
   /* Prevent text size adjustment on orientation change */

@@ -37,10 +37,14 @@ class NotificationType(str, Enum):
     REFILL_ALERT = "refill_alert"
     EMERGENCY = "emergency"
     SYSTEM = "system"
+    SYSTEM_ALERT = "system_alert"
+    BROADCAST = "broadcast"
+    ADVISORY = "advisory"
 
 
 # Redis keys
 NOTIFICATION_LOG_PREFIX = "pillsync:notifications:log"
+NOTIFICATION_GLOBAL_KEY = "pillsync:notifications:global"
 NOTIFICATION_SENT_PREFIX = "pillsync:notifications:sent"
 
 
@@ -60,8 +64,7 @@ async def send_notification(
     Dispatch a notification to a user.
 
     Currently stores the notification in Redis for in-app delivery.
-    Phase 4+ will add actual Push/Email/SMS/WhatsApp dispatch via
-    Twilio and SendGrid.
+    Push/SMS/Email are dispatched via placeholder hooks (Phase 4+).
 
     Args:
         user_id: Target user UUID.
@@ -69,13 +72,13 @@ async def send_notification(
         message: Notification body text.
         notification_type: Category of notification.
         channel: Delivery channel.
-        metadata: Optional extra data (medicine_id, schedule_id, etc.).
+        metadata: Optional extra data (e.g., medicine_id, scheduled_time).
 
     Returns:
         Dict with notification_id and status.
     """
-    notification_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
+    notification_id = str(uuid.uuid4())
 
     notification = {
         "notification_id": notification_id,
@@ -113,7 +116,7 @@ async def send_notification(
 
 
 # ---------------------------------------------------------------------------
-# Notification Log (Redis List per User)
+# Notification Log (Redis List per User & Global Log)
 # ---------------------------------------------------------------------------
 
 async def log_notification(
@@ -121,9 +124,9 @@ async def log_notification(
     notification: dict,
 ) -> None:
     """
-    Store a notification in the user's Redis notification log.
+    Store a notification in the user's Redis notification log and global stream.
 
-    Keeps the last 100 notifications per user with a 7-day TTL.
+    Keeps the last 100 notifications per user and last 200 globally with a 7-day TTL.
     """
     client = get_redis()
     key = f"{NOTIFICATION_LOG_PREFIX}:{user_id}"
@@ -132,6 +135,14 @@ async def log_notification(
     await client.lpush(key, serialized)
     await client.ltrim(key, 0, 99)  # Keep last 100
     await client.expire(key, 604800)  # 7 days TTL
+
+    # Global log for Admin Broadcast & Queue telemetry
+    try:
+        await client.lpush(NOTIFICATION_GLOBAL_KEY, serialized)
+        await client.ltrim(NOTIFICATION_GLOBAL_KEY, 0, 199)
+        await client.expire(NOTIFICATION_GLOBAL_KEY, 604800)
+    except Exception:
+        pass
 
 
 async def get_user_notifications(
@@ -153,6 +164,24 @@ async def get_user_notifications(
     client = get_redis()
     key = f"{NOTIFICATION_LOG_PREFIX}:{user_id}"
     raw_entries = await client.lrange(key, offset, offset + limit - 1)
+
+    notifications = []
+    for entry in raw_entries:
+        try:
+            notifications.append(json.loads(entry))
+        except json.JSONDecodeError:
+            continue
+
+    return notifications
+
+
+async def get_global_notifications(
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    """Fetch global notification dispatches across all users (Admin view)."""
+    client = get_redis()
+    raw_entries = await client.lrange(NOTIFICATION_GLOBAL_KEY, offset, offset + limit - 1)
 
     notifications = []
     for entry in raw_entries:
