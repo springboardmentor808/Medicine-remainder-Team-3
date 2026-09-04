@@ -39,9 +39,9 @@ except ImportError:
 
 # Safe import for Track 1 Vision Module 1A Components
 try:
-    from ai_training.track_1_vision.src.cv2_preprocessor import CV2Preprocessor
-    from ai_training.track_1_vision.src.document_segmenter import DocumentSegmenter
-    from ai_training.track_1_vision.src.fuzzy_catalog_matcher import FuzzyCatalogMatcher
+    from ai_training.track_1_vision.src.cv2_preprocessor import CV2Preprocessor  # type: ignore
+    from ai_training.track_1_vision.src.document_segmenter import DocumentSegmenter  # type: ignore
+    from ai_training.track_1_vision.src.fuzzy_catalog_matcher import FuzzyCatalogMatcher  # type: ignore
     HAS_VISION_MODULES = True
 except ImportError as err:
     print(f"[OCR Service] Track 1 Vision Module 1A components fallback: {err}")
@@ -278,7 +278,7 @@ def _perform_ocr_sync(image_bytes: bytes) -> OCRSyncResult:
                     pil_crop = Image.fromarray(rgb)
 
                     try:
-                        line_text = pytesseract.image_to_string(pil_crop, config="--psm 7").strip()
+                        line_text = str(pytesseract.image_to_string(pil_crop, config="--psm 7")).strip()
                         if line_text:
                             extracted_lines.append(line_text)
                             confs.append(75)
