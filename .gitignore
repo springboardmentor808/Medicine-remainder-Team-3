@@ -73,3 +73,6 @@ yarn-error.log*
 *.pem
 .vscode/
 .idea/
+
+# Generated Catalogs & Cache
+backend/app/catalogs/*.json
