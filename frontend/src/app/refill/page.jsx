@@ -140,7 +140,7 @@ export default function RefillPage() {
             </span>
             <h1 className="text-headline-md font-bold text-on-surface">Refill Tracker & Pharmacies</h1>
           </div>
-          <p className="text-body-sm text-on-surface-variant mt-1">
+          <p className="text-base text-on-surface-variant mt-2 font-medium">
             Predictive stock depletion alerts and OpenStreetMap nearby pharmacy discovery.
           </p>
         </div>

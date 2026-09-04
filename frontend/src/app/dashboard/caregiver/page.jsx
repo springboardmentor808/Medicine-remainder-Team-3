@@ -574,15 +574,15 @@ function CaregiverDashboardInner() {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-lg">
               {/* Greeting */}
               <div>
-                <p className="text-[11px] font-bold text-[#164234] dark:text-[#a0e5be] tracking-widest uppercase">
+                <p className="text-xs sm:text-sm font-extrabold text-[#164234] dark:text-[#a0e5be] tracking-wider uppercase">
                   PILLSYNC CLINICAL CARE CIRCLE
                 </p>
                 <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold font-heading text-[#11382d] dark:text-white mt-1 tracking-tight">
                   {getGreeting()}, {displayName}.
                 </h1>
-                <div className="flex items-center gap-2 mt-1.5 text-sm text-[#285445] dark:text-[#b4d8c5] flex-wrap">
-                  <span>Care Circle Monitoring & Patient Roster</span>
-                  <span className="text-[#a6d8b6] dark:text-[#275949]">&bull;</span>
+                <div className="flex items-center gap-2.5 mt-2 text-base sm:text-lg text-[#164234] dark:text-[#c5e6d0] flex-wrap font-medium">
+                  <span className="font-bold text-[#11382d] dark:text-white">Care Circle Monitoring & Patient Roster</span>
+                  <span className="text-[#a6d8b6] dark:text-[#275949] font-bold">&bull;</span>
                   <span>
                     {new Date().toLocaleDateString('en-US', {
                       weekday: 'long',

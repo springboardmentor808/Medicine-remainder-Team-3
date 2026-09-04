@@ -545,21 +545,21 @@ export default function AdminDashboardPage() {
         {/* ── Page Header ───────────────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-md">
           <div>
-            <p className="text-[11px] font-bold text-teal-700 dark:text-teal-300 uppercase tracking-widest">
+            <p className="text-xs sm:text-sm font-extrabold text-teal-800 dark:text-teal-300 uppercase tracking-wider">
               PILLSYNC ADMIN CONSOLE
             </p>
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold font-heading text-[#11382d] dark:text-white mt-1 tracking-tight">
               {getGreeting()}, Superuser.
             </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1.5 flex items-center gap-2 flex-wrap">
-              <span className="font-semibold text-slate-700 dark:text-slate-300">Admin Overview</span>
-              <span className="text-slate-300 dark:text-slate-600">&bull;</span>
-              <span>
+            <div className="text-base sm:text-lg text-slate-600 dark:text-slate-300 mt-2 flex items-center gap-2.5 flex-wrap">
+              <span className="font-bold text-slate-900 dark:text-white">Admin Overview</span>
+              <span className="text-slate-400 dark:text-slate-500 font-bold">&bull;</span>
+              <span className="font-medium text-slate-700 dark:text-slate-300">
                 {new Date().toLocaleDateString('en-US', {
                   weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
                 })}
               </span>
-            </p>
+            </div>
           </div>
           <div className="flex items-center gap-sm">
             <Button

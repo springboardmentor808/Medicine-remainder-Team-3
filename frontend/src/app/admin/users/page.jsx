@@ -732,8 +732,8 @@ function AdminUsersPageInner() {
         {/* ── Page Header ─────────────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-md">
           <div>
-            <h1 className="text-headline-sm font-bold text-on-surface">User Management</h1>
-            <p className="text-caption text-on-surface-variant mt-0.5">
+            <h1 className="text-2xl sm:text-headline-sm font-bold text-on-surface">User Management</h1>
+            <p className="text-sm sm:text-base text-on-surface-variant mt-1.5 font-medium">
               Manage roles, clinician assignments, status and passwords for all {users.length} platform users.
             </p>
           </div>

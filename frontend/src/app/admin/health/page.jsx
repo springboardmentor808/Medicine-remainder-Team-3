@@ -646,8 +646,8 @@ function SystemHealthContent() {
                         Cluster Healthy
                       </span>
                     </div>
-                    <p className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
-                      <span>Vitality Core: {healthyServices}/{services.length} Subsystems Active</span>
+                    <p className="text-sm sm:text-base text-slate-600 dark:text-slate-300 font-medium flex items-center gap-2.5 mt-1.5 flex-wrap">
+                      <span>Vitality Core: <strong>{healthyServices}/{services.length}</strong> Subsystems Active</span>
                       <span>·</span>
                       <span>Auto-Refresh: {pollingInterval > 0 ? `${countdown}s` : 'Paused'}</span>
                     </p>

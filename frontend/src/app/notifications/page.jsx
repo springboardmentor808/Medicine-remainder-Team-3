@@ -1249,14 +1249,14 @@ export default function NotificationsPage() {
         <div className="relative overflow-hidden rounded-2xl bg-[#d8eedf] dark:bg-[#132a22] p-6 border border-[#bfe3cd] dark:border-[#1e4537] shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-md">
             <div>
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#c5e6d0] dark:bg-[#1b3d32] border border-[#a6d8b6] dark:border-[#275949] text-[#164234] dark:text-[#a0e5be] text-[11px] font-bold tracking-wider uppercase mb-2">
-                <Bell className="w-3 h-3" />
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#c5e6d0] dark:bg-[#1b3d32] border border-[#a6d8b6] dark:border-[#275949] text-[#164234] dark:text-[#a0e5be] text-xs font-bold tracking-wider uppercase mb-2">
+                <Bell className="w-3.5 h-3.5" />
                 {isAdmin ? 'PILLSYNC ADMIN BROADCAST CONSOLE' : 'PILLSYNC EMERGENCY ESCALATIONS'}
               </div>
-              <h1 className="text-2xl sm:text-headline-sm font-bold text-[#11382d] dark:text-white font-heading">
+              <h1 className="text-2xl sm:text-headline-md font-bold text-[#11382d] dark:text-white font-heading">
                 {isAdmin ? 'Live Broadcast & Queue Telemetry' : 'Clinical Emergency & Escalation Alerts'}
               </h1>
-              <p className="text-sm text-[#285445] dark:text-[#c2e4d2] mt-1">
+              <p className="text-base text-[#285445] dark:text-[#c2e4d2] mt-1.5 font-medium">
                 {isAdmin
                   ? 'Real-time multi-channel broadcast dispatches, SMS & WhatsApp delivery tracking, and queue status.'
                   : 'Live monitoring of patient missed doses, vital escalations, and urgent caregiver notifications.'}

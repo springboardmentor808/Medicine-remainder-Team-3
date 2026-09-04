@@ -249,7 +249,7 @@ function MedicinesPageInner() {
               </span>
               <h1 className="text-2xl sm:text-headline-md font-bold text-[#11382d] dark:text-white font-heading">Medication Cabinet</h1>
             </div>
-            <p className="text-body-sm text-[#285445] dark:text-[#c2e4d2] mt-1">
+            <p className="text-base text-[#285445] dark:text-[#c2e4d2] mt-2 font-medium">
               Manage your prescriptions, dosage schedules, disease groupings, and inventory stock.
             </p>
           </div>

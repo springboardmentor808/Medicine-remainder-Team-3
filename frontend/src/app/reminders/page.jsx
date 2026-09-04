@@ -317,8 +317,8 @@ function RemindersPageInner() {
               <Bell className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-headline-sm font-bold">Reminders & Schedule</h1>
-              <p className="text-body-sm text-on-primary/70">Your daily medication timeline</p>
+              <h1 className="text-2xl sm:text-headline-sm font-bold">Reminders & Schedule</h1>
+              <p className="text-base text-on-primary/90 mt-1 font-medium">Your daily medication timeline</p>
             </div>
           </div>
 
@@ -332,9 +332,9 @@ function RemindersPageInner() {
               <ChevronLeft className="w-5 h-5" />
             </button>
             <div className="text-center">
-              <p className="text-body-sm font-semibold">{dateStr}</p>
+              <p className="text-base sm:text-lg font-bold text-white tracking-wide">{dateStr}</p>
               {isToday && (
-                <Badge variant="taken" className="mt-1 text-xs">Today</Badge>
+                <Badge variant="taken" className="mt-1 text-xs sm:text-sm font-semibold">Today</Badge>
               )}
             </div>
             <button

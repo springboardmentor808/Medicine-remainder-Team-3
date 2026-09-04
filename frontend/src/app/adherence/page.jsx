@@ -208,8 +208,8 @@ function AdherencePageInner() {
                 <BarChart3 className="w-6 h-6" />
               </div>
               <div>
-                <h1 className="text-headline-sm font-bold">Adherence Reports</h1>
-                <p className="text-body-sm text-on-primary/70">Track your medication compliance</p>
+                <h1 className="text-2xl sm:text-headline-sm font-bold">Adherence Reports</h1>
+                <p className="text-base text-on-primary/90 mt-1 font-medium">Track your medication compliance</p>
               </div>
             </div>
 

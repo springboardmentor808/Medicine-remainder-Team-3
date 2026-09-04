@@ -688,17 +688,17 @@ function PatientDashboardInner() {
               <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-lg">
                 {/* Greeting */}
                 <div>
-                  <p className="text-[11px] font-bold text-[#164234] dark:text-[#a0e5be] tracking-widest uppercase">
+                  <p className="text-xs sm:text-sm font-extrabold text-[#164234] dark:text-[#a0e5be] tracking-wider uppercase">
                     PILLSYNC CARE SPACE
                   </p>
                   <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold font-heading text-[#11382d] dark:text-white mt-1 tracking-tight">
                     {getGreeting()}, {displayName}.
                   </h1>
-                  <div className="flex items-center gap-2 mt-1.5 text-sm text-[#285445] dark:text-[#b4d8c5] flex-wrap">
-                    <span>A calm view of your medicine rhythm today</span>
-                    <span className="text-[#a6d8b6] dark:text-[#275949]">&bull;</span>
-                    <span className="flex items-center gap-1 font-medium">
-                      <Calendar className="w-3.5 h-3.5" />
+                  <div className="flex items-center gap-2.5 mt-2 text-base sm:text-lg text-[#164234] dark:text-[#c5e6d0] flex-wrap font-medium">
+                    <span className="font-bold text-[#11382d] dark:text-white">A calm view of your medicine rhythm today</span>
+                    <span className="text-[#a6d8b6] dark:text-[#275949] font-bold">&bull;</span>
+                    <span className="flex items-center gap-1.5 font-semibold">
+                      <Calendar className="w-4 h-4" />
                       {formatDate()}
                     </span>
                   </div>
