@@ -17,6 +17,7 @@ from sqlalchemy import (
     String,
     Text,
     Time,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -115,6 +116,14 @@ class DoseLog(Base):
     """
 
     __tablename__ = "dose_logs"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "schedule_id",
+            "scheduled_date",
+            name="uq_adherence_user_schedule_date"
+        ),
+    )
 
     # --- Primary Key ---
     id: Mapped[uuid.UUID] = mapped_column(

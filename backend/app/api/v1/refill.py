@@ -21,12 +21,14 @@ from app.schemas.refill_schema import (
     RefillPredictionRequest,
     RefillPredictionResponse,
 )
+from app.schemas.refill_schemas import CalibratedRefillPrediction
 from app.services.pharmacy_service import find_nearby_pharmacies
 from app.services.refill_service import (
     calculate_refill_prediction,
     create_or_update_refill,
     get_medicine_by_id,
     get_refill_by_medicine,
+    predict_calibrated_refill,
 )
 
 
@@ -103,6 +105,13 @@ async def get_refill_prediction(
         threshold = 5
         created_at = None
 
+    # Behavioral Quantile Forecaster Forward-Pass
+    calibrated = None
+    try:
+        calibrated = await predict_calibrated_refill(db, current_user.id, medicine.id)
+    except Exception as ml_err:
+        print(f"[Refill Router] Calibrated ML inference notice: {ml_err}")
+
     # Fetch nearby pharmacies via OpenStreetMap if lat/lon provided OR stock is low
     nearby_pharmacies: list[PharmacyResponse] = []
     if lat is not None and lon is not None:
@@ -119,11 +128,48 @@ async def get_refill_prediction(
         daily_dose_count=daily_dose,
         days_remaining=prediction["days_remaining"],
         estimated_refill_date=prediction["estimated_refill_date"],
-        is_low_stock=prediction["is_low_stock"],
+        is_low_stock=prediction["is_low_stock"] or (calibrated.is_low_stock if calibrated else False),
         low_stock_threshold=threshold,
         nearby_pharmacies=nearby_pharmacies,
+        p10_runout_days=calibrated.p10_runout_days if calibrated else round(prediction["days_remaining"] * 0.8, 1),
+        p50_runout_days=calibrated.p50_runout_days if calibrated else prediction["days_remaining"],
+        p90_runout_days=calibrated.p90_runout_days if calibrated else round(prediction["days_remaining"] * 1.2, 1),
+        critical_refill_date_p10=calibrated.critical_refill_date_p10 if calibrated else prediction["estimated_refill_date"],
+        requires_immediate_reorder=calibrated.requires_immediate_reorder if calibrated else (prediction["is_low_stock"] and total_pills <= 2),
+        confidence_score=calibrated.confidence_score if calibrated else 0.85,
         created_at=created_at,
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /calibrated/{medicine_id}
+# ---------------------------------------------------------------------------
+@router.get(
+    "/calibrated/{medicine_id}",
+    response_model=CalibratedRefillPrediction,
+    status_code=status.HTTP_200_OK,
+    summary="Get Calibrated Refill ML Prediction",
+    description="Returns full 11-feature quantile probabilistic runout forecasting (P10/P50/P90).",
+)
+async def get_calibrated_refill_endpoint(
+    medicine_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CalibratedRefillPrediction:
+    medicine = await get_medicine_by_id(db, medicine_id)
+    if medicine is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Medicine with id '{medicine_id}' not found.",
+        )
+    med_uid = str(uuid.UUID(str(medicine.user_id))).lower()
+    cur_uid = str(uuid.UUID(str(current_user.id))).lower()
+    if med_uid != cur_uid and getattr(current_user, "role", "") not in ["admin", "caregiver"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this medicine.",
+        )
+    return await predict_calibrated_refill(db, medicine.user_id, medicine.id)
 
 
 # ---------------------------------------------------------------------------

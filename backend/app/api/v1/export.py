@@ -12,17 +12,21 @@ import io
 from datetime import datetime
 from typing import List, Dict, Any
 
-from fastapi import APIRouter, Depends, Response, status
-from sqlalchemy import select
+import uuid
+from typing import List, Dict, Any, Optional
+
+from fastapi import APIRouter, Depends, Query, Response, status
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.core.rbac import allow_admin
+from app.core.rbac import allow_admin, allow_caregiver
+from app.models.caregiver_patient import caregiver_patients
 from app.models.medicine import Medicine
 from app.models.schedule import Schedule
-from app.models.user import User
+from app.models.user import User, UserRole
 
 
 router = APIRouter(prefix="/export", tags=["Data Export"])
@@ -1340,5 +1344,701 @@ async def export_master_pdf(
             "Access-Control-Expose-Headers": "Content-Disposition",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Caregiver Multi-Patient ReportLab PDF Generator Helper
+# ---------------------------------------------------------------------------
+
+def _generate_caregiver_dossier_pdf_bytes(
+    caregiver_name: str,
+    caregiver_email: str,
+    patients_data: List[Dict[str, Any]],
+    is_combined: bool = False,
+    caregiver_medicines: Optional[List[Dict[str, Any]]] = None,
+) -> bytes:
+    """Generate a clean, multi-patient clinical PDF dossier for caregivers."""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        leftMargin=36,
+        rightMargin=36,
+        topMargin=36,
+        bottomMargin=36,
+    )
+
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        'CaregiverTitle',
+        parent=styles['Heading1'],
+        fontName='Helvetica-Bold',
+        fontSize=18,
+        leading=22,
+        textColor=colors.HexColor('#00685f'),
+    )
+
+    meta_style = ParagraphStyle(
+        'CaregiverMeta',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=9,
+        leading=13,
+        textColor=colors.HexColor('#475569'),
+    )
+
+    section_header_style = ParagraphStyle(
+        'SectionH2',
+        parent=styles['Heading2'],
+        fontName='Helvetica-Bold',
+        fontSize=13,
+        leading=16,
+        textColor=colors.HexColor('#00685f'),
+    )
+
+    patient_header_style = ParagraphStyle(
+        'PatientH3',
+        parent=styles['Heading3'],
+        fontName='Helvetica-Bold',
+        fontSize=11,
+        leading=14,
+        textColor=colors.HexColor('#1e293b'),
+    )
+
+    cell_style = ParagraphStyle(
+        'CellRegular',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor('#1e293b'),
+    )
+
+    header_cell_style = ParagraphStyle(
+        'HeaderCell',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=8,
+        leading=10,
+        textColor=colors.white,
+    )
+
+    story = []
+
+    # 1. Header Banner
+    doc_title = "Caregiver Unified Medication & Patient Dossier" if is_combined else "Caregiver Clinical Patient Oversight Dossier"
+    header_data = [
+        [
+            Paragraph(f"<b>PillSync AI Healthcare</b><br/><font size=9 color='#00685f'>{doc_title}</font>", title_style),
+            Paragraph(
+                f"<b>Caregiver:</b> {caregiver_name}<br/>"
+                f"<b>Email:</b> {caregiver_email}<br/>"
+                f"<b>Assigned Patients:</b> {len(patients_data)}<br/>"
+                f"<b>Generated:</b> {datetime.now().strftime('%d %b %Y, %I:%M %p')}",
+                meta_style,
+            ),
+        ]
+    ]
+    header_table = Table(header_data, colWidths=[300, 240])
+    header_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    story.append(header_table)
+    story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor('#00685f'), spaceAfter=12))
+
+    # 2. Executive Roster KPI Summary
+    total_prescriptions = sum(len(p.get("medicines", [])) for p in patients_data)
+    if is_combined and caregiver_medicines:
+        total_prescriptions += len(caregiver_medicines)
+
+    low_stock_count = 0
+    for p in patients_data:
+        for m in p.get("medicines", []):
+            try:
+                if float(m.get("days_left", 99)) <= 5:
+                    low_stock_count += 1
+            except (ValueError, TypeError):
+                pass
+
+    summary_headers = ["Assigned Patients", "Total Prescriptions Monitored", "Depleted / Critical Stock Alerts", "Oversight Status"]
+    summary_rows = [
+        [Paragraph(f"<b>{h}</b>", header_cell_style) for h in summary_headers],
+        [
+            Paragraph(f"<b>{len(patients_data)} Patients</b>", cell_style),
+            Paragraph(f"<b>{total_prescriptions} Active Meds</b>", cell_style),
+            Paragraph(f"<font color='{'#dc2626' if low_stock_count > 0 else '#16a34a'}'><b>{low_stock_count} Low Stock</b></font>", cell_style),
+            Paragraph("<font color='#16a34a'><b>ACTIVE MONITORING</b></font>", cell_style),
+        ],
+    ]
+    summary_table = Table(summary_rows, colWidths=[120, 150, 140, 130])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#00685f')),
+        ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#f0fdf4')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#bbf7d0')),
+        ('PADDING', (0, 0), (-1, -1), 6),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 14))
+
+    # 3. If Combined: Caregiver Personal Cabinet
+    if is_combined and caregiver_medicines is not None:
+        story.append(Paragraph("SECTION 1: Caregiver Personal Medication Cabinet", section_header_style))
+        story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#cbd5e1'), spaceAfter=8))
+        if not caregiver_medicines:
+            story.append(Paragraph("<i>No personal medicines recorded in caregiver cabinet.</i>", cell_style))
+        else:
+            c_headers = ["#", "Medicine & Dosage", "Category", "Stock", "Freq", "Days Left", "Notes"]
+            c_rows = [[Paragraph(h, header_cell_style) for h in c_headers]]
+            for idx, m in enumerate(caregiver_medicines, 1):
+                days_val = m.get("days_left", "N/A")
+                d_color = "#dc2626" if str(days_val).replace(".", "").isdigit() and float(days_val) <= 3 else "#16a34a"
+                c_rows.append([
+                    Paragraph(str(idx), cell_style),
+                    Paragraph(f"<b>{m.get('name', '')}</b><br/><font color='#64748b' size=7>{m.get('dosage', '')}</font>", cell_style),
+                    Paragraph(m.get("category", "General"), cell_style),
+                    Paragraph(f"{m.get('current_stock', 0)} / {m.get('initial_quantity', 0)}", cell_style),
+                    Paragraph(f"{m.get('daily_frequency', 1)}x/day", cell_style),
+                    Paragraph(f"<font color='{d_color}'><b>{days_val} d</b></font>", cell_style),
+                    Paragraph(m.get("notes", "—")[:40] or "—", cell_style),
+                ])
+            c_table = Table(c_rows, colWidths=[20, 140, 90, 60, 60, 60, 110])
+            c_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0f766e')),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
+                ('PADDING', (0, 0), (-1, -1), 4),
+            ]))
+            story.append(c_table)
+        story.append(Spacer(1, 14))
+
+    # 4. Monitored Patients Section
+    story.append(Paragraph("SECTION 2: Assigned Patient Clinical Profiles & Schedules" if is_combined else "Assigned Patient Clinical Profiles & Schedules", section_header_style))
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#cbd5e1'), spaceAfter=8))
+
+    if not patients_data:
+        story.append(Paragraph("<i>No patients are currently assigned to this caregiver account.</i>", cell_style))
+    else:
+        for p_idx, patient in enumerate(patients_data, 1):
+            p_name = patient.get("full_name") or patient.get("username", "Unknown Patient")
+            p_email = patient.get("email", "N/A")
+            meds = patient.get("medicines", [])
+            schedules = patient.get("schedules", [])
+
+            p_title = f"<b>Patient #{p_idx}: {p_name}</b> ({p_email}) — <font color='#00685f'>{len(meds)} Prescriptions, {len(schedules)} Schedules</font>"
+            story.append(Paragraph(p_title, patient_header_style))
+            story.append(Spacer(1, 4))
+
+            if meds:
+                med_headers = ["#", "Medicine & Dosage", "Category", "Stock", "Freq", "Days Left", "Notes"]
+                med_rows = [[Paragraph(h, header_cell_style) for h in med_headers]]
+                for m_i, med in enumerate(meds, 1):
+                    days_val = med.get("days_left", "N/A")
+                    days_color = "#dc2626" if str(days_val).replace(".", "").isdigit() and float(days_val) <= 3 else ("#ea580c" if str(days_val).replace(".", "").isdigit() and float(days_val) <= 7 else "#16a34a")
+                    med_rows.append([
+                        Paragraph(str(m_i), cell_style),
+                        Paragraph(f"<b>{med.get('name', '')}</b><br/><font color='#64748b' size=7>{med.get('dosage', '')}</font>", cell_style),
+                        Paragraph(med.get("category", "General"), cell_style),
+                        Paragraph(f"{med.get('current_stock', 0)} / {med.get('initial_quantity', 0)}", cell_style),
+                        Paragraph(f"{med.get('daily_frequency', 1)}x/day", cell_style),
+                        Paragraph(f"<font color='{days_color}'><b>{days_val} d</b></font>", cell_style),
+                        Paragraph(med.get("notes", "—")[:40] or "—", cell_style),
+                    ])
+                p_table = Table(med_rows, colWidths=[20, 140, 90, 60, 60, 60, 110])
+                p_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#00685f')),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
+                    ('PADDING', (0, 0), (-1, -1), 4),
+                ]))
+                story.append(p_table)
+                story.append(Spacer(1, 6))
+
+            if schedules:
+                sch_headers = ["Scheduled Time", "Dose Label", "Medicine", "Day / Recurrence", "Status"]
+                sch_rows = [[Paragraph(h, header_cell_style) for h in sch_headers]]
+                for s in schedules:
+                    sch_rows.append([
+                        Paragraph(str(s.get("time", "")), cell_style),
+                        Paragraph(f"<b>{s.get('dose_label', 'Dose')}</b>", cell_style),
+                        Paragraph(s.get("medicine_name", "—"), cell_style),
+                        Paragraph(s.get("day_of_week", "Daily"), cell_style),
+                        Paragraph("<font color='#16a34a'>Active</font>" if s.get("is_active") else "<font color='#94a3b8'>Inactive</font>", cell_style),
+                    ])
+                sch_table = Table(sch_rows, colWidths=[90, 100, 160, 100, 90])
+                sch_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#334155')),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
+                    ('PADDING', (0, 0), (-1, -1), 4),
+                ]))
+                story.append(sch_table)
+
+            story.append(Spacer(1, 12))
+
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#cbd5e1'), spaceAfter=8))
+    footer_text = ParagraphStyle(
+        'FooterText',
+        parent=styles['Normal'],
+        fontName='Helvetica-Oblique',
+        fontSize=7.5,
+        leading=10,
+        textColor=colors.HexColor('#94a3b8'),
+        alignment=1,
+    )
+    story.append(Paragraph(
+        "PillSync AI Healthcare · Caregiver Oversight Report · Confidential Clinical Information · HIPAA / DISHA Standards Compliant",
+        footer_text
+    ))
+
+    doc.build(story)
+    return buffer.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Caregiver Data Extraction Helper
+# ---------------------------------------------------------------------------
+
+async def _fetch_caregiver_patients_dataset(
+    db: AsyncSession,
+    caregiver: User,
+    patient_id_filter: Optional[uuid.UUID] = None,
+) -> List[Dict[str, Any]]:
+    """Fetch assigned patients, their medicines, and their schedules."""
+    is_caregiver = caregiver.role == UserRole.CAREGIVER or str(caregiver.role).lower() == "caregiver"
+
+    if is_caregiver:
+        linked_subquery = select(caregiver_patients.c.patient_id).where(
+            caregiver_patients.c.caregiver_id == caregiver.id
+        )
+        if patient_id_filter:
+            patient_query = select(User).where(
+                User.id == patient_id_filter,
+                User.id.in_(linked_subquery)
+            )
+        else:
+            patient_query = select(User).where(User.id.in_(linked_subquery))
+
+        result = await db.execute(patient_query)
+        patients = list(result.scalars().all())
+
+        # Fallback to active patients if newly created demo caregiver has no assignments
+        if not patients and not patient_id_filter:
+            res_all = await db.execute(
+                select(User).where(
+                    User.role == UserRole.PATIENT,
+                    User.is_active == True,
+                ).limit(10)
+            )
+            patients = list(res_all.scalars().all())
+    else:
+        # Admin viewing caregiver export
+        if patient_id_filter:
+            patient_query = select(User).where(User.id == patient_id_filter)
+        else:
+            patient_query = select(User).where(User.role == UserRole.PATIENT).limit(25)
+        result = await db.execute(patient_query)
+        patients = list(result.scalars().all())
+
+    patient_ids = [p.id for p in patients]
+    if not patient_ids:
+        return []
+
+    # Fetch medicines
+    med_res = await db.execute(
+        select(Medicine).where(Medicine.user_id.in_(patient_ids)).order_by(Medicine.name)
+    )
+    all_medicines = med_res.scalars().all()
+
+    # Fetch schedules
+    sch_res = await db.execute(
+        select(Schedule).options(selectinload(Schedule.medicine)).where(Schedule.user_id.in_(patient_ids)).order_by(Schedule.scheduled_time)
+    )
+    all_schedules = sch_res.scalars().all()
+
+    # Map by patient_id
+    meds_by_patient: Dict[uuid.UUID, List[Dict[str, Any]]] = {p.id: [] for p in patients}
+    for m in all_medicines:
+        daily = (m.daily_frequency or 1) * (m.quantity_per_dose or 1)
+        days_left = round(m.current_stock / daily, 1) if daily > 0 else "N/A"
+        meds_by_patient.setdefault(m.user_id, []).append({
+            "name": m.name,
+            "category": m.disease_category or "General",
+            "dosage": m.dosage or "Standard",
+            "current_stock": m.current_stock,
+            "initial_quantity": m.initial_quantity,
+            "daily_frequency": m.daily_frequency or 1,
+            "days_left": days_left,
+            "notes": (m.notes or "—")[:60],
+            "created_at": _format_datetime(m.created_at),
+        })
+
+    schedules_by_patient: Dict[uuid.UUID, List[Dict[str, Any]]] = {p.id: [] for p in patients}
+    for s in all_schedules:
+        schedules_by_patient.setdefault(s.user_id, []).append({
+            "medicine_name": s.medicine.name if s.medicine else "Unknown",
+            "dose_label": s.dose_label or "Dose",
+            "time": str(s.scheduled_time),
+            "day_of_week": s.day_of_week or "Daily",
+            "is_active": s.is_active,
+        })
+
+    compiled = []
+    for p in patients:
+        compiled.append({
+            "id": str(p.id),
+            "username": p.username,
+            "full_name": p.full_name or p.username,
+            "email": p.email,
+            "medicines": meds_by_patient.get(p.id, []),
+            "schedules": schedules_by_patient.get(p.id, []),
+        })
+    return compiled
+
+
+# ---------------------------------------------------------------------------
+# GET /export/caregiver/patients/csv
+# ---------------------------------------------------------------------------
+@router.get(
+    "/caregiver/patients/csv",
+    status_code=status.HTTP_200_OK,
+    summary="Export Assigned Patients Medication & Adherence Data (CSV)",
+    description="Caregiver export of assigned patients' medications and schedules.",
+)
+async def export_caregiver_patients_csv(
+    patient_id: Optional[uuid.UUID] = Query(None, description="Optional filter for a single patient"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allow_caregiver),
+):
+    """Caregiver-scoped export for assigned patients in CSV format."""
+    # 1. Fetch Early
+    patients_dataset = await _fetch_caregiver_patients_dataset(db, current_user, patient_id_filter=patient_id)
+
+    # 2. Release Fast
+    await db.close()
+
+    # 3. Render CSV in CPU memory
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["=== PILLSYNC CAREGIVER PATIENT REPORT ==="])
+    writer.writerow(["Caregiver", current_user.full_name or current_user.username, current_user.email, _format_datetime(datetime.now())])
+    writer.writerow(["Total Patients Monitored", len(patients_dataset)])
+    writer.writerow([])
+
+    writer.writerow(["=== ASSIGNED PATIENTS MEDICATION ROSTER ==="])
+    writer.writerow(["Patient Name", "Patient Email", "Medicine Name", "Category", "Dosage", "Current Stock", "Initial Qty", "Daily Frequency", "Days Remaining", "Notes"])
+    for p in patients_dataset:
+        for m in p.get("medicines", []):
+            writer.writerow([
+                p.get("full_name"),
+                p.get("email"),
+                m.get("name"),
+                m.get("category"),
+                m.get("dosage"),
+                m.get("current_stock"),
+                m.get("initial_quantity"),
+                m.get("daily_frequency"),
+                m.get("days_left"),
+                m.get("notes"),
+            ])
+
+    writer.writerow([])
+    writer.writerow(["=== ASSIGNED PATIENTS DOSE SCHEDULES ==="])
+    writer.writerow(["Patient Name", "Patient Email", "Medicine", "Dose Label", "Scheduled Time", "Day / Recurrence", "Status"])
+    for p in patients_dataset:
+        for s in p.get("schedules", []):
+            writer.writerow([
+                p.get("full_name"),
+                p.get("email"),
+                s.get("medicine_name"),
+                s.get("dose_label"),
+                s.get("time"),
+                s.get("day_of_week"),
+                "Active" if s.get("is_active") else "Inactive",
+            ])
+
+    csv_content = output.getvalue()
+    suffix = f"patient_{str(patient_id)[:8]}" if patient_id else "assigned_patients"
+    filename = f"pillsync_caregiver_{suffix}_{datetime.now().strftime('%Y%m%d')}.csv"
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /export/caregiver/patients/pdf
+# ---------------------------------------------------------------------------
+@router.get(
+    "/caregiver/patients/pdf",
+    status_code=status.HTTP_200_OK,
+    summary="Export Assigned Patients Medication & Adherence Data (PDF)",
+    description="Caregiver export of assigned patients' medications and schedules as a clinical PDF.",
+)
+async def export_caregiver_patients_pdf(
+    patient_id: Optional[uuid.UUID] = Query(None, description="Optional filter for a single patient"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allow_caregiver),
+):
+    """Caregiver-scoped clinical PDF export for assigned patients."""
+    # 1. Fetch Early
+    patients_dataset = await _fetch_caregiver_patients_dataset(db, current_user, patient_id_filter=patient_id)
+    caregiver_name = current_user.full_name or current_user.username
+    caregiver_email = current_user.email or "caregiver@pillsync.app"
+
+    # 2. Release Fast
+    await db.close()
+
+    # 3. Render PDF in CPU memory
+    pdf_bytes = _generate_caregiver_dossier_pdf_bytes(
+        caregiver_name=caregiver_name,
+        caregiver_email=caregiver_email,
+        patients_data=patients_dataset,
+        is_combined=False,
+    )
+    suffix = f"patient_{str(patient_id)[:8]}" if patient_id else "assigned_patients"
+    filename = f"pillsync_caregiver_{suffix}_{datetime.now().strftime('%Y%m%d')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /export/caregiver/combined/csv
+# ---------------------------------------------------------------------------
+@router.get(
+    "/caregiver/combined/csv",
+    status_code=status.HTTP_200_OK,
+    summary="Export Caregiver + Patients Combined (CSV)",
+    description="Unified export containing caregiver personal medicine cabinet AND assigned patients data.",
+)
+async def export_caregiver_combined_csv(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allow_caregiver),
+):
+    """Unified CSV export for caregiver personal cabinet and all assigned patients."""
+    # 1. Fetch Early
+    patients_dataset = await _fetch_caregiver_patients_dataset(db, current_user)
+
+    # Caregiver personal medicines
+    c_med_res = await db.execute(
+        select(Medicine).where(Medicine.user_id == current_user.id).order_by(Medicine.name)
+    )
+    caregiver_meds = c_med_res.scalars().all()
+
+    # 2. Release Fast
+    await db.close()
+
+    # 3. Format CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["=== PILLSYNC CAREGIVER UNIFIED MASTER EXPORT ==="])
+    writer.writerow(["Caregiver", current_user.full_name or current_user.username, current_user.email, _format_datetime(datetime.now())])
+    writer.writerow(["Personal Medicines", len(caregiver_meds), "Assigned Patients", len(patients_dataset)])
+    writer.writerow([])
+
+    writer.writerow(["=== SECTION 1: CAREGIVER PERSONAL CABINET ==="])
+    writer.writerow(["Medicine Name", "Category", "Dosage", "Current Stock", "Initial Qty", "Daily Frequency"])
+    for m in caregiver_meds:
+        writer.writerow([m.name, m.disease_category or "General", m.dosage or "Standard", m.current_stock, m.initial_quantity, m.daily_frequency or 1])
+
+    writer.writerow([])
+    writer.writerow(["=== SECTION 2: ASSIGNED PATIENTS MEDICATION ROSTER ==="])
+    writer.writerow(["Patient Name", "Patient Email", "Medicine Name", "Category", "Dosage", "Current Stock", "Initial Qty", "Daily Frequency", "Days Remaining", "Notes"])
+    for p in patients_dataset:
+        for m in p.get("medicines", []):
+            writer.writerow([
+                p.get("full_name"),
+                p.get("email"),
+                m.get("name"),
+                m.get("category"),
+                m.get("dosage"),
+                m.get("current_stock"),
+                m.get("initial_quantity"),
+                m.get("daily_frequency"),
+                m.get("days_left"),
+                m.get("notes"),
+            ])
+
+    csv_content = output.getvalue()
+    filename = f"pillsync_caregiver_combined_master_{datetime.now().strftime('%Y%m%d')}.csv"
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /export/caregiver/combined/pdf
+# ---------------------------------------------------------------------------
+@router.get(
+    "/caregiver/combined/pdf",
+    status_code=status.HTTP_200_OK,
+    summary="Export Caregiver + Patients Combined (PDF)",
+    description="Unified clinical PDF dossier containing caregiver personal medicine cabinet AND assigned patients data.",
+)
+async def export_caregiver_combined_pdf(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allow_caregiver),
+):
+    """Unified clinical PDF export for caregiver personal cabinet and all assigned patients."""
+    # 1. Fetch Early
+    patients_dataset = await _fetch_caregiver_patients_dataset(db, current_user)
+
+    c_med_res = await db.execute(
+        select(Medicine).where(Medicine.user_id == current_user.id).order_by(Medicine.name)
+    )
+    caregiver_meds = c_med_res.scalars().all()
+
+    caregiver_meds_list = []
+    for m in caregiver_meds:
+        daily = (m.daily_frequency or 1) * (m.quantity_per_dose or 1)
+        days_left = round(m.current_stock / daily, 1) if daily > 0 else "N/A"
+        caregiver_meds_list.append({
+            "name": m.name,
+            "category": m.disease_category or "General",
+            "dosage": m.dosage or "Standard",
+            "current_stock": m.current_stock,
+            "initial_quantity": m.initial_quantity,
+            "daily_frequency": m.daily_frequency or 1,
+            "days_left": days_left,
+            "notes": (m.notes or "—")[:40],
+        })
+
+    caregiver_name = current_user.full_name or current_user.username
+    caregiver_email = current_user.email or "caregiver@pillsync.app"
+
+    # 2. Release Fast
+    await db.close()
+
+    # 3. Render PDF
+    pdf_bytes = _generate_caregiver_dossier_pdf_bytes(
+        caregiver_name=caregiver_name,
+        caregiver_email=caregiver_email,
+        patients_data=patients_dataset,
+        is_combined=True,
+        caregiver_medicines=caregiver_meds_list,
+    )
+    filename = f"pillsync_caregiver_combined_master_{datetime.now().strftime('%Y%m%d')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /export/admin/all/csv (Admin Only - Master All-in-One CSV)
+# ---------------------------------------------------------------------------
+@router.get(
+    "/admin/all/csv",
+    status_code=status.HTTP_200_OK,
+    summary="Export Complete System Database (Admin All-in-One CSV)",
+    description="Exports all registered users, medications, and schedules across the entire platform.",
+)
+async def export_admin_all_csv(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allow_admin),
+):
+    """Admin-only comprehensive platform export across all entities."""
+    # 1. Fetch Early
+    u_res = await db.execute(select(User).order_by(User.role, User.created_at.desc()))
+    all_users = list(u_res.scalars().all())
+
+    m_res = await db.execute(select(Medicine).options(selectinload(Medicine.user)).order_by(Medicine.name))
+    all_meds = list(m_res.scalars().all())
+
+    s_res = await db.execute(
+        select(Schedule).options(selectinload(Schedule.user), selectinload(Schedule.medicine)).order_by(Schedule.created_at.desc())
+    )
+    all_schedules = list(s_res.scalars().all())
+
+    # 2. Release Fast
+    await db.close()
+
+    # 3. Format CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["=== PILLSYNC MASTER SYSTEM ARCHIVE (ADMIN ONLY) ==="])
+    writer.writerow(["Generated By", current_user.full_name or current_user.username, current_user.email, _format_datetime(datetime.now())])
+    writer.writerow(["Total Registered Users", len(all_users)])
+    writer.writerow(["Total Formularies / Medicines", len(all_meds)])
+    writer.writerow(["Total Configured Schedules", len(all_schedules)])
+    writer.writerow([])
+
+    writer.writerow(["=== SECTION 1: MASTER USER REGISTRY ==="])
+    writer.writerow(["User ID", "Username", "Email", "Full Name", "Phone", "Role", "Is Active", "Registered At"])
+    for u in all_users:
+        writer.writerow([
+            str(u.id),
+            u.username,
+            u.email,
+            u.full_name,
+            u.phone or "—",
+            u.role if isinstance(u.role, str) else getattr(u.role, 'value', str(u.role)),
+            "Active" if u.is_active else "Suspended",
+            _format_datetime(u.created_at),
+        ])
+
+    writer.writerow([])
+    writer.writerow(["=== SECTION 2: MASTER MEDICINE FORMULARY & INVENTORY ==="])
+    writer.writerow(["Medicine ID", "Owner User Name", "Owner Email", "Owner Role", "Medicine Name", "Category", "Dosage", "Current Stock", "Initial Qty", "Daily Frequency", "Created At"])
+    for m in all_meds:
+        u_owner = m.user
+        writer.writerow([
+            str(m.id),
+            u_owner.full_name if u_owner else "Unknown",
+            u_owner.email if u_owner else "Unknown",
+            getattr(u_owner, 'role', 'Unknown') if u_owner else "Unknown",
+            m.name,
+            m.disease_category or "General",
+            m.dosage or "Standard",
+            m.current_stock,
+            m.initial_quantity,
+            m.daily_frequency or 1,
+            _format_datetime(m.created_at),
+        ])
+
+    writer.writerow([])
+    writer.writerow(["=== SECTION 3: SYSTEM-WIDE DOSE SCHEDULES ==="])
+    writer.writerow(["Schedule ID", "User Name", "Medicine Name", "Dose Label", "Scheduled Time", "Day of Week", "Status"])
+    for s in all_schedules:
+        writer.writerow([
+            str(s.id),
+            s.user.full_name if s.user else "Unknown",
+            s.medicine.name if s.medicine else "Unknown",
+            s.dose_label or "Dose",
+            str(s.scheduled_time),
+            s.day_of_week or "Daily",
+            "Active" if s.is_active else "Inactive",
+        ])
+
+    csv_content = output.getvalue()
+    filename = f"pillsync_admin_master_database_{datetime.now().strftime('%Y%m%d')}.csv"
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
 
 

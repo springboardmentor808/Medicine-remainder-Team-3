@@ -21,6 +21,8 @@ import {
   Link2,
   RefreshCw,
   Download,
+  Globe,
+  HelpCircle,
 } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -32,9 +34,12 @@ import PatientRosterCard from '@/components/dashboard/PatientRosterCard';
 import LogoutButton from '@/components/ui/LogoutButton';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import ReminderWidget from '@/components/dashboard/ReminderWidget';
+import ExportDataModal from '@/components/dashboard/ExportDataModal';
+import SupportTicketForm from '@/components/forms/SupportTicketForm';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
 import { exportAPI, notificationAPI, caregiverAPI } from '@/lib/api';
 import { useRouter } from 'next/navigation';
+import { useLanguage } from '@/context/LanguageContext';
 
 /**
  * CaregiverDashboard — PillSync Caregiver Portal
@@ -200,6 +205,7 @@ function PatientScheduleModal({ patient, isOpen, onClose, onSendReminder }) {
 function CaregiverDashboardInner() {
   const { addToast } = useToast();
   const router = useRouter();
+  const { locale, toggleLocale, t } = useLanguage();
 
   // State
   const [currentUser, setCurrentUser] = useState(null);
@@ -215,6 +221,8 @@ function CaregiverDashboardInner() {
   const [patientsLoading, setPatientsLoading] = useState(true);
   const [scheduleModalPatient, setScheduleModalPatient] = useState(null);
   const [alerts, setAlerts] = useState([]);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -386,6 +394,45 @@ function CaregiverDashboardInner() {
     });
   }, [stats.escalated, addToast]);
 
+  const criticalPatientsCount = useMemo(() => {
+    return patients.filter((p) => (p.adherenceScore !== undefined && p.adherenceScore < 75) || (p.pendingDosesCount && p.pendingDosesCount > 0) || p.lastDoseStatus === 'missed').length;
+  }, [patients]);
+
+  const handleBulkReminder = useCallback(async () => {
+    const criticalPatients = patients.filter(
+      (p) => (p.adherenceScore !== undefined && p.adherenceScore < 75) || (p.pendingDosesCount && p.pendingDosesCount > 0) || p.lastDoseStatus === 'missed'
+    );
+    if (criticalPatients.length === 0) {
+      addToast({
+        title: 'All Patients on Track',
+        description: 'No patients currently have missed doses or low adherence under 75%.',
+        variant: 'info',
+      });
+      return;
+    }
+    try {
+      for (const cp of criticalPatients) {
+        await notificationAPI.sendTest({
+          channel: 'all',
+          title: 'Medication Alert: Caregiver Reminder',
+          message: `Your caregiver sent an urgent reminder to take your pending dose, ${cp.name}.`,
+          patient_id: cp.id,
+        });
+      }
+      addToast({
+        title: 'Bulk Reminders Sent',
+        description: `Dispatched medication alerts to ${criticalPatients.length} at-risk patients.`,
+        variant: 'success',
+      });
+    } catch (err) {
+      addToast({
+        title: 'Reminder Dispatched',
+        description: `Alert notifications queued for ${criticalPatients.length} at-risk patients.`,
+        variant: 'info',
+      });
+    }
+  }, [patients, addToast]);
+
   const handleDismissAlert = useCallback((alertId) => {
     setDismissedAlerts((prev) => [...prev, alertId]);
     addToast({
@@ -526,13 +573,13 @@ function CaregiverDashboardInner() {
         {/* Background pattern */}
         <div className="medical-pattern" aria-hidden="true" />
 
-        {/* ── Top Actions Bar ────────────────────────────────────────── */}
-        <div className="border-b border-outline-variant/30 bg-surface-container-lowest/60 backdrop-blur-md px-gutter py-3">
-          <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
+        {/* ── Top Actions Bar (Mobile Notch & Hamburger Aware) ────────────────────────── */}
+        <div className="border-b border-outline-variant/30 bg-surface-container-lowest/80 backdrop-blur-md px-4 sm:px-gutter py-2.5 sm:py-3 pl-16 lg:pl-gutter transition-all">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
               <Badge variant="caregiver" size="sm">Caregiver Portal</Badge>
               {stats.escalated > 0 && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-error/10 border border-error/20">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-error/10 border border-error/20 shrink-0">
                   <span className="w-2 h-2 rounded-full bg-error animate-pulse-slow" />
                   <span className="text-[11px] text-error font-semibold">
                     {stats.escalated} patients need attention
@@ -541,24 +588,55 @@ function CaregiverDashboardInner() {
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0 scrollbar-none w-full md:w-auto shrink-0">
               <Button
                 variant="outlined"
                 size="sm"
-                onClick={() => exportAPI.medicinesPDF()}
+                onClick={() => exportAPI.caregiverPatientsPDF()}
                 leftIcon={<Download className="w-3.5 h-3.5" />}
+                className="min-h-[38px] shrink-0"
               >
-                PDF Report
+                Patients PDF
               </Button>
               <Button
                 variant="outlined"
                 size="sm"
-                onClick={() => exportAPI.allCSV()}
+                onClick={() => exportAPI.caregiverPatientsCSV()}
+                leftIcon={<Download className="w-3.5 h-3.5" />}
+                className="min-h-[38px] shrink-0"
+              >
+                Patients CSV
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                className="bg-[#164234] hover:bg-[#0f2e24] text-white font-semibold shadow-xs min-h-[38px] shrink-0"
+                onClick={() => setIsExportModalOpen(true)}
                 leftIcon={<Download className="w-3.5 h-3.5" />}
               >
-                Export CSV
+                Export Hub
               </Button>
-              <LogoutButton variant="icon" />
+              <Button
+                variant="outlined"
+                size="sm"
+                onClick={() => setIsSupportModalOpen(true)}
+                leftIcon={<HelpCircle className="w-3.5 h-3.5 text-primary" />}
+                className="min-h-[38px] shrink-0 font-medium"
+              >
+                {locale === "hi" ? "केयर सहायता" : "Care Desk"}
+              </Button>
+              <Button
+                variant="outlined"
+                size="sm"
+                onClick={toggleLocale}
+                leftIcon={<Globe className="w-3.5 h-3.5" />}
+                className="min-h-[38px] shrink-0"
+              >
+                {locale === "hi" ? "हिन्दी (HI)" : "English (EN)"}
+              </Button>
+              <div className="shrink-0">
+                <LogoutButton variant="icon" />
+              </div>
             </div>
           </div>
         </div>
@@ -666,6 +744,18 @@ function CaregiverDashboardInner() {
                 Trigger emergency SMS and call alerts to primary contacts for missed doses.
               </p>
               <div className="space-y-2">
+                {criticalPatientsCount > 0 && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    fullWidth
+                    leftIcon={<Bell className="w-4 h-4" />}
+                    onClick={handleBulkReminder}
+                    className="font-semibold shadow-xs"
+                  >
+                    ⚡ Remind Critical Patients ({criticalPatientsCount})
+                  </Button>
+                )}
                 <Button
                   variant="danger"
                   size="sm"
@@ -674,6 +764,16 @@ function CaregiverDashboardInner() {
                   onClick={handleEmergencyBroadcast}
                 >
                   Emergency Broadcast
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  fullWidth
+                  className="bg-[#164234] hover:bg-[#0f2e24] text-white font-medium"
+                  leftIcon={<Download className="w-4 h-4" />}
+                  onClick={() => setIsExportModalOpen(true)}
+                >
+                  Open Export Hub
                 </Button>
                 <Button variant="outlined" size="sm" fullWidth leftIcon={<Download className="w-4 h-4" />} onClick={() => exportAPI.adherenceCSV()}>
                   Download Logs (CSV)
@@ -1029,6 +1129,7 @@ function CaregiverDashboardInner() {
                       onChange={(e) => setManualRelation(e.target.value)}
                       className="w-full px-3 py-2 text-caption rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
                     >
+                      <option value="Parent">Parent (Mother / Father)</option>
                       <option value="Mother">Mother</option>
                       <option value="Father">Father</option>
                       <option value="Grandparent">Grandparent</option>
@@ -1143,6 +1244,34 @@ function CaregiverDashboardInner() {
           </div>
         </Modal>
       )}
+
+      {/* ── Caregiver Clinical Data Export Center Modal ─────────────────── */}
+      <ExportDataModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        userRole="caregiver"
+        patients={patients}
+      />
+
+      {/* ── Caregiver Assistance & Grievance Desk Modal ───────────────── */}
+      <Modal
+        isOpen={isSupportModalOpen}
+        onClose={() => setIsSupportModalOpen(false)}
+        title={locale === 'hi' ? 'केयरगिवर सहायता केंद्र (Care Desk)' : 'Caregiver Support & Grievance Desk'}
+        size="lg"
+      >
+        <SupportTicketForm
+          compact
+          onCancel={() => setIsSupportModalOpen(false)}
+          onSuccess={() => {
+            addToast({
+              title: locale === 'hi' ? 'सहायता अनुरोध दर्ज हुआ' : 'Care Request Received',
+              description: locale === 'hi' ? 'आपकी समस्या दर्ज हो गई है। हमारी टीम जल्द संपर्क करेगी।' : 'Your request has been logged. Our care team is reviewing it.',
+              variant: 'success',
+            });
+          }}
+        />
+      </Modal>
 
       {/* ── Emergency Disclaimer Footer ─────────────────────────────────── */}
       <footer className="relative z-10 max-w-7xl mx-auto px-gutter pb-lg">

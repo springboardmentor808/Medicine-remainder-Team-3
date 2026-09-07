@@ -12,11 +12,13 @@ import {
   CheckCircle2,
   XCircle,
   User,
+  Download,
 } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import AdherenceRing from '@/components/ui/AdherenceRing';
+import { exportAPI } from '@/lib/api';
 
 /**
  * PatientRosterCard — Caregiver Dashboard Component
@@ -304,6 +306,16 @@ const PatientRosterCard = React.memo(function PatientRosterCard({
           className="flex-1"
         >
           Send Reminder
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          leftIcon={<Download className="w-4 h-4" />}
+          onClick={() => exportAPI.caregiverPatientsPDF(id)}
+          title={`Download Dossier PDF for ${name}`}
+        >
+          Export
         </Button>
 
         <Button

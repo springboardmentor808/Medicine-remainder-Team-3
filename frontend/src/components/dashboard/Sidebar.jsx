@@ -155,7 +155,7 @@ export default function Sidebar() {
               key={href}
               href={href}
               onClick={() => setMobileOpen(false)}
-              className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
+              className={`flex items-center min-h-[44px] ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
                 ${active
                   ? 'bg-primary/12 text-primary shadow-sm'
                   : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
@@ -172,7 +172,7 @@ export default function Sidebar() {
         <div className={`pt-2 mt-2 border-t border-outline-variant/20`}>
           <button
             onClick={() => setExportModalOpen(true)}
-            className={`w-full flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg text-sm font-medium text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-all duration-200`}
+            className={`w-full flex items-center min-h-[44px] ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg text-sm font-medium text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-all duration-200`}
             title={collapsed ? 'Export Data' : undefined}
           >
             <Download className="w-5 h-5 flex-shrink-0" />
@@ -185,7 +185,7 @@ export default function Sidebar() {
       <div className="hidden lg:block px-2 py-2 border-t border-outline-variant/20">
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-on-surface-variant hover:bg-surface-container-low transition-all"
+          className="w-full flex items-center justify-center gap-2 min-h-[40px] px-3 py-2 rounded-lg text-xs font-medium text-on-surface-variant hover:bg-surface-container-low transition-all"
         >
           {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
           {!collapsed && <span>Collapse</span>}
@@ -201,29 +201,29 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* Mobile Toggle Button */}
+      {/* Mobile Toggle Button (Strictly 44x44px Touch Target) */}
       <button
         onClick={() => setMobileOpen(true)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 rounded-lg bg-surface-container-lowest shadow-elevated border border-outline-variant/30 text-on-surface"
-        aria-label="Open menu"
+        className="lg:hidden fixed top-3 left-3 z-50 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl bg-surface-container-lowest/95 backdrop-blur-md shadow-elevated border border-outline-variant/40 text-on-surface hover:bg-surface-container active:scale-95 transition-all"
+        aria-label="Open navigation menu"
       >
         <Menu className="w-5 h-5" />
       </button>
 
-      {/* Mobile Overlay */}
+      {/* Mobile Overlay & Slide-out Drawer */}
       {mobileOpen && (
         <div
-          className="lg:hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+          className="lg:hidden fixed inset-0 z-50 bg-black/50 backdrop-blur-sm transition-opacity duration-300"
           onClick={() => setMobileOpen(false)}
         >
           <aside
-            className="w-72 h-full bg-surface-container-lowest shadow-2xl border-r border-outline-variant/30 transform transition-transform"
+            className="w-80 max-w-[85vw] h-[100dvh] pt-safe pb-safe bg-surface-container-lowest shadow-2xl border-r border-outline-variant/30 flex flex-col relative transform transition-transform duration-300 ease-in-out"
             onClick={(e) => e.stopPropagation()}
           >
             <button
               onClick={() => setMobileOpen(false)}
-              className="absolute top-4 right-4 p-1 rounded-lg text-on-surface-variant hover:bg-surface-container-low"
-              aria-label="Close menu"
+              className="absolute top-3 right-3 z-10 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-on-surface-variant hover:bg-surface-container-low active:scale-95 transition-all"
+              aria-label="Close navigation menu"
             >
               <X className="w-5 h-5" />
             </button>

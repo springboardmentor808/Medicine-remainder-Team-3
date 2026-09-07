@@ -100,6 +100,15 @@ async def scan_prescription(
                 medicine_name=None,
                 dosage=None,
                 frequency=None,
+                daily_frequency=1,
+                dosage_form="Tablet",
+                disease_category="General Healthcare",
+                initial_quantity=30,
+                quantity_per_dose=1,
+                instructions=None,
+                verified=False,
+                matched_medicine=None,
+                generic_salt=None,
                 raw_text="",
                 confidence_score=0.0,
                 scan_id=None,
@@ -107,6 +116,20 @@ async def scan_prescription(
 
         # --- NLP Parsing ---
         parsed = parse_prescription_text(raw_text)
+
+        # Merge catalog-verified medicine & generic salt if present
+        verified_match = ocr_result.get("verified", False)
+        matched_med = ocr_result.get("matched_medicine")
+        generic_salt = ocr_result.get("generic_salt")
+
+        final_medicine_name = parsed.get("medicine_name") or matched_med
+        final_instructions = parsed.get("instructions")
+        if generic_salt:
+            final_instructions = (
+                f"Generic Salt: {generic_salt}"
+                if not final_instructions
+                else f"{final_instructions} | Generic: {generic_salt}"
+            )
 
         # --- Save Result to MongoDB ---
         scan_id = None
@@ -116,15 +139,30 @@ async def scan_prescription(
                 filename=file.filename or "prescription.jpg",
                 raw_text=raw_text,
                 confidence_score=confidence_score,
-                parsed_data=parsed,
+                parsed_data={
+                    **parsed,
+                    "medicine_name": final_medicine_name,
+                    "matched_medicine": matched_med,
+                    "generic_salt": generic_salt,
+                    "verified": verified_match,
+                },
             )
         except Exception as db_err:
             print(f"[OCR Router] Failed to save result to MongoDB: {db_err}")
 
         return OCRScanResponse(
-            medicine_name=parsed.get("medicine_name"),
+            medicine_name=final_medicine_name,
             dosage=parsed.get("dosage"),
             frequency=parsed.get("frequency"),
+            daily_frequency=parsed.get("daily_frequency", 1),
+            dosage_form=parsed.get("dosage_form", "Tablet"),
+            disease_category=parsed.get("disease_category", "General Healthcare"),
+            initial_quantity=parsed.get("initial_quantity", 30),
+            quantity_per_dose=parsed.get("quantity_per_dose", 1),
+            instructions=final_instructions,
+            verified=verified_match,
+            matched_medicine=matched_med,
+            generic_salt=generic_salt,
             raw_text=raw_text,
             confidence_score=confidence_score,
             scan_id=scan_id,

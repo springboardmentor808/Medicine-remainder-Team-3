@@ -383,10 +383,45 @@ async def twilio_inbound_sms_webhook(
     clean_body = body_text.strip().upper()
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
-    # Determine clinical response type
+    # Determine clinical response type and execute atomic intake if confirmed
     if clean_body in ["1", "CONFIRM", "TAKEN", "YES", "ACK", "ACKNOWLEDGE", "1 - CONFIRMED & ACKNOWLEDGED"]:
-        reply_msg = "PillSync: Thank you. Your response has been recorded in the clinical telemetry stream."
         action_status = "acknowledged"
+        if from_number and len(from_number) >= 10:
+            clean_digits = "".join(c for c in from_number if c.isdigit())[-10:]
+            try:
+                from app.models.schedule import Schedule
+                from app.schemas.pillsync_schemas import RecordActionRequest
+                user_res = await db.execute(
+                    select(User).where(User.phone.contains(clean_digits))
+                )
+                patient = user_res.scalars().first()
+                if patient:
+                    sched_res = await db.execute(
+                        select(Schedule).where(
+                            Schedule.user_id == patient.id,
+                            Schedule.is_active == True
+                        ).limit(1)
+                    )
+                    sched = sched_res.scalar_one_or_none()
+                    if sched:
+                        await AdherenceService.record_dose_action_atomic(
+                            db,
+                            patient.id,
+                            RecordActionRequest(
+                                schedule_id=str(sched.id),
+                                action="Taken"
+                            )
+                        )
+                        reply_msg = f"PillSync: Thank you {patient.full_name or 'Patient'}. Dose for today recorded and stock decremented."
+                    else:
+                        reply_msg = "PillSync: Thank you. Dose confirmed. No active pending schedule found for today."
+                else:
+                    reply_msg = "PillSync: Thank you. Your response has been recorded in the clinical telemetry stream."
+            except Exception as e:
+                print(f"[Twilio Webhook] Atomic dose log error: {e}")
+                reply_msg = "PillSync: Thank you. Your response has been recorded."
+        else:
+            reply_msg = "PillSync: Thank you. Your response has been recorded in the clinical telemetry stream."
     elif clean_body in ["2", "SNOOZE", "LATER", "REMIND", "2 - REMIND ME LATER"]:
         reply_msg = "PillSync: Reminder postponed by 15 minutes. We will re-alert you."
         action_status = "snoozed"

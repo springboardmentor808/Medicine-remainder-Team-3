@@ -9,12 +9,16 @@ Provides endpoints for:
 """
 
 from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.rbac import allow_caregiver
 from app.core.security import get_current_user
 from app.models.user import User
+from app.models.medicine import Medicine
+from app.models.schedule import DoseLog
 from app.services.analytics_service import (
     get_adherence_summary,
     get_caregiver_patient_analytics,
@@ -166,4 +170,79 @@ async def get_system_telemetry_endpoint(
             "channel": "FCM + Twilio",
         }
     }
+
+
+# ---------------------------------------------------------------------------
+# GET /analytics/audit-logs — Live System Audit Logs Stream
+# ---------------------------------------------------------------------------
+@router.get(
+    "/audit-logs",
+    status_code=status.HTTP_200_OK,
+    summary="Live System Audit Logs",
+    description="Constructs real-time audit trail events from database activities (registrations, dose actions, and prescriptions).",
+)
+async def get_live_audit_logs(
+    limit: int = Query(30, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[dict]:
+    """Fetch live audit events from user registrations, dose logs, and prescription additions."""
+    events: list[dict] = []
+
+    # 1. User Registrations
+    u_res = await db.execute(select(User).order_by(User.created_at.desc()).limit(limit))
+    users = u_res.scalars().all()
+    for u in users:
+        ts_str = u.created_at.strftime("%Y-%m-%d %H:%M:%S") if u.created_at else ""
+        events.append({
+            "id": f"usr-{u.id}",
+            "action": f"User Registered ({u.role.upper() if isinstance(u.role, str) else u.role.value.upper()})",
+            "detail": f"Account provisioned for {u.full_name or u.username} ({u.email})",
+            "actor": "Auth Gate",
+            "timestamp": ts_str,
+            "severity": "info",
+        })
+
+    # 2. Medicine Prescriptions Cataloged
+    m_res = await db.execute(select(Medicine).options(selectinload(Medicine.user)).order_by(Medicine.created_at.desc()).limit(limit))
+    medicines = m_res.scalars().all()
+    for m in medicines:
+        ts_str = m.created_at.strftime("%Y-%m-%d %H:%M:%S") if m.created_at else ""
+        owner_name = m.user.full_name if m.user else "Patient"
+        events.append({
+            "id": f"med-{m.id}",
+            "action": "Prescription Added",
+            "detail": f"{m.name} ({m.dosage or 'Standard'}) added to inventory ({m.current_stock} units)",
+            "actor": owner_name,
+            "timestamp": ts_str,
+            "severity": "info",
+        })
+
+    # 3. Dose Action Events
+    dl_res = await db.execute(
+        select(DoseLog)
+        .options(selectinload(DoseLog.medicine), selectinload(DoseLog.user))
+        .order_by(DoseLog.action_time.desc())
+        .limit(limit)
+    )
+    dose_logs = dl_res.scalars().all()
+    for dl in dose_logs:
+        ts_str = dl.action_time.strftime("%Y-%m-%d %H:%M:%S") if dl.action_time else ""
+        med_name = dl.medicine.name if dl.medicine else "Medication"
+        patient_name = dl.user.full_name if dl.user else "Patient"
+        act_lower = str(dl.action).lower()
+        is_missed = "miss" in act_lower
+        events.append({
+            "id": f"dl-{dl.id}",
+            "action": f"Dose {dl.action.capitalize()}",
+            "detail": f"{med_name} marked as {dl.action} for {patient_name}",
+            "actor": patient_name,
+            "timestamp": ts_str,
+            "severity": "warning" if is_missed else "info",
+        })
+
+    # Sort all compiled live events descending by timestamp
+    events.sort(key=lambda x: x["timestamp"], reverse=True)
+    return events[:limit]
+
 

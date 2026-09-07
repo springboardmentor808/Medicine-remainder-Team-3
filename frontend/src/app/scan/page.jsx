@@ -126,13 +126,13 @@ function ScanPageInner() {
   return (
     <DashboardLayout>
       <div className="min-h-screen bg-background">
-        <main className="max-w-5xl mx-auto px-gutter py-lg space-y-lg">
+        <main className="max-w-5xl mx-auto px-gutter pt-14 lg:pt-lg pb-lg space-y-lg">
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-md">
             <div>
               <Link
                 href="/dashboard/patient"
-                className="inline-flex items-center gap-xs text-caption font-semibold text-on-surface-variant hover:text-primary transition-colors mb-xs"
+                className="inline-flex items-center gap-xs text-caption font-semibold text-on-surface-variant hover:text-primary transition-colors mb-xs min-h-[36px]"
               >
                 <ChevronLeft className="w-4 h-4" />
                 Back to Dashboard
@@ -147,7 +147,7 @@ function ScanPageInner() {
             </div>
             <div className="flex items-center gap-sm">
               <Link href="/medicines">
-                <Button variant="outline" size="sm" leftIcon={<FileText className="w-4 h-4" />}>
+                <Button variant="outline" size="sm" leftIcon={<FileText className="w-4 h-4" />} className="min-h-[40px]">
                   Medicine Cabinet
                 </Button>
               </Link>
@@ -164,7 +164,7 @@ function ScanPageInner() {
                     onDragLeave={handleDrag}
                     onDragOver={handleDrag}
                     onDrop={handleDrop}
-                    className={`flex flex-col items-center justify-center py-16 px-4 text-center rounded-xl transition-all ${
+                    className={`flex flex-col items-center justify-center py-12 sm:py-16 px-4 text-center rounded-xl transition-all ${
                       dragActive ? 'bg-primary/10 border-primary' : 'bg-surface-container-low/50'
                     }`}
                   >
@@ -176,7 +176,7 @@ function ScanPageInner() {
                       Drag & drop a prescription photo here, or browse from your device
                     </p>
 
-                    <div className="flex flex-wrap items-center justify-center gap-sm">
+                    <div className="flex flex-wrap items-center justify-center gap-sm w-full sm:w-auto">
                       <input
                         type="file"
                         ref={fileInputRef}
@@ -195,18 +195,20 @@ function ScanPageInner() {
 
                       <Button
                         variant="primary"
-                        size="sm"
+                        size="md"
                         onClick={() => fileInputRef.current?.click()}
                         leftIcon={<Upload className="w-4 h-4" />}
+                        className="min-h-[44px] flex-1 sm:flex-initial"
                       >
                         Browse File
                       </Button>
 
                       <Button
                         variant="outline"
-                        size="sm"
+                        size="md"
                         onClick={() => cameraInputRef.current?.click()}
                         leftIcon={<Camera className="w-4 h-4" />}
+                        className="min-h-[44px] flex-1 sm:flex-initial"
                       >
                         Take Photo
                       </Button>
@@ -218,10 +220,10 @@ function ScanPageInner() {
                 ) : (
                   <div className="space-y-md">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-sm">
-                        <FileText className="w-5 h-5 text-primary" />
-                        <div>
-                          <p className="text-caption font-semibold text-on-surface truncate max-w-xs">
+                      <div className="flex items-center gap-sm min-w-0">
+                        <FileText className="w-5 h-5 text-primary shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-caption font-semibold text-on-surface truncate max-w-[200px] sm:max-w-xs">
                             {selectedFile.name}
                           </p>
                           <p className="text-label-caps text-on-surface-variant">
@@ -231,8 +233,9 @@ function ScanPageInner() {
                       </div>
                       <button
                         onClick={handleClear}
-                        className="p-1 rounded-full text-on-surface-variant hover:bg-surface-container hover:text-error transition-colors"
+                        className="w-11 h-11 rounded-full text-on-surface-variant hover:bg-surface-container hover:text-error transition-colors flex items-center justify-center shrink-0"
                         title="Remove file"
+                        aria-label="Remove file"
                       >
                         <X className="w-5 h-5" />
                       </button>
@@ -253,7 +256,7 @@ function ScanPageInner() {
                       </div>
                     )}
 
-                    <div className="flex items-center gap-sm pt-xs">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-sm pt-xs">
                       <Button
                         variant="primary"
                         size="md"
@@ -261,10 +264,11 @@ function ScanPageInner() {
                         loading={scanning}
                         onClick={handleScan}
                         leftIcon={<Sparkles className="w-5 h-5" />}
+                        className="min-h-[44px]"
                       >
                         {scanning ? 'Extracting Medication Data...' : 'Scan & Extract Details'}
                       </Button>
-                      <Button variant="ghost" size="md" onClick={handleClear} disabled={scanning}>
+                      <Button variant="ghost" size="md" onClick={handleClear} disabled={scanning} className="min-h-[44px]">
                         Cancel
                       </Button>
                     </div>

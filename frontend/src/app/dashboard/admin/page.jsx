@@ -24,13 +24,17 @@ import {
   Minus,
   Download,
   Filter,
+  Globe,
+  HelpCircle,
 } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import LogoutButton from '@/components/ui/LogoutButton';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
+import ExportDataModal from '@/components/dashboard/ExportDataModal';
 import { exportAPI, adminAPI, medicineAPI } from '@/lib/api';
+import { useLanguage } from '@/context/LanguageContext';
 
 // ── Base Metric Templates ───────────────────────────────────────────────────
 
@@ -167,6 +171,14 @@ const NAV_CARDS = [
     desc: 'Compliance logs, failed login attempts, permission changes.',
     color: 'primary',
     badge: null,
+  },
+  {
+    href: '/help',
+    icon: HelpCircle,
+    title: 'Care Assistance & Grievance Hub',
+    desc: 'Review patient alarm glitches, scan issues, caregiver link tickets & grievance logs.',
+    color: 'tertiary',
+    badge: 'Live Care Desk',
   },
 ];
 
@@ -415,19 +427,25 @@ function AuditRow({ action, detail, actor, timestamp, severity }) {
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AdminDashboardPage() {
+  const { locale, toggleLocale, t } = useLanguage();
   const [auditFilter, setAuditFilter] = useState('all');
   const [lastRefreshed, setLastRefreshed] = useState('');
   const [liveMetrics, setLiveMetrics] = useState(DEFAULT_METRICS);
   const [totalUserCount, setTotalUserCount] = useState(0);
+  const [auditLogsList, setAuditLogsList] = useState(AUDIT_LOG);
+  const [servicesList, setServicesList] = useState(SYSTEM_STATUS);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   // Fetch live stats from backend
   useEffect(() => {
     setLastRefreshed(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
     (async () => {
       try {
-        const [usersRes, medsRes] = await Promise.allSettled([
+        const [usersRes, medsRes, telemetryRes, auditRes] = await Promise.allSettled([
           adminAPI.getUsers(),
           medicineAPI.list(),
+          adminAPI.telemetry(),
+          adminAPI.getAuditLogs(),
         ]);
 
         const usersList = usersRes.status === 'fulfilled' && Array.isArray(usersRes.value)
@@ -486,6 +504,45 @@ export default function AdminDashboardPage() {
             href: '/admin/health',
           },
         ]);
+
+        // Hybrid Audit Logs: merge live audit logs with baseline AUDIT_LOG
+        if (auditRes.status === 'fulfilled' && Array.isArray(auditRes.value) && auditRes.value.length > 0) {
+          const liveEvents = auditRes.value;
+          const liveIds = new Set(liveEvents.map((e) => e.id));
+          const merged = [...liveEvents, ...AUDIT_LOG.filter((b) => !liveIds.has(b.id))];
+          setAuditLogsList(merged);
+        }
+
+        // Live Telemetry & System Services
+        if (telemetryRes.status === 'fulfilled' && telemetryRes.value) {
+          const tel = telemetryRes.value;
+          setServicesList((prev) =>
+            prev.map((s) => {
+              if (s.id === 'db') {
+                const lat = tel.database?.latency_ms !== undefined ? `${tel.database.latency_ms} ms` : s.value;
+                return { ...s, value: lat, status: tel.database?.status === 'healthy' ? 'healthy' : s.status };
+              }
+              if (s.id === 'redis') {
+                const lat = tel.redis?.latency_ms !== undefined ? `${tel.redis.latency_ms} ms` : s.value;
+                return { ...s, value: lat, status: tel.redis?.status === 'healthy' ? 'healthy' : s.status };
+              }
+              if (s.id === 'ocr') {
+                const lat = tel.ocr?.latency_ms !== undefined ? `${tel.ocr.latency_ms} ms` : s.value;
+                return { ...s, value: lat, status: tel.ocr?.status === 'healthy' ? 'healthy' : s.status };
+              }
+              if (s.id === 'api') {
+                const cpu = tel.hardware?.cpu_percent !== undefined ? `${tel.hardware.cpu_percent}% CPU` : s.value;
+                return { ...s, value: cpu, status: 'healthy' };
+              }
+              if (s.id === 'push') {
+                const rate = tel.notifications?.delivery_rate || s.value;
+                return { ...s, value: rate, status: tel.notifications?.status === 'healthy' ? 'healthy' : s.status };
+              }
+              return s;
+            })
+          );
+        }
+
         setLastRefreshed(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
       } catch (err) {
         console.error('Failed to fetch admin stats:', err);
@@ -493,22 +550,41 @@ export default function AdminDashboardPage() {
     })();
   }, []);
 
-  const healthyCount  = SYSTEM_STATUS.filter((s) => s.status === 'healthy').length;
-  const degradedCount = SYSTEM_STATUS.filter((s) => s.status === 'degraded').length;
-  const downCount     = SYSTEM_STATUS.filter((s) => s.status === 'down').length;
+  const healthyCount  = servicesList.filter((s) => s.status === 'healthy').length;
+  const degradedCount = servicesList.filter((s) => s.status === 'degraded').length;
+  const downCount     = servicesList.filter((s) => s.status === 'down').length;
   const allHealthy    = degradedCount === 0 && downCount === 0;
 
   const filteredAudit = useMemo(() => {
-    if (auditFilter === 'all') return AUDIT_LOG;
-    return AUDIT_LOG.filter((e) => e.severity === auditFilter);
-  }, [auditFilter]);
+    if (auditFilter === 'all') return auditLogsList;
+    return auditLogsList.filter((e) => e.severity === auditFilter);
+  }, [auditFilter, auditLogsList]);
+
+  const dynamicNavCards = useMemo(() => {
+    return NAV_CARDS.map((card) => {
+      if (card.href === '/admin/users') {
+        return {
+          ...card,
+          badge: totalUserCount > 0 ? `${totalUserCount} users` : card.badge,
+        };
+      }
+      if (card.href === '/admin/health' && card.title === 'System Health') {
+        return {
+          ...card,
+          badge: degradedCount > 0 ? `${degradedCount} degraded` : 'All healthy',
+          badgeVariant: degradedCount > 0 ? 'warning' : 'default',
+        };
+      }
+      return card;
+    });
+  }, [totalUserCount, degradedCount]);
 
   return (
     <DashboardLayout>
       <div className="min-h-screen bg-background">
         {/* ── Top Actions Bar ────────────────────────────────────────── */}
-        <div className="border-b border-outline-variant/30 bg-surface-container-lowest/60 backdrop-blur-md px-gutter py-3">
-          <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+        <div className="border-b border-outline-variant/30 bg-surface-container-lowest/60 backdrop-blur-md pl-16 lg:pl-gutter pr-gutter py-3">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <Badge variant="admin" size="sm">Admin Portal</Badge>
               <div className="hidden sm:flex items-center gap-xs px-2.5 py-1 rounded-full bg-surface-container border border-outline-variant/50 text-[11px] text-on-surface-variant">
@@ -517,13 +593,31 @@ export default function AdminDashboardPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 overflow-x-auto scrollbar-none w-full md:w-auto py-1">
+              <button
+                type="button"
+                onClick={toggleLocale}
+                aria-label={`Switch language. Current language is ${locale === 'en' ? 'English' : 'Hindi'}`}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant/60 bg-surface text-caption font-semibold text-on-surface hover:bg-surface-container transition-colors shrink-0 min-h-[36px]"
+              >
+                <Globe className="w-3.5 h-3.5 text-primary" />
+                <span>{locale === 'en' ? 'हिन्दी' : 'English'}</span>
+              </button>
               <Button
                 variant="primary"
                 size="sm"
+                onClick={() => setIsExportModalOpen(true)}
+                leftIcon={<Download className="w-3.5 h-3.5" />}
+                className="bg-[#164234] hover:bg-[#0f2e24] text-white font-semibold shrink-0 min-h-[36px]"
+              >
+                Export Hub
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => exportAPI.masterPDF('30d')}
                 leftIcon={<Download className="w-3.5 h-3.5" />}
-                className="bg-[#164234] hover:bg-[#0f2e24] text-white font-semibold"
+                className="shrink-0 min-h-[36px]"
               >
                 Master Dossier (PDF)
               </Button>
@@ -532,10 +626,23 @@ export default function AdminDashboardPage() {
                 size="sm"
                 onClick={() => exportAPI.auditCSV()}
                 leftIcon={<Download className="w-3.5 h-3.5" />}
+                className="shrink-0 min-h-[36px]"
               >
                 Audit Log (CSV)
               </Button>
-              <LogoutButton variant="icon" />
+              <Link href="/help">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  leftIcon={<HelpCircle className="w-3.5 h-3.5 text-primary" />}
+                  className="shrink-0 min-h-[36px]"
+                >
+                  {locale === 'en' ? 'Help Desk' : 'सहायता केंद्र'}
+                </Button>
+              </Link>
+              <div className="shrink-0">
+                <LogoutButton variant="icon" />
+              </div>
             </div>
           </div>
         </div>
@@ -622,13 +729,13 @@ export default function AdminDashboardPage() {
                 )}
               </div>
               <span className="text-label-caps text-on-surface-variant">
-                {SYSTEM_STATUS.length} services monitored
+                {servicesList.length} services monitored
               </span>
             </div>
 
             {/* Service rows */}
             <div className="divide-y divide-outline-variant/20 px-xs py-xs">
-              {SYSTEM_STATUS.map((svc) => (
+              {servicesList.map((svc) => (
                 <StatusRow key={svc.id} {...svc} />
               ))}
             </div>
@@ -638,8 +745,8 @@ export default function AdminDashboardPage() {
         {/* ── 3. Quick Navigation Hub ───────────────────────────────────── */}
         <section>
           <h2 className="text-body-sm font-bold text-on-surface mb-md">Quick Navigation</h2>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-md">
-            {NAV_CARDS.map((card) => (
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-md">
+            {dynamicNavCards.map((card) => (
               <NavCard key={card.href + card.title} {...card} />
             ))}
           </div>
@@ -653,13 +760,13 @@ export default function AdminDashboardPage() {
             </h2>
 
             {/* Severity filter pills */}
-            <div className="flex items-center gap-xs">
+            <div className="flex flex-wrap items-center gap-1.5">
               {['all', 'info', 'warning', 'error'].map((f) => (
                 <button
                   key={f}
                   onClick={() => setAuditFilter(f)}
                   className={[
-                    'px-sm py-0.5 rounded-full text-label-caps font-semibold capitalize border transition-all',
+                    'px-3 py-1.5 rounded-full text-label-caps font-semibold capitalize border transition-all min-h-[36px] flex items-center justify-center',
                     auditFilter === f
                       ? f === 'error'   ? 'bg-error text-on-error border-error'
                       : f === 'warning' ? 'bg-secondary text-on-secondary border-secondary'
@@ -675,10 +782,10 @@ export default function AdminDashboardPage() {
                 variant="outline"
                 size="sm"
                 leftIcon={<Download className="w-3.5 h-3.5" />}
-                className="ml-xs"
+                className="min-h-[36px]"
                 onClick={() => exportAPI.auditCSV()}
               >
-                Export Audit (CSV)
+                Export CSV
               </Button>
             </div>
           </div>
@@ -738,6 +845,13 @@ export default function AdminDashboardPage() {
             immediately.
           </p>
         </div>
+
+        {/* ── Admin Compliance & System Export Hub Modal ───────────────── */}
+        <ExportDataModal
+          isOpen={isExportModalOpen}
+          onClose={() => setIsExportModalOpen(false)}
+          userRole="admin"
+        />
       </main>
       </div>
     </DashboardLayout>

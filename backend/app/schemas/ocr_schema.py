@@ -38,6 +38,50 @@ class OCRScanResponse(BaseModel):
         examples=["1-0-1"],
         description="Extracted frequency pattern (e.g., '1-0-1', 'twice daily')",
     )
+    daily_frequency: Optional[int] = Field(
+        1,
+        examples=[2],
+        description="Calculated daily frequency (times per day)",
+    )
+    dosage_form: Optional[str] = Field(
+        "Tablet",
+        examples=["Tablet", "Capsule", "Syrup"],
+        description="Extracted or inferred dosage form",
+    )
+    disease_category: Optional[str] = Field(
+        "General Healthcare",
+        examples=["Cardiovascular", "Diabetes & Endocrine", "General Healthcare"],
+        description="Inferred therapeutic/disease category",
+    )
+    initial_quantity: Optional[int] = Field(
+        30,
+        examples=[30],
+        description="Extracted or default inventory quantity",
+    )
+    quantity_per_dose: Optional[int] = Field(
+        1,
+        examples=[1],
+        description="Quantity taken per single administration",
+    )
+    instructions: Optional[str] = Field(
+        None,
+        examples=["Take after meals"],
+        description="Extracted dietary, timing, or doctor instructions",
+    )
+    verified: bool = Field(
+        False,
+        description="Whether the medicine was verified against the Indian Medicines Catalog",
+    )
+    matched_medicine: Optional[str] = Field(
+        None,
+        examples=["Dolo 650 Tablet"],
+        description="Verified medicine brand name from catalog",
+    )
+    generic_salt: Optional[str] = Field(
+        None,
+        examples=["Paracetamol (650mg)"],
+        description="Active pharmaceutical ingredient or composition",
+    )
     raw_text: str = Field(
         ...,
         description="Raw text extracted from the prescription image by OCR",

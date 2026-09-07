@@ -12,6 +12,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from app.schemas.pharmacy_schema import PharmacyResponse
+from app.schemas.refill_schemas import CalibratedRefillPrediction
 
 
 # ===================================================================
@@ -96,6 +97,31 @@ class RefillPredictionResponse(BaseModel):
     nearby_pharmacies: Optional[list[PharmacyResponse]] = Field(
         default=[],
         description="Nearby pharmacies from OpenStreetMap when stock is low or GPS is supplied",
+    )
+    # --- Calibrated Quantile ML Forecaster Fields ---
+    p10_runout_days: Optional[float] = Field(
+        None,
+        description="10th percentile conservative depletion days (P10 safe trigger threshold)",
+    )
+    p50_runout_days: Optional[float] = Field(
+        None,
+        description="50th percentile expected median depletion days (P50)",
+    )
+    p90_runout_days: Optional[float] = Field(
+        None,
+        description="90th percentile optimistic depletion days (P90)",
+    )
+    critical_refill_date_p10: Optional[date] = Field(
+        None,
+        description="Clinical reorder deadline computed from P10 estimate",
+    )
+    requires_immediate_reorder: Optional[bool] = Field(
+        False,
+        description="True if P10 <= 2.0 days or physical stock <= 2 units",
+    )
+    confidence_score: Optional[float] = Field(
+        0.90,
+        description="ML model reliability index from historical adherence stability",
     )
     created_at: Optional[datetime] = Field(
         None,

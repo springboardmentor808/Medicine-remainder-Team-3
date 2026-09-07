@@ -652,7 +652,7 @@ export default function InteractionsPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 font-sans text-slate-800 dark:text-slate-100">
+      <div className="space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-14 sm:pt-6 pb-6 font-sans text-slate-800 dark:text-slate-100">
         {/* =========================================================================
             HEADER HERO BANNER — Medical Aesthetic Redesign (PillSync Care Theme)
         ========================================================================= */}

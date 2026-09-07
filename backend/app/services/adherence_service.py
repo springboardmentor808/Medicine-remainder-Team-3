@@ -197,6 +197,120 @@ class AdherenceService:
         return True
 
     @classmethod
+    async def record_dose_action_atomic(
+        cls,
+        db: AsyncSession,
+        user_id: uuid.UUID,
+        req: RecordActionRequest,
+    ) -> DoseLog:
+        """
+        Production-hardened atomic dose intake logging with row-level lock
+        and idempotency barrier protecting against concurrent duplicate taps.
+        """
+        if req.scheduled_date:
+            try:
+                sched_date = date.fromisoformat(req.scheduled_date)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid scheduled_date. Format: YYYY-MM-DD")
+        else:
+            sched_date = datetime.now(timezone.utc).date()
+
+        raw_action = req.action.value if hasattr(req.action, "value") else str(req.action)
+        action_clean = raw_action.strip().capitalize()
+        if action_clean not in ["Taken", "Missed", "Snooze"]:
+            action_clean = "Taken"
+
+        schedule_uuid = uuid.UUID(str(req.schedule_id)) if req.schedule_id else None
+        if not schedule_uuid and req.medicine_id:
+            med_uuid = uuid.UUID(str(req.medicine_id))
+            q_sch = await db.execute(
+                select(Schedule).where(
+                    Schedule.medicine_id == med_uuid,
+                    Schedule.user_id == user_id,
+                    Schedule.is_active == True
+                ).limit(1)
+            )
+            found_sch = q_sch.scalar_one_or_none()
+            if found_sch:
+                schedule_uuid = found_sch.id
+
+        if not schedule_uuid:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No active medication schedule found for provided parameters."
+            )
+
+        # Idempotency barrier check
+        q_existing = await db.execute(
+            select(DoseLog).where(
+                DoseLog.schedule_id == schedule_uuid,
+                DoseLog.scheduled_date == sched_date,
+                DoseLog.user_id == user_id
+            )
+        )
+        existing_log = q_existing.scalar_one_or_none()
+
+        if existing_log and existing_log.action == "Taken" and action_clean == "Taken":
+            return existing_log
+
+        q_schedule = await db.execute(
+            select(Schedule).where(Schedule.id == schedule_uuid)
+        )
+        schedule = q_schedule.scalar_one_or_none()
+        if not schedule:
+            raise HTTPException(status_code=404, detail="Schedule record not found.")
+
+        # Row-level lock on medicine inventory
+        q_med = await db.execute(
+            select(Medicine)
+            .where(Medicine.id == schedule.medicine_id)
+            .with_for_update()
+        )
+        medicine = q_med.scalar_one_or_none()
+        if not medicine:
+            raise HTTPException(status_code=404, detail="Associated medicine record not found.")
+
+        qty_to_consume = max(1, int(medicine.quantity_per_dose or 1))
+
+        if action_clean == "Taken":
+            prev_action = existing_log.action if existing_log else None
+            if prev_action != "Taken":
+                new_stock = max(0, int(medicine.current_stock or 0) - qty_to_consume)
+                medicine.current_stock = new_stock
+        elif action_clean in ["Missed", "Skipped"]:
+            prev_action = existing_log.action if existing_log else None
+            if prev_action == "Taken":
+                # Rollback: restore previously deducted stock
+                medicine.current_stock = int(medicine.current_stock or 0) + qty_to_consume
+
+        action_timestamp = datetime.now(timezone.utc)
+        if existing_log:
+            existing_log.action = action_clean
+            existing_log.action_time = action_timestamp
+            if req.notes:
+                existing_log.notes = req.notes
+            if action_clean == "Snooze":
+                existing_log.snooze_minutes = req.snooze_minutes or 15
+            dose_log_record = existing_log
+        else:
+            dose_log_record = DoseLog(
+                user_id=user_id,
+                medicine_id=medicine.id,
+                schedule_id=schedule.id,
+                scheduled_date=sched_date,
+                scheduled_time=schedule.scheduled_time,
+                action=action_clean,
+                action_time=action_timestamp,
+                snooze_minutes=req.snooze_minutes if action_clean == "Snooze" else None,
+                notes=req.notes
+            )
+            db.add(dose_log_record)
+
+        await db.commit()
+        await db.refresh(dose_log_record)
+        return dose_log_record
+
+    @classmethod
     async def record_dose_action(
         cls,
         db: AsyncSession,
@@ -204,169 +318,9 @@ class AdherenceService:
         req: RecordActionRequest,
     ) -> DoseLog:
         """
-        Record a dose log action (Taken, Missed, Snooze).
-        Decrements current medicine stock when action is Taken.
+        Record a dose log action with ACID row-level locking and idempotency protection.
         """
-        schedule = None
-        sch_uuid = None
-
-        if req.schedule_id:
-            try:
-                sch_uuid = uuid.UUID(str(req.schedule_id))
-                sch_result = await db.execute(
-                    select(Schedule).where(
-                        Schedule.id == sch_uuid,
-                        Schedule.user_id == user_id,
-                    )
-                )
-                schedule = sch_result.scalar_one_or_none()
-            except (ValueError, TypeError):
-                sch_uuid = None
-
-        if not schedule and req.medicine_id:
-            try:
-                med_uuid = uuid.UUID(str(req.medicine_id))
-                sch_result = await db.execute(
-                    select(Schedule).where(
-                        Schedule.medicine_id == med_uuid,
-                        Schedule.user_id == user_id,
-                    ).limit(1)
-                )
-                schedule = sch_result.scalar_one_or_none()
-                if schedule:
-                    sch_uuid = schedule.id
-            except (ValueError, TypeError):
-                pass
-
-        if not schedule and req.medicine_id:
-            try:
-                med_uuid = uuid.UUID(str(req.medicine_id))
-                med_result = await db.execute(
-                    select(Medicine).where(Medicine.id == med_uuid, Medicine.user_id == user_id)
-                )
-                med_obj = med_result.scalar_one_or_none()
-                if med_obj:
-                    new_sch = Schedule(
-                        user_id=user_id,
-                        medicine_id=med_uuid,
-                        scheduled_time=time(8, 0),
-                        dose_label="Daily Dose",
-                        is_active=True,
-                    )
-                    db.add(new_sch)
-                    await db.flush()
-                    schedule = new_sch
-                    sch_uuid = new_sch.id
-            except Exception:
-                pass
-
-        if not schedule:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Schedule or medicine not found for current user.",
-            )
-
-        # Determine scheduled_date early for duplicate check
-        if req.scheduled_date:
-            try:
-                scheduled_d = date.fromisoformat(req.scheduled_date)
-            except ValueError:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid scheduled_date format. Expected YYYY-MM-DD.",
-                )
-        else:
-            scheduled_d = datetime.now(timezone.utc).date()
-
-        # --- Duplicate dose prevention ---
-        raw_act = req.action.value if hasattr(req.action, "value") else str(req.action)
-        act_lower = raw_act.strip().lower()
-        if act_lower in ["taken", "take"]:
-            action_str = "Taken"
-        elif act_lower in ["missed", "miss", "skip", "skipped"]:
-            action_str = "Missed"
-        elif act_lower in ["snooze", "snoozed"]:
-            action_str = "Snooze"
-        else:
-            action_str = "Taken"
-
-        existing_log = await db.execute(
-            select(DoseLog).where(
-                DoseLog.schedule_id == sch_uuid,
-                DoseLog.scheduled_date == scheduled_d,
-                DoseLog.user_id == user_id,
-            )
-        )
-        existing = existing_log.scalar_one_or_none()
-        if existing:
-            # Allow updating action (e.g. Missed → Taken), but if identical return existing
-            if existing.action == action_str:
-                return existing
-            prev_action = existing.action
-            existing.action = action_str
-            existing.action_time = datetime.now(timezone.utc)
-            if action_str in ["Snooze", "Snoozed"]:
-                existing.snooze_minutes = req.snooze_minutes
-            if req.notes:
-                existing.notes = req.notes
-            # Atomic stock depletion if changing TO Taken from non-Taken
-            if action_str == "Taken" and prev_action != "Taken":
-                stmt = (
-                    update(Medicine)
-                    .where(Medicine.id == schedule.medicine_id)
-                    .values(
-                        current_stock=case(
-                            (Medicine.current_stock >= func.coalesce(Medicine.quantity_per_dose, 1),
-                             Medicine.current_stock - func.coalesce(Medicine.quantity_per_dose, 1)),
-                            else_=0
-                        )
-                    )
-                )
-                await db.execute(stmt)
-
-            await db.flush()
-            await db.refresh(existing)
-            return existing
-
-        # Parse action_time
-        action_dt = datetime.now(timezone.utc)
-        if req.action_time:
-            try:
-                action_dt = datetime.fromisoformat(req.action_time)
-            except ValueError:
-                pass
-
-        dose_log = DoseLog(
-            user_id=user_id,
-            medicine_id=schedule.medicine_id,
-            schedule_id=schedule.id,
-            scheduled_date=scheduled_d,
-            scheduled_time=schedule.scheduled_time,
-            action=action_str,
-            action_time=action_dt,
-            snooze_minutes=req.snooze_minutes if action_str in ["Snooze", "Snoozed"] else None,
-            notes=req.notes,
-        )
-        db.add(dose_log)
-
-        # Atomic stock depletion logic if Taken
-        if action_str == "Taken":
-            stmt = (
-                update(Medicine)
-                .where(Medicine.id == schedule.medicine_id)
-                .values(
-                    current_stock=case(
-                        (Medicine.current_stock >= func.coalesce(Medicine.quantity_per_dose, 1),
-                         Medicine.current_stock - func.coalesce(Medicine.quantity_per_dose, 1)),
-                        else_=0
-                    )
-                )
-            )
-            await db.execute(stmt)
-
-        await db.flush()
-        await db.refresh(dose_log)
-        return dose_log
+        return await cls.record_dose_action_atomic(db, user_id, req)
 
     @classmethod
     async def get_daily_dose_tracking(

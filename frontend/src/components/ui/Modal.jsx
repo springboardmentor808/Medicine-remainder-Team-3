@@ -111,7 +111,7 @@ function Modal({
       ref={overlayRef}
       onClick={handleBackdropClick}
       className={[
-        'fixed inset-0 z-50 flex items-center justify-center p-4',
+        'fixed inset-0 z-50 flex sm:items-center sm:justify-center items-end justify-center p-0 sm:p-4',
         'bg-inverse-surface/40 backdrop-blur-sm',
         'animate-fade-in',
       ].join(' ')}
@@ -124,8 +124,8 @@ function Modal({
         ref={dialogRef}
         className={[
           // Base
-          'relative w-full bg-surface-container-lowest rounded-lg shadow-modal',
-          'flex flex-col max-h-[90vh]',
+          'relative w-full bg-surface-container-lowest rounded-t-2xl sm:rounded-lg shadow-modal',
+          'flex flex-col max-h-[92dvh] sm:max-h-[90vh] pb-safe sm:pb-0',
           'animate-fade-in',
           // Size
           SIZES[size] ?? SIZES.md,
@@ -135,10 +135,10 @@ function Modal({
       >
         {/* ── Header ────────────────────────────────────────────────── */}
         {(title || showCloseButton) && (
-          <div className="flex items-start justify-between gap-sm px-lg pt-lg pb-md border-b border-outline-variant/40 shrink-0">
+          <div className="flex items-start justify-between gap-sm px-md sm:px-lg pt-md sm:pt-lg pb-sm sm:pb-md border-b border-outline-variant/40 shrink-0">
             <div>
               {title && (
-                <h2 className="text-headline-sm font-semibold text-on-surface leading-snug">
+                <h2 className="text-body-lg sm:text-headline-sm font-semibold text-on-surface leading-snug">
                   {title}
                 </h2>
               )}
@@ -154,10 +154,11 @@ function Modal({
                 type="button"
                 aria-label="Close dialog"
                 className={[
-                  'shrink-0 w-8 h-8 flex items-center justify-center rounded-full',
+                  'shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full',
                   'text-on-surface-variant',
                   'hover:bg-surface-container hover:text-on-surface',
-                  'transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                  'active:bg-surface-container-high active:scale-95',
+                  'transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                 ].join(' ')}
               >
                 <span className="material-symbols-outlined text-[20px]">close</span>
@@ -167,7 +168,7 @@ function Modal({
         )}
 
         {/* ── Scrollable body ────────────────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto px-lg py-md">
+        <div className="flex-1 overflow-y-auto px-md sm:px-lg py-sm sm:py-md overscroll-contain">
           {children}
         </div>
       </div>

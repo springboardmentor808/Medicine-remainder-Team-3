@@ -1,9 +1,24 @@
 import './globals.css'
+import { LanguageProvider } from '@/context/LanguageContext'
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
+  userScalable: true,
+  viewportFit: 'cover',
+  themeColor: '#00685f',
+}
 
 export const metadata = {
   title: 'PillSync — AI Intelligent Medicine Reminder & Medication Tracking',
   description: 'Smart AI-powered medication tracking, prescription OCR, adherence monitoring, and automated reminders for patients, caregivers, and clinics.',
   keywords: 'pillsync, medicine reminder, medication tracking, prescription OCR, adherence, healthcare',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'PillSync',
+  },
   openGraph: {
     title: 'PillSync',
     description: 'AI-powered medication management for patients & caregivers',
@@ -27,10 +42,12 @@ export default function RootLayout({ children }) {
       <body className="h-full font-sans antialiased text-on-surface bg-background">
         {/* Medical pattern background overlay */}
         <div className="medical-pattern" aria-hidden="true" />
-        {/* Main app content */}
-        <div className="relative z-10 min-h-full">
-          {children}
-        </div>
+        {/* Main app content with LanguageProvider */}
+        <LanguageProvider>
+          <div className="relative z-10 min-h-full">
+            {children}
+          </div>
+        </LanguageProvider>
       </body>
     </html>
   )

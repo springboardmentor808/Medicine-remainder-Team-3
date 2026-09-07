@@ -32,3 +32,11 @@ async def setup_database():
     yield
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+
+
+@pytest.fixture(autouse=True)
+def mock_otp_verified(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.services.otp_service import OTPService
+    monkeypatch.setattr(OTPService, "is_destination_verified", AsyncMock(return_value=True))
+

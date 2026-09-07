@@ -122,7 +122,7 @@ export default function RefillPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+      <div className="p-4 pt-14 sm:pt-6 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       {toast && (
         <Toast
           type={toast.type}
@@ -132,15 +132,15 @@ export default function RefillPage() {
       )}
 
       {/* Page Header */}
-      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface-container-low p-6 rounded-2xl border border-outline-variant/30 shadow-sm">
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface-container-low p-5 sm:p-6 rounded-2xl border border-outline-variant/30 shadow-sm">
         <div>
           <div className="flex items-center gap-2 text-primary">
             <span className="material-symbols-outlined text-[28px]" style={{ fontVariationSettings: "'FILL' 1" }}>
               local_pharmacy
             </span>
-            <h1 className="text-headline-md font-bold text-on-surface">Refill Tracker & Pharmacies</h1>
+            <h1 className="text-title-lg sm:text-headline-md font-bold text-on-surface">Refill Tracker & Pharmacies</h1>
           </div>
-          <p className="text-base text-on-surface-variant mt-2 font-medium">
+          <p className="text-body-sm sm:text-base text-on-surface-variant mt-1.5 font-medium">
             Predictive stock depletion alerts and OpenStreetMap nearby pharmacy discovery.
           </p>
         </div>
@@ -221,6 +221,7 @@ export default function RefillPage() {
                   <Button
                     fullWidth
                     size="sm"
+                    className="min-h-[44px]"
                     onClick={() => {
                       setSelectedMedForRefill(med);
                       setRefillQuantity(30);
@@ -249,12 +250,13 @@ export default function RefillPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <span className="text-caption font-medium text-on-surface-variant">Radius:</span>
             <select
               value={searchRadius}
               onChange={(e) => setSearchRadius(Number(e.target.value))}
-              className="h-[38px] px-3 rounded-lg bg-surface-container-low border border-outline-variant text-body-sm font-medium text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+              aria-label="Search Radius"
+              className="h-[40px] px-3 rounded-lg bg-surface-container-low border border-outline-variant text-body-sm font-medium text-on-surface focus:outline-none focus:ring-2 focus:ring-primary min-w-[90px]"
             >
               <option value={1}>1 km</option>
               <option value={2}>2 km</option>
@@ -267,6 +269,7 @@ export default function RefillPage() {
             <Button
               variant={showMap ? 'primary' : 'outlined'}
               size="sm"
+              className="min-h-[40px] flex-1 sm:flex-initial"
               onClick={() => setShowMap(!showMap)}
               leftIcon={<span className="material-symbols-outlined text-[18px]">map</span>}
             >
@@ -276,6 +279,7 @@ export default function RefillPage() {
             <Button
               variant="outlined"
               size="sm"
+              className="min-h-[40px] flex-1 sm:flex-initial"
               onClick={() => fetchNearbyPharmacies(userCoords.lat, userCoords.lng, searchRadius)}
               leftIcon={<span className="material-symbols-outlined text-[18px]">refresh</span>}
             >

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import {
   HelpCircle,
@@ -37,6 +37,8 @@ import Modal from '@/components/ui/Modal';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
 import SupportTicketForm from '@/components/forms/SupportTicketForm';
+import { supportAPI } from '@/lib/api';
+import { useLanguage } from '@/context/LanguageContext';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -159,21 +161,45 @@ const FAQ_CATEGORIES = [
 ];
 
 const TICKET_STATUSES = {
-  open:        { label: 'Open',        variant: 'snoozed',  Icon: Clock },
-  in_progress: { label: 'In Progress', variant: 'primary',  Icon: Loader2 },
-  resolved:    { label: 'Resolved',    variant: 'taken',    Icon: CheckCircle2 },
-  closed:      { label: 'Closed',      variant: 'missed',   Icon: XCircle },
+  open:          { label: 'In Review',   variant: 'snoozed',  Icon: Clock },
+  'In Review':   { label: 'In Review',   variant: 'snoozed',  Icon: Clock },
+  in_progress:   { label: 'In Progress', variant: 'primary',  Icon: Loader2 },
+  'In Progress': { label: 'In Progress', variant: 'primary',  Icon: Loader2 },
+  resolved:      { label: 'Resolved',    variant: 'taken',    Icon: CheckCircle2 },
+  'Resolved':    { label: 'Resolved',    variant: 'taken',    Icon: CheckCircle2 },
+  closed:        { label: 'Closed',      variant: 'missed',   Icon: XCircle },
 };
 
 // ── Inner Page Component ─────────────────────────────────────────────────────
 
 function HelpPageInner() {
   const { addToast } = useToast();
+  const { locale } = useLanguage?.() || { locale: 'en' };
+  const isHi = locale === 'hi';
+
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedCategory, setExpandedCategory] = useState(null);
   const [expandedArticle, setExpandedArticle] = useState(null);
   const [activeTab, setActiveTab] = useState('faq'); // 'faq' | 'tickets' | 'new-ticket'
   const [tickets, setTickets] = useState([]);
+
+  // Fetch submitted assistance requests on mount
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      try {
+        const res = await supportAPI.listTickets();
+        if (isMounted && Array.isArray(res) && res.length > 0) {
+          setTickets(res);
+        }
+      } catch (e) {
+        // Fallback gracefully to memory
+      }
+    })();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // ── Feedback state ──────────────────────────────────────────────
   const [feedbackGiven, setFeedbackGiven] = useState({});
@@ -206,27 +232,29 @@ function HelpPageInner() {
   const handleFeedback = (articleId, helpful) => {
     setFeedbackGiven((prev) => ({ ...prev, [articleId]: helpful }));
     addToast({
-      title: helpful ? 'Thanks for your feedback!' : 'We\'ll improve this',
-      description: helpful ? 'Glad this article helped.' : 'We\'ll work on making this answer more helpful.',
+      title: helpful ? (isHi ? 'प्रतिक्रिया के लिए धन्यवाद!' : 'Thanks for your feedback!') : (isHi ? 'हम इसे सुधारेंगे' : 'We\'ll improve this'),
+      description: helpful ? (isHi ? 'खुशी है कि यह लेख सहायक रहा।' : 'Glad this article helped.') : (isHi ? 'हम इस उत्तर को और बेहतर बनाने पर काम करेंगे।' : 'We\'ll work on making this answer more helpful.'),
       variant: helpful ? 'success' : 'default',
     });
   };
 
   const handleTicketSuccess = (ticket) => {
+    const requestId = ticket?.id || `REQ-2026-${String(tickets.length + 1).padStart(3, '0')}`;
     const newTicket = {
-      id: `TKT-2026-${String(tickets.length + 1).padStart(3, '0')}`,
+      id: requestId,
       subject: ticket.subject,
       category: ticket.category,
       priority: ticket.priority || 'medium',
-      status: 'open',
-      created: new Date().toISOString().split('T')[0],
-      updated: new Date().toISOString().split('T')[0],
+      status: ticket.status || 'In Review',
+      created: ticket.created || new Date().toISOString().split('T')[0],
+      updated: ticket.updated || new Date().toISOString().split('T')[0],
+      description: ticket.description || '',
     };
     setTickets((prev) => [newTicket, ...prev]);
     setActiveTab('tickets');
     addToast({
-      title: 'Ticket Created',
-      description: `Ticket ${newTicket.id} has been submitted successfully.`,
+      title: isHi ? 'सहायता अनुरोध दर्ज हुआ' : 'Care Request Received',
+      description: isHi ? `अनुरोध ${requestId} सफलतापूर्वक दर्ज हुआ।` : `Request ${requestId} has been received by our care desk.`,
       variant: 'success',
     });
   };
@@ -276,8 +304,12 @@ function HelpPageInner() {
                 <HelpCircle className="w-6 h-6" />
               </div>
               <div>
-                <h1 className="text-headline-sm font-bold">Help & Support</h1>
-                <p className="text-body-sm text-on-primary/70">FAQs, Guides & Support Tickets</p>
+                <h1 className="text-headline-sm font-bold">
+                  {isHi ? 'सहायता केंद्र एवं प्रश्न' : 'Care Assistance & Help Desk'}
+                </h1>
+                <p className="text-body-sm text-on-primary/80">
+                  {isHi ? 'अलार्म, दवाई की खुराक, पर्ची स्कैनिंग एवं अकाउंट सहायता' : 'Clinical guidance, alarm assistance, dosage questions & care requests'}
+                </p>
               </div>
             </div>
 
@@ -288,13 +320,13 @@ function HelpPageInner() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search FAQs, guides, and help articles..."
+              placeholder={isHi ? 'प्रश्न, सहायता लेख या समस्या खोजें...' : 'Search questions, guide articles, or medicine help...'}
               className="w-full h-[48px] pl-[44px] pr-md rounded-lg bg-white text-on-surface text-body-sm placeholder:text-on-surface-variant/60
                          focus:outline-none focus:ring-2 focus:ring-white/40 shadow-elevated transition-all"
             />
             {searchQuery && (
               <span className="absolute right-md top-1/2 transform -translate-y-1/2 text-xs text-on-surface-variant">
-                {totalResults} result{totalResults !== 1 ? 's' : ''}
+                {totalResults} {isHi ? 'परिणाम' : `result${totalResults !== 1 ? 's' : ''}`}
               </span>
             )}
           </div>
@@ -305,16 +337,16 @@ function HelpPageInner() {
         {/* ── Tab Navigation ──────────────────────────────────────── */}
         <div className="flex gap-xs border-b border-outline-variant mb-lg overflow-x-auto">
           {[
-            { key: 'faq',        label: 'FAQ & Guides',    icon: BookOpen,    count: null },
-            { key: 'tickets',    label: 'My Tickets',      icon: FileText,    count: tickets.length },
-            { key: 'new-ticket', label: 'Submit Ticket',   icon: Plus,        count: null },
+            { key: 'faq',        label: isHi ? 'सामान्य प्रश्न (FAQ)' : 'FAQ & Guides', icon: BookOpen, count: null },
+            { key: 'tickets',    label: isHi ? 'सहायता अनुरोध' : 'Care Requests', icon: FileText, count: tickets.length },
+            { key: 'new-ticket', label: isHi ? 'सहायता मांगें' : 'Ask for Help', icon: Plus, count: null },
           ].map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
               className={`flex items-center gap-xs px-md py-sm text-body-sm font-medium border-b-2 transition-all whitespace-nowrap
                 ${activeTab === tab.key
-                  ? 'text-primary border-primary'
+                  ? 'text-primary border-primary font-semibold'
                   : 'text-on-surface-variant border-transparent hover:text-on-surface hover:border-outline-variant'
                 }`}
             >
@@ -449,7 +481,7 @@ function HelpPageInner() {
           </div>
         )}
 
-        {/* ── Tickets Tab ─────────────────────────────────────────── */}
+        {/* ── Care Requests Tab ────────────────────────────────────── */}
         {activeTab === 'tickets' && (
           <div className="flex flex-col gap-md">
             {tickets.length === 0 ? (
@@ -457,24 +489,28 @@ function HelpPageInner() {
                 <div className="w-16 h-16 rounded-full bg-surface-container flex items-center justify-center mb-md">
                   <FileText className="w-8 h-8 text-on-surface-variant" />
                 </div>
-                <h3 className="text-headline-sm text-on-surface mb-xs">No Tickets Yet</h3>
+                <h3 className="text-headline-sm text-on-surface mb-xs">
+                  {isHi ? 'कोई सहायता अनुरोध दर्ज नहीं है' : 'No Care Requests Yet'}
+                </h3>
                 <p className="text-body-sm text-on-surface-variant max-w-sm mb-lg">
-                  You haven&apos;t submitted any support tickets. If you need help, create a ticket and our team will respond.
+                  {isHi
+                    ? 'यदि आपको दवाई के समय, अलार्म या पर्ची पढ़ने में कोई समस्या हो, तो हमें तुरंत बताएं।'
+                    : 'You haven’t submitted any assistance requests. If you face any issues with alarms, doses, or scans, reach out below.'}
                 </p>
                 <Button variant="primary" onClick={() => setActiveTab('new-ticket')}>
                   <Plus className="w-4 h-4" />
-                  Create Ticket
+                  {isHi ? 'सहायता मांगें' : 'Ask for Help'}
                 </Button>
               </div>
             ) : (
               <>
                 <div className="flex items-center justify-between">
                   <h2 className="text-body-sm font-semibold text-on-surface">
-                    Your Support Tickets ({tickets.length})
+                    {isHi ? `आपके सहायता अनुरोध (${tickets.length})` : `Your Care Requests (${tickets.length})`}
                   </h2>
                   <Button variant="secondary" size="sm" onClick={() => setActiveTab('new-ticket')}>
                     <Plus className="w-4 h-4" />
-                    New Ticket
+                    {isHi ? 'नया अनुरोध' : 'New Request'}
                   </Button>
                 </div>
 
@@ -487,14 +523,14 @@ function HelpPageInner() {
                         <div className="flex items-start justify-between gap-sm">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-xs flex-wrap mb-xs">
-                              <span className="text-xs font-mono text-on-surface-variant">{ticket.id}</span>
+                              <span className="text-xs font-mono font-semibold text-primary">{ticket.id}</span>
                               <Badge variant={statusCfg.variant} className="text-xs">
                                 <StatusIcon className={`w-3 h-3 ${ticket.status === 'in_progress' ? 'animate-spin' : ''}`} />
                                 {statusCfg.label}
                               </Badge>
                               <Badge
                                 variant={ticket.priority === 'high' || ticket.priority === 'urgent' ? 'missed' : 'snoozed'}
-                                className="text-xs"
+                                className="text-xs capitalize"
                               >
                                 {ticket.priority}
                               </Badge>
@@ -503,7 +539,8 @@ function HelpPageInner() {
                               {ticket.subject}
                             </h4>
                             <p className="text-xs text-on-surface-variant mt-xs">
-                              Created: {ticket.created} • Updated: {ticket.updated}
+                              {ticket.category && <span className="font-medium mr-2">{ticket.category} •</span>}
+                              {ticket.created}
                             </p>
                           </div>
                           <ChevronRight className="w-4 h-4 text-on-surface-variant flex-shrink-0 mt-1" />
@@ -517,7 +554,7 @@ function HelpPageInner() {
           </div>
         )}
 
-        {/* ── New Ticket Tab ──────────────────────────────────────── */}
+        {/* ── Ask for Help / New Request Tab ────────────────────────── */}
         {activeTab === 'new-ticket' && (
           <Card>
             <div className="p-card-padding">
@@ -526,8 +563,12 @@ function HelpPageInner() {
                   <Send className="w-5 h-5 text-primary" />
                 </div>
                 <div>
-                  <h2 className="text-body-sm font-semibold text-on-surface">Create Support Ticket</h2>
-                  <p className="text-xs text-on-surface-variant">Our team responds within 24 hours</p>
+                  <h2 className="text-body-sm font-semibold text-on-surface">
+                    {isHi ? 'सहायता एवं समाधान अनुरोध' : 'Patient & Caregiver Care Desk'}
+                  </h2>
+                  <p className="text-xs text-on-surface-variant">
+                    {isHi ? 'हमारी सपोर्ट और क्लिनिकल टीम जल्द आपकी सहायता करेगी' : 'Our clinical support and pharmacy team typically reviews within a few hours'}
+                  </p>
                 </div>
               </div>
               <SupportTicketForm

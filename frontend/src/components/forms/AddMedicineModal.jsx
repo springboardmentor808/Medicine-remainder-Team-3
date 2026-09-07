@@ -61,13 +61,47 @@ export default function AddMedicineModal({ isOpen, onClose, onSuccess, initialDa
 
       const initialQty = initialData.extracted_quantity || initialData.initial_quantity || 30;
 
+      const medName =
+        initialData.matched_medicine ||
+        initialData.medicine_name ||
+        initialData.extracted_medicine_name ||
+        initialData.name ||
+        '';
+
+      const dosageForm =
+        initialData.dosage_form ||
+        (medName.toLowerCase().includes('syrup')
+          ? 'Syrup'
+          : medName.toLowerCase().includes('capsule') || medName.toLowerCase().includes('cap')
+          ? 'Capsule'
+          : medName.toLowerCase().includes('injection')
+          ? 'Injection'
+          : medName.toLowerCase().includes('drops')
+          ? 'Drops'
+          : 'Tablet');
+
+      const qtyPerDose = Number(initialData.quantity_per_dose) || 1;
+
+      // Construct clean clinical notes including instructions and generic salt
+      let clinicalNotes = initialData.instructions || '';
+      if (initialData.generic_salt && !clinicalNotes.includes(initialData.generic_salt)) {
+        clinicalNotes = clinicalNotes
+          ? `${clinicalNotes} (Generic: ${initialData.generic_salt})`
+          : `Generic: ${initialData.generic_salt}`;
+      }
+      if (!clinicalNotes && initialData.raw_text) {
+        clinicalNotes = `Prescription text: ${initialData.raw_text.slice(0, 150)}`;
+      }
+
       setFormData((prev) => ({
         ...prev,
-        name: initialData.medicine_name || initialData.extracted_medicine_name || initialData.name || '',
+        name: medName,
         dosage: initialData.dosage || initialData.extracted_dosage || '',
+        dosage_form: dosageForm,
         daily_frequency: freq,
+        quantity_per_dose: qtyPerDose,
         initial_quantity: Number(initialQty) || 30,
-        notes: initialData.raw_text ? `OCR Extracted:\n${initialData.raw_text}` : (initialData.notes || ''),
+        notes: clinicalNotes || initialData.notes || '',
         disease_category: initialData.disease_category || 'General Healthcare',
       }));
     }

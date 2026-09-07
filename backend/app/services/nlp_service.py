@@ -105,6 +105,12 @@ def parse_prescription_text(raw_text: str) -> dict:
             "medicine_name": None,
             "dosage": None,
             "frequency": None,
+            "daily_frequency": 1,
+            "dosage_form": "Tablet",
+            "disease_category": "General Healthcare",
+            "initial_quantity": 30,
+            "quantity_per_dose": 1,
+            "instructions": None,
         }
 
     # 1. Truncate input to 2048 chars and normalize excessive whitespace
@@ -115,11 +121,23 @@ def parse_prescription_text(raw_text: str) -> dict:
     dosage = _extract_dosage(sanitized_text)
     frequency = _extract_frequency(sanitized_text)
     medicine_name = _extract_medicine_name(sanitized_text)
+    daily_frequency = _extract_daily_frequency(frequency)
+    dosage_form = _extract_dosage_form(sanitized_text, medicine_name)
+    quantity_per_dose = _extract_quantity_per_dose(sanitized_text)
+    initial_quantity = _extract_initial_quantity(sanitized_text, daily_frequency)
+    disease_category = _infer_disease_category(medicine_name)
+    instructions = _extract_instructions(sanitized_text)
 
     return {
         "medicine_name": medicine_name,
         "dosage": dosage,
         "frequency": frequency,
+        "daily_frequency": daily_frequency,
+        "dosage_form": dosage_form,
+        "disease_category": disease_category,
+        "initial_quantity": initial_quantity,
+        "quantity_per_dose": quantity_per_dose,
+        "instructions": instructions,
     }
 
 
@@ -206,3 +224,106 @@ def _extract_medicine_name(text: str) -> Optional[str]:
             pass
 
     return None
+
+
+def _extract_dosage_form(text: str, med_name: Optional[str] = None) -> str:
+    """Detects dosage form (Tablet, Capsule, Syrup, etc.)."""
+    combined = f"{med_name or ''} {text}".lower()
+    if re.search(r"\b(syrup|syr|suspension|liquid|solution)\b", combined):
+        return "Syrup"
+    if re.search(r"\b(capsule|cap|caps)\b", combined):
+        return "Capsule"
+    if re.search(r"\b(injection|inj|ampoule|vial)\b", combined):
+        return "Injection"
+    if re.search(r"\b(drops?|eye\s+drops?|ear\s+drops?)\b", combined):
+        return "Drops"
+    if re.search(r"\b(inhaler|rotahaler|respules?)\b", combined):
+        return "Inhaler"
+    if re.search(r"\b(ointment|gel|cream)\b", combined):
+        return "Ointment"
+    return "Tablet"
+
+
+def _extract_daily_frequency(freq_str: Optional[str]) -> int:
+    """Calculates integer daily frequency from frequency pattern string."""
+    if not freq_str:
+        return 1
+    f = freq_str.lower()
+    if any(x in f for x in ["1-1-1", "thrice", "3 times", "3x", "tid", "tds"]):
+        return 3
+    if any(x in f for x in ["1-0-1", "0-1-1", "twice", "2 times", "2x", "bid", "bd"]):
+        return 2
+    if any(x in f for x in ["1-1-1-1", "4 times", "4x", "qid"]):
+        return 4
+    return 1
+
+
+def _extract_quantity_per_dose(text: str) -> int:
+    """Extracts quantity taken per dose (e.g. 1 or 2 tablets)."""
+    match = re.search(r"\b([1-3])\s*(?:tab|tablet|cap|capsule|pill|puff|tsp|spoon)s?\b", text, re.I)
+    if match:
+        try:
+            return int(match.group(1))
+        except ValueError:
+            pass
+    return 1
+
+
+def _extract_initial_quantity(text: str, daily_freq: int = 1) -> int:
+    """Extracts prescription quantity or calculates from course duration."""
+    qty_match = re.search(r"\b(?:qty|quantity|x|total)\s*[:=]?\s*(\d{1,3})\b", text, re.I)
+    if qty_match:
+        try:
+            val = int(qty_match.group(1))
+            if 1 <= val <= 500:
+                return val
+        except ValueError:
+            pass
+    days_match = re.search(r"\bfor\s+(\d{1,2})\s+days?\b", text, re.I)
+    if days_match:
+        try:
+            days = int(days_match.group(1))
+            if 1 <= days <= 90:
+                return max(1, days * daily_freq)
+        except ValueError:
+            pass
+    return 30
+
+
+def _infer_disease_category(med_name: Optional[str], generic_salt: Optional[str] = None) -> str:
+    """Infers disease/therapeutic category from medicine or generic name matching DB/UI enums."""
+    combined = f"{med_name or ''} {generic_salt or ''}".lower()
+    if re.search(r"\b(amox|cipro|azith|doxy|cefix|augmin|augmentin|ceft|levoflox|antibiotic)\b", combined):
+        return "Antibiotics"
+    if re.search(r"\b(metformin|glim|insulin|glicl|vilda|dapa|diab|sugar|glycomet|januvia)\b", combined):
+        return "Diabetes"
+    if re.search(r"\b(amlod|telmi|losar|olmesartan|ramipril|atenolol|bp|hypertens)\b", combined):
+        return "Blood Pressure"
+    if re.search(r"\b(ator|rosu|metopr|furo|clopid|warfarin|cardio|digoxin|aspirin|statin|nitroglycerin)\b", combined):
+        return "Heart Medications"
+    if re.search(r"\b(thyro|thyroxine|levothyroxine|eltroxin|hypothyroid)\b", combined):
+        return "Thyroid"
+    if re.search(r"\b(vitamin|calcium|d3|b12|folic|iron|zinc|multivitamin|becosules|shelcal)\b", combined):
+        return "Vitamins"
+    return "General Healthcare"
+
+
+def _extract_instructions(text: str) -> Optional[str]:
+    """Extracts dietary, timing, and administrative instructions."""
+    notes_parts = []
+    lower_t = text.lower()
+    if "after food" in lower_t or "after meals" in lower_t or "post meal" in lower_t or "pc" in lower_t.split():
+        notes_parts.append("Take after meals")
+    elif "before food" in lower_t or "before meals" in lower_t or "empty stomach" in lower_t or "ac" in lower_t.split():
+        notes_parts.append("Take on an empty stomach / before food")
+
+    if "bedtime" in lower_t or "at night" in lower_t or "hs" in lower_t.split():
+        notes_parts.append("Take at bedtime")
+    elif "morning" in lower_t or "bbf" in lower_t.split():
+        notes_parts.append("Take in the morning")
+
+    if "water" in lower_t and "warm" in lower_t:
+        notes_parts.append("With warm water")
+
+    return "; ".join(notes_parts) if notes_parts else None
+

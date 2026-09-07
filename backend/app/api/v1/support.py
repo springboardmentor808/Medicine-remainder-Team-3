@@ -55,19 +55,21 @@ _SUPPORT_TICKETS = []
     "/tickets",
     response_model=dict,
     status_code=status.HTTP_201_CREATED,
-    summary="Create Support Ticket",
+    summary="Create Care Assistance Request",
 )
 async def create_support_ticket(
     payload: SupportTicketCreate,
     current_user: User = Depends(get_current_user),
 ):
-    """Submit a new support or help ticket."""
-    ticket_id = f"TKT-2026-{uuid.uuid4().hex[:6].upper()}"
-    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    """Submit a new care assistance or grievance request."""
+    request_id = f"REQ-2026-{uuid.uuid4().hex[:6].upper()}"
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
 
     ticket_item = {
-        "id": ticket_id,
+        "id": request_id,
         "user_id": str(current_user.id),
+        "user_name": current_user.full_name or current_user.username or "Patient",
+        "user_role": str(current_user.role),
         "subject": payload.subject,
         "category": payload.category,
         "priority": payload.priority,
@@ -79,7 +81,7 @@ async def create_support_ticket(
     _SUPPORT_TICKETS.append(ticket_item)
 
     return {
-        "message": "Ticket created successfully",
+        "message": "Assistance request submitted successfully",
         "data": ticket_item,
     }
 
@@ -88,11 +90,25 @@ async def create_support_ticket(
     "/tickets",
     response_model=List[dict],
     status_code=status.HTTP_200_OK,
-    summary="List Support Tickets",
+    summary="List Care Assistance Requests",
 )
 async def list_support_tickets(
     current_user: User = Depends(get_current_user),
 ):
-    """List all support tickets submitted by current user."""
-    user_tickets = [t for t in _SUPPORT_TICKETS if t["user_id"] == str(current_user.id)]
+    """List assistance requests submitted by the current user."""
+    user_tickets = [t for t in _SUPPORT_TICKETS if t.get("user_id") == str(current_user.id)]
     return user_tickets
+
+
+@router.get(
+    "/all",
+    response_model=List[dict],
+    status_code=status.HTTP_200_OK,
+    summary="List All Assistance Requests (Admin)",
+)
+async def list_all_assistance_requests(
+    current_user: User = Depends(get_current_user),
+):
+    """Admin view: List all platform assistance and grievance requests."""
+    return _SUPPORT_TICKETS
+
