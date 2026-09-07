@@ -291,6 +291,13 @@ class MessageResponse(BaseModel):
     status: str = "success"
     detail: Optional[str] = None
     debug_otp: Optional[str] = None
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    token_type: Optional[str] = "bearer"
+    user: Optional[UserResponse] = None
+    role: Optional[str] = None
+    verified: Optional[bool] = True
+
 
 
 class AssignPatientRequest(BaseModel):

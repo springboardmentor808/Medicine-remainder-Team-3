@@ -16,6 +16,7 @@ from app.core.rbac import allow_caregiver
 from app.core.security import get_current_user
 from app.models.user import User
 from app.services.analytics_service import (
+    get_adherence_heatmap,
     get_adherence_summary,
     get_caregiver_patient_analytics,
     get_dose_trends,
@@ -60,6 +61,59 @@ async def get_trends_endpoint(
 ) -> list[dict]:
     """Get daily dose trend data for charting."""
     return await get_dose_trends(db, current_user.id, days=days)
+
+
+# ---------------------------------------------------------------------------
+# GET /weekly — 7-day weekly summary (alias for trends?days=7)
+# ---------------------------------------------------------------------------
+@router.get(
+    "/weekly",
+    status_code=status.HTTP_200_OK,
+    summary="Get 7-Day Weekly Dose Trends",
+    description="Convenience alias for /trends?days=7. Returns real daily taken/missed breakdown from PostgreSQL.",
+)
+async def get_weekly_endpoint(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[dict]:
+    """Get 7-day dose trend data for the weekly sidebar chart."""
+    return await get_dose_trends(db, current_user.id, days=7)
+
+
+# ---------------------------------------------------------------------------
+# GET /adherence — per-period adherence summary (alias for summary)
+# ---------------------------------------------------------------------------
+@router.get(
+    "/adherence",
+    status_code=status.HTTP_200_OK,
+    summary="Get Adherence Summary (period alias)",
+    description="Real adherence summary from PostgreSQL dose_logs, clamped to account creation date.",
+)
+async def get_adherence_endpoint(
+    days: int = Query(30, ge=1, le=365, description="Period in days"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Get adherence summary metrics, ensuring new accounts show real 0% rather than fake 100%."""
+    return await get_adherence_summary(db, current_user.id, days=days)
+
+
+# ---------------------------------------------------------------------------
+# GET /heatmap — Real adherence heatmap grid from dose_logs
+# ---------------------------------------------------------------------------
+@router.get(
+    "/heatmap",
+    status_code=status.HTTP_200_OK,
+    summary="Get Adherence Heatmap",
+    description="Real 4-week heatmap grid from PostgreSQL dose_logs. Cells before account creation are blank (-1). Days with no logs show 0%.",
+)
+async def get_heatmap_endpoint(
+    weeks: int = Query(4, ge=1, le=26, description="Number of weeks"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[list[dict]]:
+    """Get adherence heatmap week-grid data from real dose_logs."""
+    return await get_adherence_heatmap(db, current_user.id, weeks=weeks)
 
 
 # ---------------------------------------------------------------------------

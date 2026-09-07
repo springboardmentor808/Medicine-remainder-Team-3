@@ -8,7 +8,7 @@
 
     "start": "cross-env NODE_OPTIONS=--max-old-space-size=4096 next start",
     "lint": "next lint",
-    "test": "jest --passWithNoTests --watchAll=false"
+    "test": "jest --passWithNoTests --watchAll=false --runInBand"
   },
   "dependencies": {
     "@capacitor/core": "^8.4.2",

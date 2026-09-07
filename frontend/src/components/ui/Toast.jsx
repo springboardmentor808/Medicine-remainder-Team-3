@@ -44,6 +44,27 @@ export function ToastProvider({ children, position = 'top-center', maxToasts = 5
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  // Listen for global window 'pillsync:toast' events
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleCustomToast = (event) => {
+      const detail = event?.detail || {};
+      const title = detail.message || detail.title || detail.text || '';
+      const variant = detail.type || detail.variant || 'default';
+      if (title) {
+        addToast({
+          title,
+          description: detail.description,
+          variant,
+          duration: detail.duration || 4000,
+        });
+      }
+    };
+
+    window.addEventListener('pillsync:toast', handleCustomToast);
+    return () => window.removeEventListener('pillsync:toast', handleCustomToast);
+  }, [addToast]);
+
   return (
     <ToastContext.Provider value={{ addToast, removeToast, toasts }}>
       {children}

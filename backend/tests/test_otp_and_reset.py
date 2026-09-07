@@ -49,3 +49,46 @@ async def test_password_reset_token_flow():
     # 3. Replay attack fails (token was burned)
     with pytest.raises(Exception):
         await OTPService.verify_and_consume_reset_token(token)
+
+
+@pytest.mark.asyncio
+async def test_send_and_verify_otp_endpoint_api_flow():
+    """Test full HTTP API roundtrip for send-otp and verify-otp."""
+    test_email = "api_test_user@pillsync.app"
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # 1. POST /api/v1/auth/send-otp
+        send_res = await client.post(
+            "/api/v1/auth/send-otp",
+            json={
+                "email": test_email,
+                "destination": test_email,
+                "channel": "email",
+                "purpose": "VERIFY",
+            },
+        )
+        assert send_res.status_code == 200
+        send_data = send_res.json()
+        assert send_data.get("status") == "success"
+
+        # Generate a known OTP for API verification test
+        otp_code = await OTPService.generate_otp(test_email, channel="email", purpose="VERIFY")
+        assert len(otp_code) == 6
+
+        # 2. POST /api/v1/auth/verify-otp with wrong code -> 400
+        fail_res = await client.post(
+            "/api/v1/auth/verify-otp",
+            json={"email": test_email, "otp": "000000", "purpose": "VERIFY"},
+        )
+        assert fail_res.status_code == 400
+
+        # 3. POST /api/v1/auth/verify-otp with valid code -> 200
+        success_res = await client.post(
+            "/api/v1/auth/verify-otp",
+            json={"email": test_email, "otp": otp_code, "purpose": "VERIFY"},
+        )
+        assert success_res.status_code == 200
+        success_data = success_res.json()
+        assert success_data.get("verified") is True
+
+

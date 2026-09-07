@@ -369,7 +369,34 @@ function PatientDashboardInner() {
             snoozedUntil: null,
             color: colorCycle[idx % 3],
           }));
-          setSchedule(mapped);
+
+          // ── Reconstruct persisted dose status from PostgreSQL daily-tracking ──
+          try {
+            const tracking = await patientAPI.getDailyTracking();
+            const dbDoses = tracking?.doses || [];
+            // Build a fast lookup: schedule_id → DB status string
+            const statusMap = {};
+            for (const d of dbDoses) {
+              if (d.schedule_id) {
+                statusMap[d.schedule_id] = d.status; // "Taken", "Missed", "Snoozed", "Pending"
+              }
+            }
+            // Overlay persisted statuses onto the mapped schedule
+            const withPersistedStatus = mapped.map((m) => {
+              const dbStatus = statusMap[m.schedule_id];
+              if (!dbStatus) return m;
+              const normalized =
+                dbStatus === 'Taken'   ? 'taken'   :
+                dbStatus === 'Missed'  ? 'skipped' :
+                dbStatus === 'Snoozed' ? 'snoozed' :
+                'pending';
+              return { ...m, status: normalized };
+            });
+            setSchedule(withPersistedStatus);
+          } catch {
+            // If daily-tracking fails (e.g. no logs yet), fall back to all-pending
+            setSchedule(mapped);
+          }
         } else {
           setSchedule([]);
         }
@@ -398,36 +425,58 @@ function PatientDashboardInner() {
         if (trendsRes.status === 'fulfilled') {
           const trends = trendsRes.value;
           if (Array.isArray(trends) && trends.length > 0) {
-            const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
             const todayIso = new Date().toISOString().split('T')[0];
             const mapped = trends.map((t) => {
-              const d = new Date(t.date);
-              const dayLabel = daysOfWeek[d.getDay()]?.[0] || 'D';
+              const pct = t.is_before_account
+                ? 0  // days before account creation: blank/zero bars
+                : Math.round(t.adherence_rate ?? 0);
               return {
-                dayLabel,
-                dayName: t.day_name || daysOfWeek[d.getDay()],
-                percentage: Math.round(t.adherence_rate ?? 100),
+                // Use day_abbr from backend if available (Sun/Mon/…), else derive from date
+                dayLabel: t.day_abbr
+                  ? t.day_abbr[0]
+                  : new Date(t.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })[0],
+                dayName: t.day_name || t.day_abbr || t.date,
+                percentage: pct,
                 isToday: t.date === todayIso,
+                isBeforeAccount: !!t.is_before_account,
               };
             });
             setWeeklyTrends(mapped);
           } else {
-            const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-            setWeeklyTrends(days.map((d, i) => ({
-              dayLabel: d,
-              dayName: d,
-              percentage: 100,
-              isToday: i === 6,
-            })));
+            // No trends yet for new accounts — show 7 zero bars (today highlighted)
+            const todayIso = new Date().toISOString().split('T')[0];
+            const days = [];
+            for (let i = 6; i >= 0; i--) {
+              const d = new Date();
+              d.setDate(d.getDate() - i);
+              const iso = d.toISOString().split('T')[0];
+              days.push({
+                dayLabel: d.toLocaleDateString('en-US', { weekday: 'short' })[0],
+                dayName: d.toLocaleDateString('en-US', { weekday: 'short' }),
+                percentage: 0,
+                isToday: iso === todayIso,
+                isBeforeAccount: false,
+              });
+            }
+            setWeeklyTrends(days);
           }
         } else {
-          const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-          setWeeklyTrends(days.map((d, i) => ({
-            dayLabel: d,
-            dayName: d,
-            percentage: 100,
-            isToday: i === 6,
-          })));
+          // Network/auth error — show 7 zero bars
+          const todayIso = new Date().toISOString().split('T')[0];
+          const days = [];
+          for (let i = 6; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            const iso = d.toISOString().split('T')[0];
+            days.push({
+              dayLabel: d.toLocaleDateString('en-US', { weekday: 'short' })[0],
+              dayName: d.toLocaleDateString('en-US', { weekday: 'short' }),
+              percentage: 0,
+              isToday: iso === todayIso,
+              isBeforeAccount: false,
+            });
+          }
+          setWeeklyTrends(days);
         }
       } catch {
         if (isMounted) {
@@ -763,16 +812,27 @@ function PatientDashboardInner() {
                 {weeklyTrends.map((t, i) => {
                   const h = t.percentage;
                   const isToday = t.isToday;
+                  const isBlank = t.isBeforeAccount || false;
                   return (
                     <div key={i} className="flex flex-col items-center gap-1 flex-1">
                       <div className="w-full relative flex flex-col items-center justify-end" style={{ height: 64 }}>
                         <div
                           className={[
                             'w-full rounded-sm transition-all duration-500',
-                            isToday ? 'bg-primary' : h >= 80 ? 'bg-tertiary/60' : h >= 60 ? 'bg-secondary/60' : 'bg-error/50',
+                            isBlank
+                              ? 'bg-surface-container/30'  // pre-account: near-invisible
+                              : isToday
+                              ? 'bg-primary'
+                              : h >= 80
+                              ? 'bg-tertiary/60'
+                              : h >= 50
+                              ? 'bg-secondary/60'
+                              : h > 0
+                              ? 'bg-error/50'
+                              : 'bg-surface-container',  // zero-data: neutral gray stub
                           ].join(' ')}
-                          style={{ height: `${Math.max(8, (h / 100) * 64)}px` }}
-                          title={`${t.dayName}: ${h}%`}
+                          style={{ height: isBlank ? '3px' : `${Math.max(h > 0 ? 8 : 4, (h / 100) * 64)}px` }}
+                          title={isBlank ? 'Before account' : `${t.dayName}: ${h}%`}
                         />
                       </div>
                       <span className={`text-[10px] font-semibold ${isToday ? 'text-primary' : 'text-on-surface-variant'}`}>
