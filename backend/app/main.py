@@ -5,10 +5,14 @@ Configures the FastAPI app with CORS middleware, API routers,
 database lifecycle events (PostgreSQL, Redis, MongoDB), and health check endpoints.
 """
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+logger = logging.getLogger(__name__)
+
 
 from app.api.v1.adherence import router as adherence_router
 from app.api.v1.analytics import router as analytics_router
@@ -41,6 +45,9 @@ async def lifespan(app: FastAPI):
     print(f"[PillSync] [{settings.ENVIRONMENT}] Starting on port {settings.PORT}...")
     print(f"[PillSync] PostgreSQL: {settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}")
     print(f"[PillSync] JWT Algorithm: {settings.ALGORITHM}, Access TTL: {settings.ACCESS_TOKEN_EXPIRE_MINUTES}min")
+    smtp_status = f"{settings.SMTP_HOST}:{settings.SMTP_PORT} (User: {settings.SMTP_USER})" if settings.SMTP_USER else "MOCK / UNCONFIGURED"
+    print(f"[PillSync] SMTP Email Service: {smtp_status}")
+
 
     # Initialize DB tables / check connection
     try:
@@ -109,10 +116,10 @@ async def performance_timing_middleware(request: Request, call_next):
     # Attach performance metric header
     response.headers["X-Process-Time"] = f"{duration_ms:.2f}ms"
 
-    if duration_ms > 200:
-        print(f"⚠️  [SLOW ENDPOINT] {request.method} {request.url.path} - {duration_ms:.2f}ms")
+    if duration_ms > 500:
+        logger.warning(f"[SLOW ENDPOINT] {request.method} {request.url.path} - {duration_ms:.2f}ms")
     elif settings.DEBUG:
-        print(f"⚡ [PERF] {request.method} {request.url.path} - {duration_ms:.2f}ms")
+        logger.debug(f"[PERF] {request.method} {request.url.path} - {duration_ms:.2f}ms")
 
     return response
 

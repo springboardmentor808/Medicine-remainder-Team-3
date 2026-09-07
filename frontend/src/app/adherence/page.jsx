@@ -29,7 +29,7 @@ import Button from '@/components/ui/Button';
 import EmptyState from '@/components/ui/EmptyState';
 import AdherenceRing from '@/components/ui/AdherenceRing';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
-import { exportAPI, patientAPI, medicineAPI } from '@/lib/api';
+import { exportAPI, patientAPI, medicineAPI, analyticsAPI } from '@/lib/api';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -57,31 +57,7 @@ const DEFAULT_SUMMARY = {
   '90d': { overall: 0, taken: 0, missed: 0, snoozed: 0, total: 0, streakDays: 0 },
 };
 
-// ── Generate Weekly Heatmap Data ─────────────────────────────────────────────
-
-function generateHeatmapData(weeks = 4) {
-  const data = [];
-  const today = new Date();
-  for (let w = weeks - 1; w >= 0; w--) {
-    const week = [];
-    for (let d = 0; d < 7; d++) {
-      const date = new Date(today);
-      date.setDate(today.getDate() - (w * 7 + (6 - d)));
-      const isFuture = date > today;
-      // Simulate adherence percentage per day
-      const pct = isFuture ? -1 : Math.floor(Math.random() * 40) + 60;
-      week.push({
-        date: date.toISOString().split('T')[0],
-        dayLabel: date.getDate(),
-        weekday: WEEKDAYS[date.getDay()],
-        percentage: pct,
-        isFuture,
-      });
-    }
-    data.push(week);
-  }
-  return data;
-}
+// ── Heatmap is fully real — no mock data generator ───────────────────────────
 
 // ── Inner Page Component ─────────────────────────────────────────────────────
 
@@ -93,47 +69,100 @@ function AdherencePageInner() {
   const [liveSummary, setLiveSummary] = useState(DEFAULT_SUMMARY);
   const [perMedicine, setPerMedicine] = useState([]);
   const [doseHistory, setDoseHistory] = useState([]);
+  // Real heatmap from PostgreSQL (week-grid: array of weeks, each with 7 day objects)
+  const [heatmapData, setHeatmapData] = useState([]);
 
-  // Fetch live adherence report and medicines
+  // Fetch all real data in parallel — no mocks
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        const [reportRes, medsRes] = await Promise.allSettled([
-          patientAPI.getWeeklyAdherence(),
+        const [rep7Res, rep30Res, rep90Res, medsRes, histRes, hmRes] = await Promise.allSettled([
+          analyticsAPI.getSummary({ days: 7 }),
+          analyticsAPI.getSummary({ days: 30 }),
+          analyticsAPI.getSummary({ days: 90 }),
           medicineAPI.list(),
+          patientAPI.getAdherenceHistory(),
+          analyticsAPI.getHeatmap({ weeks: 4 }),
         ]);
 
+        // ── Per-period adherence summaries ────────────────────────────
+        const parseSummary = (res) => {
+          if (res.status !== 'fulfilled' || !res.value) return { overall: 0, taken: 0, missed: 0, snoozed: 0, total: 0, streakDays: 0 };
+          const r = res.value;
+          return {
+            overall: Math.round(r.adherence_percentage ?? 0),
+            taken: r.taken_doses ?? 0,
+            missed: r.missed_doses ?? 0,
+            snoozed: r.snoozed_doses ?? 0,
+            total: r.total_doses ?? 0,
+            streakDays: r.streak_days ?? 0,
+          };
+        };
+        setLiveSummary({
+          '7d':  parseSummary(rep7Res),
+          '30d': parseSummary(rep30Res),
+          '90d': parseSummary(rep90Res),
+        });
+
+        // ── Per-medicine adherence from dose history ──────────────────
         const meds = medsRes.status === 'fulfilled' && Array.isArray(medsRes.value)
           ? medsRes.value
           : (medsRes.status === 'fulfilled' && medsRes.value?.items ? medsRes.value.items : []);
 
-        if (reportRes.status === 'fulfilled' && reportRes.value) {
-          const rep = reportRes.value;
-          const overallPct = Math.round(rep.overall_adherence_rate || rep.adherence_percentage || 0);
-          const totalDoses = rep.total_scheduled_doses || rep.total_doses || 0;
-          const takenDoses = rep.total_taken_doses || rep.taken_doses || 0;
-          const missedDoses = rep.total_missed_doses || rep.missed_doses || 0;
-          const snoozedDoses = rep.total_snoozed_doses || rep.snoozed_doses || 0;
+        // Compute real per-medicine adherence from history logs
+        const histLogs = histRes.status === 'fulfilled'
+          ? (histRes.value?.logs || [])
+          : [];
 
-          setLiveSummary({
-            '7d':  { overall: overallPct, taken: takenDoses, missed: missedDoses, snoozed: snoozedDoses, total: totalDoses, streakDays: rep.streak_days || 0 },
-            '30d': { overall: overallPct, taken: takenDoses, missed: missedDoses, snoozed: snoozedDoses, total: totalDoses, streakDays: rep.streak_days || 0 },
-            '90d': { overall: overallPct, taken: takenDoses, missed: missedDoses, snoozed: snoozedDoses, total: totalDoses, streakDays: rep.streak_days || 0 },
-          });
+        // Build per-medicine taken/total map from history
+        const medMap = {};
+        for (const log of histLogs) {
+          const mId = log.medicine_id;
+          if (!medMap[mId]) medMap[mId] = { taken: 0, total: 0 };
+          medMap[mId].total += 1;
+          if (log.action === 'Taken' || log.action === 'TAKEN') medMap[mId].taken += 1;
         }
 
         if (meds.length > 0) {
-          setPerMedicine(meds.map((m, idx) => ({
-            id: m.id || `med-${idx}`,
-            name: m.name,
-            strength: m.dosage || '',
-            type: m.disease_category || 'Medication',
-            adherence: 100,
-            taken: m.current_stock ? Math.max(0, m.initial_quantity - m.current_stock) : 0,
-            total: m.initial_quantity || 30,
-            trend: 'stable',
-          })));
+          setPerMedicine(meds.map((m, idx) => {
+            const stats = medMap[m.id] || { taken: 0, total: 0 };
+            const adh = stats.total > 0 ? Math.round((stats.taken / stats.total) * 100) : 0;
+            return {
+              id: m.id || `med-${idx}`,
+              name: m.name,
+              strength: m.dosage || '',
+              type: m.disease_category || 'Medication',
+              adherence: adh,
+              taken: stats.taken,
+              total: stats.total,
+              trend: adh >= 80 ? 'up' : adh >= 50 ? 'stable' : 'down',
+            };
+          }));
+        }
+
+        // ── Dose history log entries ──────────────────────────────────
+        if (histLogs.length > 0) {
+          setDoseHistory(histLogs.map((log) => ({
+            id: log.id,
+            date: log.scheduled_date,
+            action: log.action === 'Taken' || log.action === 'TAKEN'
+              ? 'taken'
+              : log.action === 'Missed' || log.action === 'MISSED'
+              ? 'missed'
+              : 'snoozed',
+            medicineName: log.medicine_name ||
+              meds.find((m) => m.id === log.medicine_id)?.name ||
+              'Medication',
+            time: log.action_time
+              ? new Date(log.action_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+              : log.scheduled_time || '—',
+          })).sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : 0)));
+        }
+
+        // ── Real heatmap grid ─────────────────────────────────────────
+        if (hmRes.status === 'fulfilled' && Array.isArray(hmRes.value)) {
+          setHeatmapData(hmRes.value);
         }
       } catch (err) {
         console.error('Failed to load adherence data:', err);
@@ -144,7 +173,6 @@ function AdherencePageInner() {
   }, []);
 
   const summary = liveSummary[selectedPeriod] || liveSummary['7d'];
-  const heatmapData = useMemo(() => generateHeatmapData(4), []);
 
   // Sort medicines by adherence (lowest first for attention)
   const sortedMedicines = useMemo(
@@ -327,26 +355,44 @@ function AdherencePageInner() {
               ))}
             </div>
 
-            {/* Heatmap Grid */}
-            <div className="flex flex-col gap-1">
-              {heatmapData.map((week, wi) => (
-                <div key={wi} className="grid grid-cols-7 gap-1">
-                  {week.map((day, di) => (
-                    <div
-                      key={di}
-                      className={`aspect-square rounded-md flex items-center justify-center text-xs font-medium transition-colors
-                        ${getHeatmapColor(day.percentage)}
-                        ${day.percentage >= 75 ? 'text-white' : day.percentage >= 0 ? 'text-on-surface' : 'text-on-surface-variant'}
-                        ${day.isFuture ? 'opacity-30' : 'hover:ring-2 hover:ring-primary/30 cursor-default'}
-                      `}
-                      title={day.isFuture ? 'Future' : `${day.date}: ${day.percentage}% adherence`}
-                    >
-                      {day.dayLabel}
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
+            {/* Heatmap Grid — real data or empty state */}
+            {heatmapData.length === 0 ? (
+              <div className="text-center py-8">
+                <Calendar className="w-8 h-8 text-on-surface-variant/40 mx-auto mb-2" />
+                <p className="text-caption text-on-surface-variant">
+                  {loading ? 'Loading heatmap...' : 'No dose data yet. Start taking your medications to build your history!'}
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {heatmapData.map((week, wi) => (
+                  <div key={wi} className="grid grid-cols-7 gap-1">
+                    {week.map((day, di) => (
+                      <div
+                        key={di}
+                        className={`aspect-square rounded-md flex items-center justify-center text-xs font-medium transition-colors
+                          ${getHeatmapColor(day.percentage)}
+                          ${day.percentage >= 75 ? 'text-white' : day.percentage >= 0 ? 'text-on-surface' : 'text-on-surface-variant'}
+                          ${(day.isFuture || day.isBeforeAccount) ? 'opacity-25' : 'hover:ring-2 hover:ring-primary/30 cursor-default'}
+                        `}
+                        title={
+                          day.isBeforeAccount
+                            ? `${day.date}: before account creation`
+                            : day.isFuture
+                            ? 'Future'
+                            : day.total > 0
+                            ? `${day.date}: ${day.taken}/${day.total} taken (${day.percentage}%)`
+                            : `${day.date}: no doses logged`
+                        }
+                      >
+                        {day.dayLabel}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+
           </div>
         </Card>
 

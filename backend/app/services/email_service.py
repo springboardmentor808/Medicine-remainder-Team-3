@@ -8,6 +8,7 @@ self-hosted Postfix, or standard SMTP relays with zero SaaS subscriptions.
 
 import io
 import asyncio
+import logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
@@ -18,6 +19,9 @@ import aiosmtplib
 from jinja2 import Template
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
 
 
 # ===================================================================
@@ -170,8 +174,10 @@ class EmailService:
     ) -> bool:
         """Core async SMTP transport."""
         msg = MIMEMultipart("mixed")
-        msg["From"] = f"{settings.SMTP_FROM_NAME} <{settings.SMTP_FROM_EMAIL or 'noreply@pillsync.app'}>"
-        msg["To"] = to_email
+        from_email = (settings.SMTP_FROM_EMAIL or settings.SMTP_USER or "noreply@pillsync.app").strip()
+        from_name = (settings.SMTP_FROM_NAME or "PillSync Healthcare").strip()
+        msg["From"] = f"{from_name} <{from_email}>"
+        msg["To"] = to_email.strip()
         msg["Subject"] = subject
 
         # HTML body
@@ -185,10 +191,14 @@ class EmailService:
 
         # In local/offline mode without configured SMTP credentials, simulate successfully
         if not settings.SMTP_HOST or not settings.SMTP_USER or not settings.SMTP_PASSWORD:
-            print(f"[EmailService MOCK] Dispatched email to {to_email} | Subject: '{subject}'")
+            logger.warning(
+                f"[EmailService MOCK] Dispatched mock email to {to_email} | Subject: '{subject}' "
+                f"(Credentials status: HOST='{settings.SMTP_HOST}', USER='{settings.SMTP_USER}', PWD={'set' if settings.SMTP_PASSWORD else 'unset'})"
+            )
             return True
 
         try:
+            logger.info(f"[EmailService] Connecting to SMTP {settings.SMTP_HOST}:{settings.SMTP_PORT} as {settings.SMTP_USER} to send to {to_email}...")
             await aiosmtplib.send(
                 msg,
                 hostname=settings.SMTP_HOST,
@@ -196,17 +206,19 @@ class EmailService:
                 username=settings.SMTP_USER,
                 password=settings.SMTP_PASSWORD,
                 start_tls=settings.SMTP_USE_TLS,
-                timeout=15.0,
+                timeout=20.0,
             )
+            logger.info(f"[EmailService] Email successfully dispatched to {to_email} via SMTP")
             return True
         except Exception as err:
-            print(f"[EmailService Error] Failed to send email to {to_email}: {err}")
+            logger.error(f"[EmailService Error] Failed to send email to {to_email}: {err}", exc_info=True)
             return False
 
     @classmethod
     async def send_otp_email(cls, to_email: str, otp_code: str, purpose: str = "VERIFICATION") -> bool:
         """Send a 6-digit OTP verification email."""
-        title = "Verify Your PillSync Account" if purpose == "VERIFY" else "Password Reset Verification Code"
+        is_verify = purpose.upper() in ("VERIFY", "REGISTRATION", "VERIFICATION")
+        title = "Verify Your PillSync Account" if is_verify else "Password Reset Verification Code"
         html = OTP_EMAIL_TEMPLATE.render(
             title=title,
             otp_code=otp_code,
@@ -217,6 +229,7 @@ class EmailService:
             subject=f"💊 Your PillSync Security Code: {otp_code}",
             html_body=html,
         )
+
 
     @classmethod
     async def send_welcome_email(cls, to_email: str, full_name: str, role: str) -> bool:

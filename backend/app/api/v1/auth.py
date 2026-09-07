@@ -528,18 +528,27 @@ async def send_otp(payload: SendOTPRequest):
     await OTPService.check_rate_limit(dest, channel=channel)
     otp_code = await OTPService.generate_otp(dest, channel=channel, purpose=payload.purpose)
 
+    banner = (
+        f"\n{'='*60}\n"
+        f"🔑 [PILLSYNC OTP DISPATCH]\n"
+        f"   Channel     : {channel.upper()}\n"
+        f"   Destination : {dest}\n"
+        f"   OTP Code    : >>> {otp_code} <<<\n"
+        f"   Valid For   : 5 Minutes\n"
+        f"{'='*60}\n"
+    )
+    print(banner, flush=True)
+
     if channel == "email":
         await EmailService.send_otp_email(dest, otp_code, purpose=payload.purpose)
     else:
         await SMSService.send_otp_sms(dest, otp_code, purpose=payload.purpose)
 
-    response = MessageResponse(
+    return MessageResponse(
         message=f"A 6-digit verification code has been dispatched to your {channel}.",
         detail=f"OTP sent to {dest} via {channel}",
     )
-    if settings.DEBUG:
-        response.debug_otp = otp_code
-    return response
+
 
 
 @router.post(
@@ -562,26 +571,37 @@ async def forgot_password(
     if user:
         reset_token = await OTPService.create_password_reset_token(user.id, email_clean)
         otp_code = await OTPService.generate_otp(email_clean, channel="email", purpose="PASSWORD_RESET")
+        banner = (
+            f"\n{'='*60}\n"
+            f"🔑 [PILLSYNC PASSWORD RESET OTP]\n"
+            f"   Email       : {email_clean}\n"
+            f"   OTP Code    : >>> {otp_code} <<<\n"
+            f"   Reset Token : {reset_token[:12]}...\n"
+            f"{'='*60}\n"
+        )
+        print(banner, flush=True)
         await EmailService.send_password_reset_email(email_clean, reset_token)
         await EmailService.send_otp_email(email_clean, otp_code, purpose="PASSWORD_RESET")
 
-    response = MessageResponse(
+
+    return MessageResponse(
         message="If an account exists for this email, password recovery instructions have been dispatched.",
         detail=f"Recovery sent to {email_clean}",
     )
-    if settings.DEBUG and otp_code:
-        response.debug_otp = otp_code
-    return response
+
 
 
 @router.post(
     "/verify-otp",
     response_model=MessageResponse,
     summary="Verify 6-digit OTP code",
-    description="Validates that the provided 6-digit OTP matches Redis hash within 5-min TTL.",
+    description="Validates that the provided 6-digit OTP matches Redis hash within 5-min TTL and marks email verified in DB.",
 )
-async def verify_otp(payload: VerifyOTPRequest):
-    """Verify 6-digit OTP code with attempt limiting."""
+async def verify_otp(
+    payload: VerifyOTPRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify 6-digit OTP code with attempt limiting and PostgreSQL user verification."""
     channel = (payload.channel or "email").strip().lower()
     dest = (payload.destination or payload.email or payload.phone or "").strip()
     if not dest:
@@ -595,10 +615,47 @@ async def verify_otp(payload: VerifyOTPRequest):
         channel = "phone"
 
     await OTPService.verify_otp(dest, payload.otp, channel=channel, purpose=payload.purpose)
+
+    # In PostgreSQL, check if user exists with this email/phone, mark active/verified
+    user_response = None
+    access_token = None
+    refresh_token_str = None
+    user_role = None
+
+    if channel == "email":
+        clean_email = dest.lower()
+        result = await db.execute(select(User).where(func.lower(User.email) == clean_email))
+        user = result.scalar_one_or_none()
+        if user:
+            user.is_active = True
+            await db.commit()
+            await db.refresh(user)
+
+            user_role = user.role or "patient"
+            token_data = {"sub": str(user.id), "role": user.role}
+            access_token = create_access_token(token_data)
+            refresh_token_str = create_refresh_token(token_data)
+            user_response = UserResponse(
+                id=user.id,
+                username=user.username,
+                email=user.email,
+                full_name=user.full_name,
+                phone=user.phone,
+                role=user.role,
+                is_active=user.is_active,
+                created_at=user.created_at.isoformat() if hasattr(user.created_at, "isoformat") else str(user.created_at),
+            )
+
     return MessageResponse(
         message=f"{channel.capitalize()} verified successfully.",
         detail=f"{dest} verified",
+        verified=True,
+        access_token=access_token,
+        refresh_token=refresh_token_str,
+        user=user_response,
+        role=user_role,
     )
+
 
 
 
@@ -612,15 +669,23 @@ async def resend_otp(payload: ForgotPasswordRequest):
     """Resend 6-digit OTP to user email."""
     email_clean = payload.email.strip().lower()
     otp_code = await OTPService.generate_otp(email_clean, purpose="PASSWORD_RESET")
+    banner = (
+        f"\n{'='*60}\n"
+        f"🔑 [PILLSYNC RESEND OTP]\n"
+        f"   Email       : {email_clean}\n"
+        f"   OTP Code    : >>> {otp_code} <<<\n"
+        f"   Valid For   : 5 Minutes\n"
+        f"{'='*60}\n"
+    )
+    print(banner, flush=True)
     await EmailService.send_otp_email(email_clean, otp_code, purpose="PASSWORD_RESET")
 
-    response = MessageResponse(
+
+    return MessageResponse(
         message="A new 6-digit OTP has been sent to your email.",
         detail=f"OTP resent to {email_clean}",
     )
-    if settings.DEBUG:
-        response.debug_otp = otp_code
-    return response
+
 
 
 @router.post(

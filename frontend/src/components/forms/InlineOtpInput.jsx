@@ -33,9 +33,9 @@ export default function InlineOtpInput({
   const [verifying, setVerifying] = useState(false);
   const [otpError, setOtpError] = useState('');
   const [countdown, setCountdown] = useState(0);
-  const [devOtpHint, setDevOtpHint] = useState('');
 
   const otpInputRef = useRef(null);
+
 
   // Countdown timer handler
   useEffect(() => {
@@ -63,12 +63,12 @@ export default function InlineOtpInput({
       return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
     }
     if (channel === 'phone') {
-      // 10 digits or E.164
       const digits = val.replace(/\D/g, '');
-      return digits.length >= 10 && digits.length <= 13;
+      return digits.length === 10 && /^[6-9]\d{9}$/.test(digits);
     }
     return val.length >= 3;
   };
+
 
   // Trigger Send OTP
   const handleSendOtp = async (isResend = false) => {
@@ -77,22 +77,21 @@ export default function InlineOtpInput({
       return;
     }
 
+    const cleanVal = (value || '').trim();
     setSending(true);
     setOtpError('');
     try {
       const res = await authAPI.sendOtp({
         channel,
-        destination: value.trim(),
+        destination: cleanVal,
+        email: channel === 'email' ? cleanVal : undefined,
+        phone: channel === 'phone' ? cleanVal : undefined,
         purpose: 'REGISTRATION',
       });
 
       setShowOtpBox(true);
       setCountdown(60); // 60s cooldown
       setOtp('');
-
-      if (res?.data?.debug_otp) {
-        setDevOtpHint(`Dev Code: ${res.data.debug_otp}`);
-      }
 
       emitToast(`Verification code dispatched to your ${channel}.`, 'success');
     } catch (err) {
@@ -107,25 +106,28 @@ export default function InlineOtpInput({
   // Confirm 6-Digit OTP
   const handleConfirmOtp = async (e) => {
     if (e) e.preventDefault();
-    if (otp.length !== 6) {
+    const cleanOtp = (otp || '').trim();
+    if (cleanOtp.length !== 6) {
       setOtpError('Please enter all 6 numeric digits.');
       return;
     }
 
+    const cleanVal = (value || '').trim();
     setVerifying(true);
     setOtpError('');
     try {
-      await authAPI.verifyOtp({
+      const res = await authAPI.verifyOtp({
         channel,
-        destination: value.trim(),
-        otp: otp.trim(),
+        destination: cleanVal,
+        email: channel === 'email' ? cleanVal : undefined,
+        phone: channel === 'phone' ? cleanVal : undefined,
+        otp: cleanOtp,
         purpose: 'REGISTRATION',
       });
 
       setShowOtpBox(false);
-      setDevOtpHint('');
       if (onVerified) {
-        onVerified(channel, value.trim());
+        onVerified(channel, cleanVal);
       }
       emitToast(`${channel === 'email' ? 'Email' : 'Phone'} verified successfully!`, 'success');
     } catch (err) {
@@ -142,7 +144,7 @@ export default function InlineOtpInput({
     setShowOtpBox(false);
     setOtp('');
     setOtpError('');
-    setDevOtpHint('');
+
     if (onResetVerification) {
       onResetVerification();
     }
@@ -264,12 +266,6 @@ export default function InlineOtpInput({
           <p className="text-[12px] text-on-surface-variant mb-2.5">
             We sent a security code to <strong className="text-on-surface font-medium">{value}</strong>.
           </p>
-
-          {devOtpHint && (
-            <div className="mb-2.5 px-2.5 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-600 text-[11px] font-mono">
-              💡 {devOtpHint}
-            </div>
-          )}
 
           <div className="flex items-center gap-2">
             <input

@@ -1,5 +1,6 @@
 import './globals.css'
 import { LanguageProvider } from '@/context/LanguageContext'
+import { ToastProvider } from '@/components/ui/Toast'
 
 export const viewport = {
   width: 'device-width',
@@ -42,13 +43,16 @@ export default function RootLayout({ children }) {
       <body className="h-full font-sans antialiased text-on-surface bg-background">
         {/* Medical pattern background overlay */}
         <div className="medical-pattern" aria-hidden="true" />
-        {/* Main app content with LanguageProvider */}
-        <LanguageProvider>
-          <div className="relative z-10 min-h-full">
-            {children}
-          </div>
-        </LanguageProvider>
+        {/* Main app content with ToastProvider and LanguageProvider */}
+        <ToastProvider position="top-center">
+          <LanguageProvider>
+            <div className="relative z-10 min-h-full">
+              {children}
+            </div>
+          </LanguageProvider>
+        </ToastProvider>
       </body>
     </html>
   )
 }
+

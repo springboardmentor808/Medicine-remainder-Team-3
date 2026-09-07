@@ -64,11 +64,10 @@ function RegisterFormContent() {
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     let sanitized = type === 'checkbox' ? checked : value;
-    // Phone: strip non-numeric except leading +
+    // Phone: strictly 10 numeric digits
     if (name === 'phone') {
-      const hasPlus = value.startsWith('+');
-      const digitsOnly = value.replace(/[^\d]/g, '');
-      sanitized = (hasPlus ? '+' : '') + digitsOnly;
+      const digitsOnly = value.replace(/[^\d]/g, '').slice(0, 10);
+      sanitized = digitsOnly;
       // If phone value changed, reset verification
       if (sanitized !== form.phone && isPhoneVerified) {
         setIsPhoneVerified(false);
@@ -103,18 +102,21 @@ function RegisterFormContent() {
         errs.email = 'Please verify your email address using the 6-digit OTP code.';
     }
 
-    // Phone validation
+    // Phone validation (strictly 10 digits starting with 6-9)
     if (!form.phone.trim())
       errs.phone = 'Phone number is required';
     else {
       const digits = form.phone.replace(/[^\d]/g, '');
-      if (digits.length < 7 || digits.length > 15)
-        errs.phone = 'Phone number must be 7-15 digits';
+      if (digits.length !== 10)
+        errs.phone = 'Phone number must be exactly 10 digits';
+      else if (!/^[6-9]\d{9}$/.test(digits))
+        errs.phone = 'Phone number must be a valid 10-digit mobile number starting with 6-9';
       else if (FAKE_PHONE_PATTERNS.has(digits) || new Set(digits).size === 1)
         errs.phone = 'This phone number appears invalid. Please enter a real phone number.';
       else if (!isPhoneVerified)
         errs.phone = 'Please verify your mobile number using the 6-digit OTP code.';
     }
+
 
     // Password validation
     if (!form.password)
