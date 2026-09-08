@@ -36,7 +36,7 @@ const NAV_ITEMS = {
   patient: [
     { href: '/dashboard/patient', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/medicines', label: 'My Medicines', icon: Pill },
-    { href: '/reminders', label: 'Reminders', icon: Bell },
+    { href: '/dashboard/patient#timeline', label: 'Schedule & Alarms', icon: Bell },
     { href: '/adherence', label: 'Adherence', icon: BarChart3 },
     { href: '/refill', label: 'Refill Tracker', icon: Package },
     { href: '/interactions', label: 'AI Drug Safety', icon: Shield },
@@ -45,7 +45,7 @@ const NAV_ITEMS = {
   caregiver: [
     { href: '/dashboard/caregiver', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/medicines', label: 'Patient Medicines', icon: Pill },
-    { href: '/reminders', label: 'Schedules & Alarms', icon: Bell },
+    { href: '/dashboard/caregiver', label: 'Schedules & Alarms', icon: Bell },
     { href: '/adherence', label: 'Adherence Reports', icon: BarChart3 },
     { href: '/refill', label: 'Refill Tracker', icon: Package },
     { href: '/interactions', label: 'AI Drug Safety', icon: Shield },

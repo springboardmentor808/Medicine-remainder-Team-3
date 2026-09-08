@@ -8,6 +8,7 @@ import {
   XCircle,
   Camera,
   PlusCircle,
+  Plus,
   Pill,
   Bell,
   ChevronRight,
@@ -42,6 +43,8 @@ import SupportTicketForm from '@/components/forms/SupportTicketForm';
 import { exportAPI, medicineAPI, patientAPI, analyticsAPI } from '@/lib/api';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
 import { useLanguage } from '@/context/LanguageContext';
+import { playWebAudioAlarm, triggerAlarm } from '@/lib/alarm_service';
+import AddReminderModal from '@/components/patient/AddReminderModal';
 import dynamic from 'next/dynamic';
 import TutorialTrigger from '@/components/3d/TutorialTrigger';
 
@@ -681,9 +684,52 @@ function PatientDashboardInner() {
       const hasPending = schedule.some((m) => m.status === 'pending');
       if (!alreadySeen && hasPending) {
         setDosePopupOpen(true);
+        try { playWebAudioAlarm(); } catch {}
       }
     }
   }, [scheduleLoading, schedule]);
+
+  const [isAlarmTesting, setIsAlarmTesting] = useState(false);
+  const [isAddReminderOpen, setIsAddReminderOpen] = useState(false);
+
+  const handleAddReminder = useCallback(async (newReminder) => {
+    const newEntry = {
+      id: `custom-${Date.now()}`,
+      name: newReminder.medicine,
+      strength: newReminder.dosage,
+      slot: newReminder.slot || 'morning',
+      time: newReminder.time || '08:00 AM',
+      scheduled_time_24: newReminder.time || '08:00',
+      status: 'pending',
+      color: newReminder.slot === 'morning' ? 'primary' : newReminder.slot === 'afternoon' ? 'secondary' : 'tertiary',
+      instructions: newReminder.notes || 'Take with water as directed',
+      type: 'Scheduled Regimen',
+    };
+    setSchedule((prev) => [...prev, newEntry]);
+    addToast({
+      title: locale === 'hi' ? '🔔 नया अलार्म शेड्यूल हुआ' : '🔔 Reminder Scheduled',
+      description: `${newReminder.medicine} (${newReminder.time}) ${locale === 'hi' ? 'दैनिक शेड्यूल में जुड़ गया है।' : 'is now live in your daily schedule.'}`,
+      variant: 'success',
+    });
+  }, [locale, addToast]);
+
+  const handleTestAlarm = useCallback(() => {
+    setIsAlarmTesting(true);
+    try {
+      triggerAlarm({
+        title: locale === 'hi' ? '⏰ दवाई का समय: मेटफ़ॉर्मिन 500mg' : '⏰ Medication Time: Metformin 500mg',
+        body: locale === 'hi' ? 'कृपया अपनी निर्धारित खुराक समय पर लें।' : 'Time to take your scheduled dose with water.',
+      });
+    } catch {
+      try { playWebAudioAlarm(); } catch {}
+    }
+    addToast({
+      title: locale === 'hi' ? '🔔 अलार्म और घंटी बजी' : '🔔 Alarm Bell & Sound Triggered',
+      description: locale === 'hi' ? 'मेडिकल दो-टोन चाइम ऑडियो बज रहा है और नोटिफिकेशन जारी हुआ।' : 'Two-tone medical chime is sounding and desktop alert dispatched.',
+      variant: 'info',
+    });
+    setTimeout(() => setIsAlarmTesting(false), 3500);
+  }, [locale, addToast]);
 
   const handleModalTaken = useCallback(async () => {
     if (!nextDueMed) return;
@@ -751,6 +797,16 @@ function PatientDashboardInner() {
                 className="min-h-[38px] shrink-0"
               >
                 CSV
+              </Button>
+              <Button
+                variant="outlined"
+                size="sm"
+                onClick={handleTestAlarm}
+                leftIcon={<Bell className={`w-3.5 h-3.5 text-amber-500 ${isAlarmTesting ? 'animate-bounce' : ''}`} />}
+                className="min-h-[38px] shrink-0 font-medium border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/20"
+                title={locale === 'hi' ? 'अलार्म घंटी और आवाज टेस्ट करें' : 'Test Alarm Sound & Notification'}
+              >
+                {locale === 'hi' ? 'अलार्म घंटी' : 'Test Alarm'}
               </Button>
               <Button
                 variant="outlined"
@@ -866,17 +922,31 @@ function PatientDashboardInner() {
               </div>
             </section>
 
-            {/* 2. Medication Timeline ───────────────────────────────── */}
-            <section>
-              <div className="flex items-center justify-between mb-md">
-                <h2 className="text-body-sm font-bold text-on-surface">
-                  Today&apos;s Medications
-                </h2>
-                <Link href="/medicines">
-                  <Button variant="ghost" size="sm" rightIcon={<ChevronRight className="w-4 h-4" />}>
-                    View All
+            {/* 2. Medication Timeline & Schedule ──────────────────────── */}
+            <section id="timeline">
+              <div className="flex items-center justify-between mb-md flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-body-sm sm:text-base font-bold text-on-surface">
+                    {locale === 'hi' ? 'आज का दवा शेड्यूल एवं अलार्म' : "Today's Schedule & Alarms"}
+                  </h2>
+                  <Badge variant="patient" size="xs">Live Timeline</Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    leftIcon={<Plus className="w-3.5 h-3.5" />}
+                    onClick={() => setIsAddReminderOpen(true)}
+                    className="bg-[#164234] hover:bg-[#0f2e24] text-white font-semibold min-h-[36px]"
+                  >
+                    {locale === 'hi' ? '+ नया अलार्म जोड़ें' : '+ Add Reminder'}
                   </Button>
-                </Link>
+                  <Link href="/medicines">
+                    <Button variant="ghost" size="sm" rightIcon={<ChevronRight className="w-4 h-4" />}>
+                      {locale === 'hi' ? 'सभी देखें' : 'View All'}
+                    </Button>
+                  </Link>
+                </div>
               </div>
 
               <div className="space-y-lg">
@@ -1222,6 +1292,13 @@ function PatientDashboardInner() {
           }}
         />
       </Modal>
+
+      {/* ── Patient Schedule & Reminder Creation Modal ────────────────── */}
+      <AddReminderModal
+        isOpen={isAddReminderOpen}
+        onClose={() => setIsAddReminderOpen(false)}
+        onAdd={handleAddReminder}
+      />
       </div>
     </DashboardLayout>
   );

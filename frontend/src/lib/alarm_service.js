@@ -42,6 +42,15 @@ export const scheduleLocalAlarm = async ({ id, title, body, scheduleTime }) => {
 export const triggerAlarm = ({ title = 'Medication Reminder', body = 'Time to take your medication!' } = {}) => {
   playWebAudioAlarm();
 
+  // Mobile Hardware Haptic Vibration (Supported on Android Chrome & Mobile Web)
+  if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+    try {
+      navigator.vibrate([300, 100, 300, 100, 500]);
+    } catch {
+      // Non-blocking fallback for browsers without vibration permissions
+    }
+  }
+
   if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
     try {
       new Notification(title, {
