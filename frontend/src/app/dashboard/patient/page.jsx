@@ -42,6 +42,20 @@ import SupportTicketForm from '@/components/forms/SupportTicketForm';
 import { exportAPI, medicineAPI, patientAPI, analyticsAPI } from '@/lib/api';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
 import { useLanguage } from '@/context/LanguageContext';
+import dynamic from 'next/dynamic';
+import TutorialTrigger from '@/components/3d/TutorialTrigger';
+
+// G-Stack: Dynamic import for R3F — no SSR, code-split for zero main-bundle impact
+const DualModeMedicalBot = dynamic(
+  () => import('@/components/3d/DualModeMedicalBot'),
+  { ssr: false }
+);
+
+// G-Stack: Dynamic import for Chat Widget — SSR-safe, lazy-loaded
+const MedicalAssistantWidget = dynamic(
+  () => import('@/components/chat/MedicalAssistantWidget'),
+  { ssr: false }
+);
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -926,10 +940,14 @@ function PatientDashboardInner() {
           <div className="space-y-md xl:sticky xl:top-24">
 
             {/* Live Reminder / Alarm Widget */}
-            <ReminderWidget />
+            <TutorialTrigger message={locale === 'hi' ? '⏰ यह आपका लाइव रिमाइंडर विजेट है — आपकी अगली दवाई का अलार्म यहाँ से बजेगा।' : '⏰ This is your Live Reminder Widget — your next medication alarm will trigger from here.'}>
+              <ReminderWidget />
+            </TutorialTrigger>
 
             {/* 3. Inventory & Refill Widget ─────────────────────────── */}
-            <InventoryWidget items={inventory} />
+            <TutorialTrigger message={locale === 'hi' ? '💊 यहाँ आपकी बची हुई गोलियों का स्टॉक दिखता है — जब कम हो जाएँ तो रीफिल का बटन दबाएं।' : '💊 This shows your remaining pill stock — hit Manage Refills when supplies run low.'}>
+              <InventoryWidget items={inventory} />
+            </TutorialTrigger>
 
             {/* Weekly Adherence Mini-chart ──────────────────────────── */}
             <Card variant="flat" padding="md">
@@ -1024,6 +1042,7 @@ function PatientDashboardInner() {
             </div>
 
             {/* Quick Share & Emergency Connection */}
+            <TutorialTrigger message={locale === 'hi' ? '🏥 यहाँ से अपने डॉक्टर या केयरगिवर को अपनी दवा रिपोर्ट भेजें, या आपातकालीन कॉल करें।' : '🏥 Export your medication records for your physician or contact emergency support from here.'}>
             <div className="p-card-padding rounded-xl bg-surface-container-low border border-outline-variant/30 space-y-sm">
               <div className="flex items-center gap-2">
                 <Share2 className="w-4 h-4 text-primary" />
@@ -1054,6 +1073,7 @@ function PatientDashboardInner() {
                 </Button>
               </div>
             </div>
+            </TutorialTrigger>
 
             {/* Patient Care Assistance & Grievance Desk Card */}
             <div className="p-card-padding rounded-xl bg-surface-container-low border border-outline-variant/30 space-y-sm">
@@ -1213,6 +1233,10 @@ export default function PatientDashboardPage() {
   return (
     <ToastProvider position="top-center">
       <PatientDashboardInner />
+      {/* G-Stack: Fixed overlay canvas — 3D robot floats above DOM, ErrorBoundary ensures zero crash risk */}
+      <DualModeMedicalBot />
+      {/* G-Stack: Slide-over chat sidebar — opens when user clicks "Ask PillSync AI" on the docked robot */}
+      <MedicalAssistantWidget />
     </ToastProvider>
   );
 }

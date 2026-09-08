@@ -97,6 +97,10 @@ class Settings(BaseSettings):
     # --- Frontend URL (for password reset links) ---
     FRONTEND_URL: str = "http://localhost:3000"
 
+    # --- Gemini AI (Medical Assistant Chatbot) ---
+    GEMINI_API_KEY: str = ""
+    GOOGLE_API_KEY: str = ""
+
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT.lower() == "production"

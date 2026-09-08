@@ -25,6 +25,7 @@ from app.api.v1.refill import router as refill_router
 from app.api.v1.reminders import router as reminders_router
 from app.api.v1.support import router as support_router
 from app.api.v1.users import router as users_router
+from app.api.v1.assistant import router as assistant_router
 from app.core.config import settings
 from app.core.database import engine, init_db
 from app.core.mongodb import connect_mongodb, disconnect_mongodb
@@ -158,6 +159,7 @@ app.include_router(reminders_router, prefix="/api/v1")
 app.include_router(analytics_router, prefix="/api/v1")
 app.include_router(export_router, prefix="/api/v1")
 app.include_router(support_router, prefix="/api/v1")
+app.include_router(assistant_router, prefix="/api/v1", tags=["AI Medical Assistant"])
 
 
 # ---------------------------------------------------------------------------
