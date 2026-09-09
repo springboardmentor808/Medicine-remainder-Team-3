@@ -32,6 +32,7 @@ from app.services.notification_service import (
     get_unread_count,
     get_user_notifications,
     mark_notification_read,
+    register_device_token,
     send_notification,
 )
 from app.services.reminder_service import (
@@ -278,8 +279,17 @@ async def get_notifications_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Fetch recent notifications and unread count."""
+    is_admin = current_user.role == "admin" or str(getattr(current_user.role, "value", current_user.role)).lower() == "admin"
     notifications = []
-    if current_user.role == "admin" or scope == "global":
+
+    if scope == "global":
+        if not is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access forbidden: Only administrators can view global broadcast notifications.",
+            )
+        notifications = await get_global_notifications(limit=limit, offset=offset)
+    elif is_admin:
         notifications = await get_global_notifications(limit=limit, offset=offset)
         if not notifications:
             notifications = await get_user_notifications(user_id=current_user.id, limit=limit, offset=offset)
@@ -297,6 +307,28 @@ async def get_notifications_endpoint(
         "total": len(notifications),
         "notifications": notifications,
     }
+
+
+# ---------------------------------------------------------------------------
+# POST /notifications/device-token — Register FCM Device Push Token
+# ---------------------------------------------------------------------------
+class DeviceTokenRequest(BaseModel):
+    device_token: str = Field(..., min_length=10, max_length=512, description="FCM device registration token")
+
+
+@router.post(
+    "/notifications/device-token",
+    status_code=status.HTTP_200_OK,
+    summary="Register FCM Device Token",
+    description="Store or update the Firebase Cloud Messaging push token for this user.",
+)
+async def register_device_token_endpoint(
+    payload: DeviceTokenRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Register user FCM device registration token."""
+    await register_device_token(current_user.id, payload.device_token)
+    return {"message": "FCM device registration token saved successfully."}
 
 
 # ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ async def test_exports_reminders_and_pharmacies_flow():
         reg_res = await ac.post("/api/v1/auth/register", json={
             "email": p_email,
             "password": "Password123!",
-            "full_name": f"Export Patient {p_uid}",
+            "full_name": "Export Patient",
             "role": "PATIENT",
         })
         assert reg_res.status_code == 201, reg_res.text

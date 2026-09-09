@@ -12,6 +12,7 @@ Integrates:
 import asyncio
 import io
 import os
+import re
 import platform
 import sys
 from pathlib import Path
@@ -20,6 +21,9 @@ import cv2
 import numpy as np
 from fastapi import UploadFile
 from PIL import Image
+import logging
+
+logger = logging.getLogger("pillsync.ocr")
 
 # Ensure project root is available in sys.path for cross-package imports
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -289,8 +293,9 @@ def _trocr_fallback_interface(image_crop: Any) -> Optional[str]:
                 resized = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB)
             elif resized.shape[2] == 3:
                 resized = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
-            norm = (resized.astype(np.float32) / 255.0 - 0.5) / 0.5
-            transposed = np.transpose(norm, (2, 0, 1))[np.newaxis, ...]
+            resized_f = np.asarray(resized, dtype=np.float32)
+            norm = (resized_f / 255.0 - 0.5) / 0.5  # type: ignore
+            transposed = np.expand_dims(np.transpose(norm, (2, 0, 1)), axis=0)  # type: ignore
             input_name = session.get_inputs()[0].name
             _ = session.run(None, {input_name: transposed})
         except Exception as onnx_err:
@@ -311,8 +316,8 @@ def _trocr_fallback_interface(image_crop: Any) -> Optional[str]:
                 txt = str(pytesseract.image_to_string(pil_target, config=f"{psm} --oem 3")).strip()
                 if txt and len(txt) >= 3:
                     candidates.append(txt)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"[OCR] Morphology extraction failed for psm {psm}: {e}")
 
     if not candidates:
         return None
@@ -332,6 +337,7 @@ def _trocr_fallback_interface(image_crop: Any) -> Optional[str]:
 class TrOCRONNXSessionManager:
     """Thread-safe Singleton managing the TrOCR ONNX runtime session."""
     _instance: Optional["TrOCRONNXSessionManager"] = None
+    _session: Any = None
 
     def __new__(cls) -> "TrOCRONNXSessionManager":
         if cls._instance is None:
@@ -343,7 +349,7 @@ class TrOCRONNXSessionManager:
         if crop is None or not isinstance(crop, np.ndarray) or crop.size == 0:
             return None
         # Safety check: if image is completely uniform / blank (e.g. all 255 or variance < 2.0)
-        if np.var(crop) < 2.0:
+        if float(crop.var()) < 2.0:  # type: ignore
             return None
         return _trocr_fallback_interface(crop)
 
@@ -419,9 +425,10 @@ def _perform_ocr_sync(image_bytes: bytes) -> OCRSyncResult:
                         if line_text:
                             extracted_lines.append(line_text)
                             confs.append(75)
-                    except Exception:
-                        pass
-            except Exception:
+                    except Exception as e:
+                        logger.debug(f"[OCR] Line crop OCR failed: {e}")
+            except Exception as seg_err:
+                logger.warning(f"[OCR] Line segmentation pipeline failed: {seg_err}")
                 extracted_lines = []
 
         # Step 3: Full-Image OCR Multi-Strategy Fallback if line segmentation is sparse

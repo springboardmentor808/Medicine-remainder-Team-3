@@ -11,13 +11,13 @@ import random
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.config import settings
-from app.core.redis import get_redis
+from app.core.redis import get_redis, check_rate_limit
 from app.core.security import (
 
     create_access_token,
@@ -68,16 +68,26 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 )
 async def register(
     payload: RegisterRequest,
+    request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Register a new user.
 
+    - Rate limited to prevent automated registration abuse.
     - Validates username and email uniqueness (case-insensitive).
     - Hashes the password with bcrypt.
-    - Issues JWT access and refresh tokens.
+    - Issues JWT access and refresh tokens via HttpOnly cookies and response body.
     - Sends welcome email.
     """
+    client_ip = request.client.host if (request and request.client) else "127.0.0.1"
+    allowed, remaining = await check_rate_limit(f"ratelimit:register:{client_ip}", max_requests=10, window_seconds=600)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many registration attempts. Please try again later.",
+        )
     clean_email = payload.email.strip().lower()
     target_username = payload.username.strip().lower() if payload.username else ""
     if not target_username:
@@ -141,6 +151,24 @@ async def register(
     except Exception as e:
         logger.warning(f"[Auth] Welcome email failed for {new_user.email}: {e}")
 
+    is_prod = settings.ENVIRONMENT.lower() == "production"
+    response.set_cookie(
+        key="pillsync_access_token",
+        value=access_token,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+    response.set_cookie(
+        key="pillsync_refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+    )
+
     return RegisterResponse(
         user=UserResponse(
             id=new_user.id,
@@ -168,15 +196,17 @@ async def register(
 )
 async def login(
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Authenticate user credentials and issue JWT token pair.
 
+    - Rate limited to prevent brute force credential stuffing.
     - Accepts JSON body (`{"username": "...", "password": "..."}`) OR Form Data (Swagger Authorize popup).
     - Looks up user by username OR email.
     - Verifies bcrypt password hash.
-    - Returns access + refresh tokens.
+    - Sets HttpOnly access and refresh cookies and returns token pair.
     """
     username: str | None = None
     password: str | None = None
@@ -217,6 +247,15 @@ async def login(
             detail="Fields 'username' and 'password' are required.",
         )
 
+    # Rate limiting on login attempts
+    client_ip = request.client.host if (request and request.client) else "127.0.0.1"
+    allowed, remaining = await check_rate_limit(f"ratelimit:login:{client_ip}:{username_clean}", max_requests=10, window_seconds=60)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Please wait 60 seconds before trying again.",
+        )
+
     result = await db.execute(
         select(User).where(
             or_(
@@ -246,6 +285,24 @@ async def login(
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
 
+    is_prod = settings.ENVIRONMENT.lower() == "production"
+    response.set_cookie(
+        key="pillsync_access_token",
+        value=access_token,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+    response.set_cookie(
+        key="pillsync_refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+    )
+
     return LoginResponse(
         user=UserResponse(
             id=user.id,
@@ -271,26 +328,63 @@ async def login(
     summary="User logout",
     description="Invalidate the current session and add token to Redis blacklist.",
 )
-async def logout(request: Request):
+async def logout(request: Request, response: Response):
     """
     Logout endpoint.
-    Adds the caller's JWT token to the Redis revocation blacklist for remaining TTL.
+    Adds the caller's JWT token to the Redis revocation blacklist and clears auth cookies.
     """
-    token = None
+    access_token = None
     auth_header = request.headers.get("authorization", "")
     if auth_header.lower().startswith("bearer "):
-        token = auth_header[7:].strip()
+        access_token = auth_header[7:].strip()
     elif "pillsync_access_token" in request.cookies:
-        token = request.cookies.get("pillsync_access_token", "").strip()
+        access_token = request.cookies.get("pillsync_access_token", "").strip()
 
-    if token:
+    # Also extract refresh token from cookies or body to revoke it
+    refresh_tok = request.cookies.get("pillsync_refresh_token", "").strip()
+    if not refresh_tok:
         try:
-            redis = get_redis()
-            if redis:
-                await redis.set(f"blacklist:{token}", "revoked", ex=3600)
+            body = await request.json()
+            if isinstance(body, dict):
+                refresh_tok = str(body.get("refresh_token", "")).strip()
         except Exception:
             pass
 
+    redis = get_redis()
+    if redis:
+        if access_token:
+            try:
+                payload = decode_token(access_token)
+                exp = payload.get("exp")
+                ttl = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+                if exp:
+                    remaining = int(exp - time.time())
+                    if remaining > 0:
+                        ttl = remaining
+                await redis.set(f"blacklist:{access_token}", "revoked", ex=ttl)
+            except HTTPException:
+                pass  # Malformed or already expired token does not require Redis blacklisting
+            except Exception as e:
+                logger.warning(f"[Logout] Failed to blacklist access token in Redis: {e}")
+
+        if refresh_tok:
+            try:
+                payload = decode_token(refresh_tok)
+                exp = payload.get("exp")
+                ttl = settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400
+                if exp:
+                    remaining = int(exp - time.time())
+                    if remaining > 0:
+                        ttl = remaining
+                await redis.set(f"blacklist:{refresh_tok}", "revoked", ex=ttl)
+            except HTTPException:
+                pass  # Malformed or already expired token does not require Redis blacklisting
+            except Exception as e:
+                logger.warning(f"[Logout] Failed to blacklist refresh token in Redis: {e}")
+
+    response.delete_cookie("pillsync_access_token")
+    response.delete_cookie("pillsync_refresh_token")
+    response.delete_cookie("access_token")
 
     return MessageResponse(message="Logged out successfully.")
 
@@ -305,6 +399,7 @@ async def logout(request: Request):
     description="Logs in or automatically provisions a real database user for a demo role (patient, caregiver, admin) and issues real JWT tokens.",
 )
 async def demo_login(
+    response: Response,
     role: str = "patient",
     db: AsyncSession = Depends(get_db),
 ):
@@ -351,6 +446,24 @@ async def demo_login(
     access_token = create_access_token(token_data)
     refresh_token_str = create_refresh_token(token_data)
 
+    is_prod = settings.ENVIRONMENT.lower() == "production"
+    response.set_cookie(
+        key="pillsync_access_token",
+        value=access_token,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+    response.set_cookie(
+        key="pillsync_refresh_token",
+        value=refresh_token_str,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+    )
+
     return LoginResponse(
         access_token=access_token,
         refresh_token=refresh_token_str,
@@ -379,20 +492,22 @@ async def demo_login(
 )
 async def refresh_token(
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Issue a new access token using a valid refresh token.
 
-    Accepts refresh_token from JSON body or Authorization header.
+    Accepts refresh_token from cookies, JSON body or Authorization header.
     """
-    # Try to get refresh token from JSON body first
-    refresh_tok = None
-    try:
-        body = await request.json()
-        refresh_tok = body.get("refresh_token")
-    except Exception:
-        pass
+    # Try to get refresh token from cookies first
+    refresh_tok = request.cookies.get("pillsync_refresh_token")
+    if not refresh_tok:
+        try:
+            body = await request.json()
+            refresh_tok = body.get("refresh_token")
+        except Exception:
+            pass
 
     # Fallback: try Authorization header
     if not refresh_tok:
@@ -403,8 +518,23 @@ async def refresh_token(
     if not refresh_tok:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="refresh_token is required in body or Authorization header.",
+            detail="refresh_token is required in cookies, body or Authorization header.",
         )
+
+    # Verify refresh token is not on Redis revocation blacklist
+    redis = get_redis()
+    if redis:
+        try:
+            is_revoked = await redis.get(f"blacklist:{refresh_tok}")
+            if is_revoked:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Refresh token has been revoked.",
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"[Refresh] Redis error checking revocation blacklist: {e}")
 
     token_payload = decode_token(refresh_tok)
 
@@ -434,6 +564,16 @@ async def refresh_token(
 
     new_access = create_access_token(
         {"sub": str(user.id), "role": user.role}
+    )
+
+    is_prod = settings.ENVIRONMENT.lower() == "production"
+    response.set_cookie(
+        key="pillsync_access_token",
+        value=new_access,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
 
     return TokenResponse(
@@ -528,16 +668,8 @@ async def send_otp(payload: SendOTPRequest):
     await OTPService.check_rate_limit(dest, channel=channel)
     otp_code = await OTPService.generate_otp(dest, channel=channel, purpose=payload.purpose)
 
-    banner = (
-        f"\n{'='*60}\n"
-        f"🔑 [PILLSYNC OTP DISPATCH]\n"
-        f"   Channel     : {channel.upper()}\n"
-        f"   Destination : {dest}\n"
-        f"   OTP Code    : >>> {otp_code} <<<\n"
-        f"   Valid For   : 5 Minutes\n"
-        f"{'='*60}\n"
-    )
-    print(banner, flush=True)
+    masked = dest[:2] + "****" + dest[-3:] if len(dest) > 5 else "****"
+    logger.info(f"[Auth:OTP] Dispatched code to {masked} via {channel} (5-min TTL)")
 
     if channel == "email":
         await EmailService.send_otp_email(dest, otp_code, purpose=payload.purpose)
@@ -571,15 +703,8 @@ async def forgot_password(
     if user:
         reset_token = await OTPService.create_password_reset_token(user.id, email_clean)
         otp_code = await OTPService.generate_otp(email_clean, channel="email", purpose="PASSWORD_RESET")
-        banner = (
-            f"\n{'='*60}\n"
-            f"🔑 [PILLSYNC PASSWORD RESET OTP]\n"
-            f"   Email       : {email_clean}\n"
-            f"   OTP Code    : >>> {otp_code} <<<\n"
-            f"   Reset Token : {reset_token[:12]}...\n"
-            f"{'='*60}\n"
-        )
-        print(banner, flush=True)
+        masked_email = email_clean[:2] + "****" + email_clean[-4:] if len(email_clean) > 6 else "****"
+        logger.info(f"[Auth:PasswordReset] Generated reset OTP for {masked_email}")
         await EmailService.send_password_reset_email(email_clean, reset_token)
         await EmailService.send_otp_email(email_clean, otp_code, purpose="PASSWORD_RESET")
 
@@ -669,15 +794,8 @@ async def resend_otp(payload: ForgotPasswordRequest):
     """Resend 6-digit OTP to user email."""
     email_clean = payload.email.strip().lower()
     otp_code = await OTPService.generate_otp(email_clean, purpose="PASSWORD_RESET")
-    banner = (
-        f"\n{'='*60}\n"
-        f"🔑 [PILLSYNC RESEND OTP]\n"
-        f"   Email       : {email_clean}\n"
-        f"   OTP Code    : >>> {otp_code} <<<\n"
-        f"   Valid For   : 5 Minutes\n"
-        f"{'='*60}\n"
-    )
-    print(banner, flush=True)
+    masked_email = email_clean[:2] + "****" + email_clean[-4:] if len(email_clean) > 6 else "****"
+    logger.info(f"[Auth:ResendOTP] Fresh OTP generated for {masked_email}")
     await EmailService.send_otp_email(email_clean, otp_code, purpose="PASSWORD_RESET")
 
 

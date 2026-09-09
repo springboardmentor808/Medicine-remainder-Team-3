@@ -18,6 +18,7 @@ from app.core.security import get_current_user, hash_password
 from app.core.rbac import allow_admin, allow_any_authenticated
 from app.models.user import User, UserRole
 from app.models.caregiver_patient import caregiver_patients
+from app.services.user_service import UserService
 from app.schemas.auth_schema import (
     AssignPatientRequest,
     LinkPatientRequest,
@@ -72,41 +73,20 @@ async def update_profile(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Update the current user's profile.
+    Update the current user's profile via UserService.
     Only provided (non-None) fields are updated.
     """
-    if payload.full_name is not None:
-        current_user.full_name = payload.full_name
-    if payload.phone is not None:
-        current_user.phone = payload.phone
-    if payload.email is not None:
-        # Check email uniqueness
-        existing = await db.execute(
-            select(User).where(
-                User.email == payload.email,
-                User.id != current_user.id,
-            )
-        )
-        if existing.scalar_one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Email already in use by another account.",
-            )
-        current_user.email = payload.email
-
-    db.add(current_user)
-    await db.flush()
-    await db.refresh(current_user)
+    updated_user = await UserService.update_profile(current_user, payload, db)
 
     return UserResponse(
-        id=current_user.id,
-        username=current_user.username,
-        email=current_user.email,
-        full_name=current_user.full_name,
-        phone=current_user.phone,
-        role=current_user.role if isinstance(current_user.role, str) else current_user.role.value,
-        is_active=current_user.is_active,
-        created_at=current_user.created_at.isoformat(),
+        id=updated_user.id,
+        username=updated_user.username,
+        email=updated_user.email,
+        full_name=updated_user.full_name,
+        phone=updated_user.phone,
+        role=updated_user.role if isinstance(updated_user.role, str) else updated_user.role.value,
+        is_active=updated_user.is_active,
+        created_at=updated_user.created_at.isoformat(),
     )
 
 
@@ -124,7 +104,7 @@ async def get_caregiver_patients(
     db: AsyncSession = Depends(get_db),
 ):
     """Fetch patients connected to this caregiver."""
-    is_caregiver = current_user.role == UserRole.CAREGIVER or str(current_user.role).lower() == "caregiver"
+    is_caregiver = current_user.role == UserRole.CAREGIVER or current_user.role.lower() == "caregiver"
     if is_caregiver:
         linked_subquery = select(caregiver_patients.c.patient_id).where(
             caregiver_patients.c.caregiver_id == current_user.id
@@ -177,107 +157,7 @@ async def link_patient_endpoint(
     current_user: User = Depends(allow_any_authenticated),
     db: AsyncSession = Depends(get_db),
 ):
-    patient = None
-    query_str = (payload.email or payload.code or payload.username or payload.phone or payload.patient_id or "").strip()
-
-    if payload.patient_id:
-        try:
-            pid = uuid.UUID(payload.patient_id)
-            res = await db.execute(select(User).where(User.id == pid))
-            patient = res.scalar_one_or_none()
-        except ValueError:
-            pass
-
-    if not patient and payload.email:
-        res = await db.execute(select(User).where(func.lower(User.email) == payload.email.lower()))
-        patient = res.scalar_one_or_none()
-
-    if not patient and payload.code:
-        code_clean = payload.code.replace("PS-", "").replace("-", "").lower()
-        res = await db.execute(
-            select(User).where(
-                or_(
-                    func.lower(User.username) == payload.code.lower(),
-                    cast(User.id, String).contains(code_clean),
-                )
-            )
-        )
-        patient = res.scalar_one_or_none()
-
-    if not patient and query_str:
-        res = await db.execute(
-            select(User).where(
-                or_(
-                    func.lower(User.email) == query_str.lower(),
-                    func.lower(User.username) == query_str.lower(),
-                    User.phone == query_str,
-                    func.lower(User.full_name) == query_str.lower(),
-                )
-            )
-        )
-        patient = res.scalar_one_or_none()
-
-    if not patient:
-        if payload.email or payload.patient_name:
-            new_uname = (payload.email.split("@")[0] if payload.email else (payload.patient_name.lower().replace(" ", "_")))
-            res = await db.execute(select(User).where(User.username == new_uname))
-            if res.scalar_one_or_none():
-                new_uname = f"{new_uname}_{uuid.uuid4().hex[:4]}"
-
-            temp_init_pw = f"PillSync#{uuid.uuid4().hex[:8]}"
-            patient = User(
-                username=new_uname,
-                email=payload.email or f"{new_uname}@patient.pillsync.app",
-                full_name=payload.patient_name or payload.email or "Linked Patient",
-                phone=payload.phone,
-                role=UserRole.PATIENT,
-                hashed_password=hash_password(temp_init_pw),
-                is_active=True,
-            )
-            db.add(patient)
-            await db.flush()
-            await db.refresh(patient)
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Patient not found with provided code or identifier '{query_str}'.",
-            )
-
-    if patient.role != UserRole.PATIENT:
-        patient.role = UserRole.PATIENT
-        db.add(patient)
-        await db.flush()
-
-    existing = await db.execute(
-        select(caregiver_patients).where(
-            caregiver_patients.c.caregiver_id == current_user.id,
-            caregiver_patients.c.patient_id == patient.id,
-        )
-    )
-    if not existing.first():
-        await db.execute(
-            insert(caregiver_patients).values(
-                caregiver_id=current_user.id,
-                patient_id=patient.id,
-            )
-        )
-        await db.flush()
-
-    await db.commit()
-
-    return {
-        "message": f"Patient '{patient.full_name or patient.username}' successfully linked.",
-        "patient": {
-            "id": str(patient.id),
-            "name": patient.full_name or patient.username,
-            "email": patient.email,
-            "phone": patient.phone,
-            "role": "patient",
-            "relationship": payload.relationship or "Monitored Patient",
-            "age": payload.age,
-            "notes": payload.notes,
-        },
-    }
+    return await UserService.link_patient_to_caregiver(current_user, payload, db)
 
 
 # ===================================================================

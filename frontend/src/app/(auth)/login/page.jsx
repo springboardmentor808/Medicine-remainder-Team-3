@@ -67,8 +67,6 @@ function LoginFormContent() {
 
       if (typeof window !== 'undefined') {
         localStorage.setItem('pillsync_access_token', access_token);
-        localStorage.setItem('access_token', access_token);
-        localStorage.setItem('token', access_token);
         if (refresh_token) localStorage.setItem('pillsync_refresh_token', refresh_token);
         localStorage.setItem('pillsync_user', JSON.stringify(user));
         sessionStorage.setItem('pillsync_selected_role', user.role || 'patient');

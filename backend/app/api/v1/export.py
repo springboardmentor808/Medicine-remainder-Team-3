@@ -70,6 +70,16 @@ from reportlab.platypus import (  # type: ignore[import-untyped]
 
 
 
+from xml.sax.saxutils import escape
+
+
+def _safe_xml(val: Any) -> str:
+    """Sanitize user input before formatting into ReportLab Paragraph XML."""
+    if val is None:
+        return ""
+    return escape(str(val))
+
+
 # ---------------------------------------------------------------------------
 # ReportLab PDF Generation Helpers
 # ---------------------------------------------------------------------------
@@ -135,7 +145,7 @@ def _generate_medicines_pdf_bytes(
     header_data = [
         [
             Paragraph("<b>PillSync AI Healthcare</b><br/><font size=9 color='#00685f'>Intelligent Medication Management & Tracking</font>", title_style),
-            Paragraph(f"<b>Medical Report:</b> {title}<br/><b>Patient:</b> {user_name}<br/><b>Email:</b> {user_email}<br/><b>Export Date:</b> {datetime.now().strftime('%d %b %Y, %I:%M %p')}", meta_style)
+            Paragraph(f"<b>Medical Report:</b> {_safe_xml(title)}<br/><b>Patient:</b> {_safe_xml(user_name)}<br/><b>Email:</b> {_safe_xml(user_email)}<br/><b>Export Date:</b> {datetime.now().strftime('%d %b %Y, %I:%M %p')}", meta_style)
         ]
     ]
     header_table = Table(header_data, colWidths=[300, 240])
@@ -179,15 +189,19 @@ def _generate_medicines_pdf_bytes(
     for i, med in enumerate(medicines_data, 1):
         days_str = f"{med.get('days_left')}d" if isinstance(med.get('days_left'), (int, float)) else str(med.get('days_left', 'N/A'))
         days_color = '#dc2626' if isinstance(med.get('days_left'), (int, float)) and med.get('days_left') <= 3 else '#16a34a'
+        med_name = _safe_xml(med.get('name', ''))
+        med_dosage = _safe_xml(med.get('dosage', ''))
+        med_cat = _safe_xml(med.get('category', 'General'))
+        med_notes = _safe_xml(med.get('notes', '—') or '—')
 
         row = [
             Paragraph(str(i), cell_style),
-            Paragraph(f"<b>{med.get('name', '')}</b><br/><font color='#64748b' size=7.5>{med.get('dosage', '')}</font>", cell_style),
-            Paragraph(med.get('category', 'General'), cell_style),
+            Paragraph(f"<b>{med_name}</b><br/><font color='#64748b' size=7.5>{med_dosage}</font>", cell_style),
+            Paragraph(med_cat, cell_style),
             Paragraph(f"{med.get('current_stock', 0)} / {med.get('initial_quantity', 0)}", cell_style),
             Paragraph(f"{med.get('daily_frequency', 1)}x / day", cell_style),
             Paragraph(f"<font color='{days_color}'><b>{days_str}</b></font>", cell_style),
-            Paragraph(med.get('notes', '—') or '—', cell_style),
+            Paragraph(med_notes, cell_style),
         ]
         table_rows.append(row)
 
@@ -733,11 +747,11 @@ async def export_audit_pdf(
 
     for row in user_rows:
         table_rows.append([
-            Paragraph(row[0], cell_style),
-            Paragraph(f"<b>{row[1]}</b>", cell_style),
-            Paragraph(row[2], cell_style),
-            Paragraph(f"<font color='#16a34a'><b>{row[3]}</b></font>", cell_style),
-            Paragraph(row[4], cell_style),
+            Paragraph(_safe_xml(row[0]), cell_style),
+            Paragraph(f"<b>{_safe_xml(row[1])}</b>", cell_style),
+            Paragraph(_safe_xml(row[2]), cell_style),
+            Paragraph(f"<font color='#16a34a'><b>{_safe_xml(row[3])}</b></font>", cell_style),
+            Paragraph(_safe_xml(row[4]), cell_style),
         ])
 
     audit_table = Table(table_rows, colWidths=[110, 130, 150, 60, 90], repeatRows=1)

@@ -34,6 +34,7 @@ class InMemoryRedisFallback:
         self._store: Dict[str, Tuple[str, Optional[float]]] = {}
         self._lists: Dict[str, list] = {}
         self._zsets: Dict[str, dict] = {}
+        self._sets: Dict[str, set] = {}
 
     def _is_expired(self, key: str) -> bool:
         """Helper to lazily evict expired keys."""
@@ -64,6 +65,7 @@ class InMemoryRedisFallback:
             self._store.pop(k, None)
             self._lists.pop(k, None)
             self._zsets.pop(k, None)
+            self._sets.pop(k, None)
         return True
 
     async def incr(self, key: str):
@@ -128,9 +130,34 @@ class InMemoryRedisFallback:
     async def zcard(self, key: str):
         return len(self._zsets.get(key, {}))
 
+    async def sadd(self, key: str, *members: Any):
+        if key not in self._sets:
+            self._sets[key] = set()
+        added = 0
+        for m in members:
+            str_m = str(m) if not isinstance(m, str) else m
+            if str_m not in self._sets[key]:
+                self._sets[key].add(str_m)
+                added += 1
+        return added
+
+    async def smembers(self, key: str):
+        return set(self._sets.get(key, set()))
+
+    async def srem(self, key: str, *members: Any):
+        if key not in self._sets:
+            return 0
+        removed = 0
+        for m in members:
+            str_m = str(m) if not isinstance(m, str) else m
+            if str_m in self._sets[key]:
+                self._sets[key].remove(str_m)
+                removed += 1
+        return removed
+
     async def scan(self, cursor: int = 0, match: Optional[str] = None, count: int = 100):
         import fnmatch
-        all_keys = list(self._store.keys()) + list(self._lists.keys()) + list(self._zsets.keys())
+        all_keys = list(self._store.keys()) + list(self._lists.keys()) + list(self._zsets.keys()) + list(self._sets.keys())
         if match:
             matched = fnmatch.filter(all_keys, match)
         else:
@@ -141,6 +168,7 @@ class InMemoryRedisFallback:
         self._store.clear()
         self._lists.clear()
         self._zsets.clear()
+        self._sets.clear()
 
 
 _in_memory_fallback = InMemoryRedisFallback()

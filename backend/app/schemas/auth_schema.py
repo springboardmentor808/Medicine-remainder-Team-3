@@ -15,13 +15,28 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 # Validation Constants
 # ===================================================================
 PHONE_REGEX = re.compile(r"^[6-9]\d{9}$")
-NAME_REGEX = re.compile(r"^[a-zA-Z0-9\s.'-]{2,100}$")
+NAME_REGEX = re.compile(r"^[a-zA-Z\s.'-]{2,100}$")
 PASSWORD_SPECIAL_REGEX = re.compile(r"[!@#$%^&*(),.?\":{}|<>]")
 
 
 # ===================================================================
 # Request Schemas
 # ===================================================================
+
+def normalize_phone_number(v: Optional[str]) -> Optional[str]:
+    """Normalize phone input by removing non-digits, stripping leading 91, and validating 10 digits starting 6-9."""
+    if not v:
+        return None
+    cleaned = v.strip()
+    if not cleaned:
+        return None
+    digits = re.sub(r"\D", "", cleaned)
+    if digits.startswith("91") and len(digits) == 12:
+        digits = digits[2:]
+    if digits and not PHONE_REGEX.match(digits):
+        raise ValueError("Phone number must be a valid 10-digit mobile number starting with 6-9.")
+    return digits if digits else None
+
 
 class RegisterRequest(BaseModel):
     """POST /api/v1/auth/register — New user registration with strict validation."""
@@ -84,18 +99,7 @@ class RegisterRequest(BaseModel):
     @field_validator("phone", mode="before")
     @classmethod
     def validate_phone(cls, v: Optional[str]) -> Optional[str]:
-        if not v:
-            return None
-        cleaned = v.strip()
-        if not cleaned:
-            return None
-        # Strip common formatting characters (+91, spaces, hyphens)
-        digits = re.sub(r"\D", "", cleaned)
-        if digits.startswith("91") and len(digits) == 12:
-            digits = digits[2:]
-        if digits and not PHONE_REGEX.match(digits):
-            raise ValueError("Phone number must be a valid 10-digit mobile number starting with 6-9.")
-        return digits if digits else None
+        return normalize_phone_number(v)
 
     @field_validator("password")
     @classmethod
@@ -127,10 +131,10 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     """POST /api/v1/auth/login — User login."""
     username: str = Field(
-        ..., examples=["om_pandey"],
+        ..., min_length=1, max_length=100, examples=["om_pandey"],
     )
     password: str = Field(
-        ..., examples=["StrongP@ss123!"],
+        ..., min_length=1, max_length=128, examples=["StrongP@ss123!"],
     )
 
 
@@ -177,6 +181,24 @@ class SendOTPRequest(BaseModel):
     def resolve_destination(cls, v: Optional[str], values) -> Optional[str]:
         return v.strip() if isinstance(v, str) else v
 
+    @field_validator("destination")
+    @classmethod
+    def validate_destination_format(cls, v: Optional[str]) -> Optional[str]:
+        if v:
+            cleaned = v.strip()
+            if "@" in cleaned:
+                if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", cleaned):
+                    raise ValueError("Invalid email format for destination.")
+                return cleaned
+            return normalize_phone_number(cleaned)
+        return v
+
+
+    @field_validator("phone")
+    @classmethod
+    def validate_send_otp_phone(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_phone_number(v)
+
 
 class VerifyOTPRequest(BaseModel):
     """POST /api/v1/auth/verify-otp — Validate 6-digit OTP code."""
@@ -186,6 +208,23 @@ class VerifyOTPRequest(BaseModel):
     phone: Optional[str] = Field(None, description="Phone field")
     otp: str = Field(..., min_length=6, max_length=6, description="6-digit verification code")
     purpose: str = Field(default="VERIFY", description="Purpose matching send-otp")
+
+    @field_validator("destination")
+    @classmethod
+    def validate_verify_destination(cls, v: Optional[str]) -> Optional[str]:
+        if v:
+            cleaned = v.strip()
+            if "@" in cleaned:
+                if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", cleaned):
+                    raise ValueError("Invalid email format for destination.")
+                return cleaned
+            return normalize_phone_number(cleaned)
+        return v
+
+    @field_validator("phone")
+    @classmethod
+    def validate_verify_otp_phone(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_phone_number(v)
 
     @field_validator("otp")
     @classmethod
@@ -234,6 +273,23 @@ class UserUpdateRequest(BaseModel):
     full_name: Optional[str] = Field(None, min_length=2, max_length=100)
     phone: Optional[str] = Field(None, max_length=20)
     email: Optional[EmailStr] = None
+
+    @field_validator("full_name")
+    @classmethod
+    def validate_update_full_name(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            cleaned = v.strip()
+            if not NAME_REGEX.match(cleaned):
+                raise ValueError("Full name must contain only letters, spaces, dots, and hyphens (2-100 characters).")
+            if any(bad in cleaned.lower() for bad in ("<script", "<", ">", "javascript:", "eval(")):
+                raise ValueError("Full name contains invalid script or markup characters.")
+            return cleaned
+        return v
+
+    @field_validator("phone")
+    @classmethod
+    def validate_update_phone(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_phone_number(v)
 
 
 # ===================================================================
@@ -309,6 +365,7 @@ class AssignPatientRequest(BaseModel):
 class LinkPatientRequest(BaseModel):
     """POST /users/link-patient — Flexible patient linking schema."""
     patient_id: Optional[str] = None
+    patient_name: Optional[str] = None
     email: Optional[str] = None
     code: Optional[str] = None
     username: Optional[str] = None

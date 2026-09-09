@@ -20,7 +20,7 @@ async def test_patient_full_lifecycle():
         reg_res = await client.post("/api/v1/auth/register", json={
             "email": test_email,
             "password": test_password,
-            "full_name": f"Test Patient {uid}",
+            "full_name": "Test Patient",
             "role": "PATIENT"
         })
         assert reg_res.status_code == 201

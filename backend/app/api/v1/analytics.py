@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.core.rbac import allow_caregiver
+from app.core.rbac import allow_caregiver, allow_admin
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.medicine import Medicine
@@ -168,6 +168,7 @@ from sqlalchemy import text
 )
 async def get_system_telemetry_endpoint(
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allow_admin),
 ) -> dict:
     """Collect real-time hardware telemetry and database latency."""
     # 1. Real Hardware Telemetry

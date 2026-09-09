@@ -16,9 +16,12 @@ from jose import JWTError, jwt  # type: ignore[import-untyped]
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import logging
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.redis import get_redis
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Password Hashing (bcrypt — direct usage, avoids passlib compatibility issues)
@@ -165,43 +168,22 @@ async def get_current_user(
             token = token[7:].strip()
     elif token_query:
         token = token_query.strip()
-    elif request and "pillsync_access_token" in request.cookies:
-        token = request.cookies.get("pillsync_access_token", "").strip()
+    elif request and ("pillsync_access_token" in request.cookies or "access_token" in request.cookies):
+        token = (request.cookies.get("pillsync_access_token") or request.cookies.get("access_token", "")).strip()
 
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated. Bearer token required.",
+            detail="Not authenticated. Bearer token or authenticated session required.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
     # Import here to avoid circular dependency
     from app.models.user import User
 
-    # Handle demo tokens gracefully during local development
-    if token.startswith("demo_") or "demo_sig_" in token:
-        role_guess = "admin" if "admin" in token else "caregiver" if "caregiver" in token else "patient"
-        email_map = {
-            "admin": "admin@pillsync.com",
-            "caregiver": "caregiver@pillsync.com",
-            "patient": "patient@pillsync.com",
-        }
-        target_email = email_map.get(role_guess, "patient@pillsync.com")
-        res = await db.execute(select(User).where(User.email == target_email))
-        user = res.scalar_one_or_none()
-        if not user:
-            # Check for any active user with matching role or first user
-            res_role = await db.execute(select(User).where(User.role == role_guess).limit(1))
-            user = res_role.scalar_one_or_none()
-        if not user:
-            res_any = await db.execute(select(User).limit(1))
-            user = res_any.scalar_one_or_none()
-        if user:
-            return user
-
     # Check Redis token revocation blacklist
     try:
-        redis = await get_redis()
+        redis = get_redis()
         if redis:
             is_blacklisted = await redis.get(f"blacklist:{token}")
             if is_blacklisted:
@@ -212,8 +194,8 @@ async def get_current_user(
                 )
     except HTTPException:
         raise
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"[Security] Redis token blacklist check failed: {e}")
 
     payload = decode_token(token)
     user_id_str: str | None = payload.get("sub")

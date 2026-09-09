@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ===================================================================
@@ -50,17 +50,17 @@ class MedicineCreate(BaseModel):
         description="Dosage strength (e.g., '500mg', '2 Tablets')",
     )
     initial_quantity: int = Field(
-        default=30, ge=1,
+        default=30, ge=1, le=10000,
         examples=[30],
         description="Total quantity when medicine is added",
     )
     daily_frequency: int = Field(
-        default=1, ge=1,
+        default=1, ge=1, le=24,
         examples=[2],
         description="Number of doses per day",
     )
     quantity_per_dose: int = Field(
-        default=1, ge=1,
+        default=1, ge=1, le=100,
         examples=[1],
         description="Number of units consumed per dose",
     )
@@ -76,6 +76,36 @@ class MedicineCreate(BaseModel):
 
     model_config = {"extra": "allow"}
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("Medicine name cannot be blank or pure whitespace.")
+        if any(bad in cleaned.lower() for bad in ("<script", "<", ">", "javascript:")):
+            raise ValueError("Medicine name contains invalid markup or script characters.")
+        return cleaned
+
+    @field_validator("dosage")
+    @classmethod
+    def validate_dosage(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("Dosage cannot be blank or pure whitespace.")
+        if any(bad in cleaned.lower() for bad in ("<script", "<", ">", "javascript:")):
+            raise ValueError("Dosage contains invalid markup or script characters.")
+        return cleaned
+
+    @field_validator("notes")
+    @classmethod
+    def validate_notes(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            cleaned = v.strip()
+            if any(bad in cleaned.lower() for bad in ("<script", "<", ">", "javascript:")):
+                raise ValueError("Notes contains invalid markup or script characters.")
+            return cleaned
+        return v
+
 
 class MedicineUpdate(BaseModel):
     """PUT /api/v1/medicines/{id} — Update medicine (partial)."""
@@ -88,16 +118,16 @@ class MedicineUpdate(BaseModel):
         None, min_length=1, max_length=50,
     )
     initial_quantity: Optional[int] = Field(
-        None, ge=1,
+        None, ge=1, le=10000,
     )
     current_stock: Optional[int] = Field(
-        None, ge=0,
+        None, ge=0, le=10000,
     )
     daily_frequency: Optional[int] = Field(
-        None, ge=1,
+        None, ge=1, le=24,
     )
     quantity_per_dose: Optional[int] = Field(
-        None, ge=1,
+        None, ge=1, le=100,
     )
     dosage_form: Optional[str] = None
     notes: Optional[str] = Field(
@@ -105,6 +135,40 @@ class MedicineUpdate(BaseModel):
     )
 
     model_config = {"extra": "allow"}
+
+    @field_validator("name")
+    @classmethod
+    def validate_update_name(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            cleaned = v.strip()
+            if not cleaned:
+                raise ValueError("Medicine name cannot be blank or pure whitespace.")
+            if any(bad in cleaned.lower() for bad in ("<script", "<", ">", "javascript:")):
+                raise ValueError("Medicine name contains invalid markup or script characters.")
+            return cleaned
+        return v
+
+    @field_validator("dosage")
+    @classmethod
+    def validate_update_dosage(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            cleaned = v.strip()
+            if not cleaned:
+                raise ValueError("Dosage cannot be blank or pure whitespace.")
+            if any(bad in cleaned.lower() for bad in ("<script", "<", ">", "javascript:")):
+                raise ValueError("Dosage contains invalid markup or script characters.")
+            return cleaned
+        return v
+
+    @field_validator("notes")
+    @classmethod
+    def validate_update_notes(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            cleaned = v.strip()
+            if any(bad in cleaned.lower() for bad in ("<script", "<", ">", "javascript:")):
+                raise ValueError("Notes contains invalid markup or script characters.")
+            return cleaned
+        return v
 
 
 class StockUpdateRequest(BaseModel):

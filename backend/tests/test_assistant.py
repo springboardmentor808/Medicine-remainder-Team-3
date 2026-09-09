@@ -73,7 +73,7 @@ async def test_assistant_api_chat_and_suggestions():
         reg_res = await client.post("/api/v1/auth/register", json={
             "email": f"assistant_user_{uid}@example.com",
             "password": "SecurePassword123!",
-            "full_name": f"Assistant User {uid}",
+            "full_name": "Assistant User",
             "role": "PATIENT"
         })
         assert reg_res.status_code == 201

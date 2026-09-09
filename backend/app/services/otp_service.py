@@ -119,8 +119,10 @@ class OTPService:
         key = f"otp:{channel}:{norm_dest}"
 
         if not redis:
-            # Fallback mock for offline dev if redis offline
-            return True
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Verification service is temporarily unavailable. Please retry shortly.",
+            )
 
         raw_data = await redis.get(key)
         # Try legacy key if not found

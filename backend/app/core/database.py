@@ -61,9 +61,11 @@ else:
             pool_pre_ping=True,
             pool_recycle=3600,
         )
-    except Exception:
+    except Exception as err:
+        if str(settings.ENVIRONMENT).lower() == "production":
+            raise RuntimeError(f"FATAL: Production PostgreSQL connection failed: {err}") from err
         fallback_url = "sqlite+aiosqlite:///./pillsync_dev.db"
-        print(f"[PillSync DB] PostgreSQL unavailable at {db_url}. Falling back to local SQLite: {fallback_url}")
+        print(f"[PillSync DB Dev Warning] Primary database unavailable. Falling back to local SQLite: {fallback_url}")
         engine = create_sqlite_engine(fallback_url)
 
 # ---------------------------------------------------------------------------
@@ -92,7 +94,9 @@ async def init_db():
             await conn.run_sync(Base.metadata.create_all)
         print("[PillSync DB] Database connection & tables verified successfully.")
     except Exception as err:
-        print(f"[PillSync DB] Primary PostgreSQL connection failed ({err}). Initializing local SQLite fallback...")
+        if str(settings.ENVIRONMENT).lower() == "production":
+            raise RuntimeError(f"FATAL: Database connection and table verification failed in production: {err}") from err
+        print(f"[PillSync DB Dev Warning] Primary PostgreSQL connection failed ({err}). Initializing local SQLite fallback...")
         fallback_url = "sqlite+aiosqlite:///./pillsync_dev.db"
         engine = create_sqlite_engine(fallback_url)
         async_session_factory = async_sessionmaker(
@@ -104,7 +108,7 @@ async def init_db():
         )
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        print("[PillSync DB] Local SQLite fallback database initialized successfully.")
+        print("[PillSync DB Dev] Local SQLite fallback database initialized successfully.")
 
 
 # ---------------------------------------------------------------------------
