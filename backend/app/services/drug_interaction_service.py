@@ -129,6 +129,21 @@ DRUG_CLASS_MAP: Dict[str, List[str]] = {
     "clarithromycin": ["macrolide", "cyp3a4_inhibitor"],
 }
 
+# Broad mechanism / physiological classes that must NOT be used as drug aliases for drug A
+BROAD_MECHANISM_CLASSES = {
+    "vasodilator",
+    "analgesic",
+    "antiplatelet",
+    "serotonergic",
+    "raas_blocker",
+    "qt_prolonging",
+    "cyp3a4_substrate",
+    "cyp3a4_inhibitor",
+    "cyp2c19_inhibitor",
+    "antidiabetic",
+    "salicylate",
+}
+
 
 class DrugInteractionService:
     """
@@ -141,9 +156,25 @@ class DrugInteractionService:
         if not name:
             return ""
         cleaned = name.lower().strip()
-        cleaned = re.sub(r"\b(tablet|capsule|syrup|injection|mg|g|mcg|ip|bp|usp|hcl|sodium|potassium)\b", "", cleaned)
+        # Preserve "potassium chloride" by only stripping potassium when NOT followed by chloride
+        cleaned = re.sub(
+            r"\b(tablet|capsule|syrup|injection|mg|g|mcg|ip|bp|usp|hcl|sodium)\b|\bpotassium\b(?!\s*chloride\b)",
+            "",
+            cleaned,
+        )
+        cleaned = re.sub(r"\b\d+\s*(mg|g|mcg|iu|ml)?\b", "", cleaned)
         cleaned = re.sub(r"[^a-z0-9\s]", " ", cleaned)
         return " ".join(cleaned.split())
+
+    @classmethod
+    def _get_drug_classes_and_names(cls, norm_name: str) -> set:
+        """Collect all matching drug keys and associated therapeutic classes from DRUG_CLASS_MAP."""
+        matched = {norm_name}
+        for drug_key, classes in DRUG_CLASS_MAP.items():
+            if drug_key in norm_name:
+                matched.add(drug_key)
+                matched.update(c.lower() for c in classes)
+        return matched
 
     @classmethod
     def check_interactions(
@@ -157,20 +188,36 @@ class DrugInteractionService:
         """
         detected_warnings = []
         cand_norm = cls._normalize_drug_name(candidate_drug_name)
+        cand_classes = cls._get_drug_classes_and_names(cand_norm)
 
         for active_drug in active_drug_names:
             act_norm = cls._normalize_drug_name(active_drug)
             if not act_norm or act_norm == cand_norm:
                 continue
 
+            act_classes = cls._get_drug_classes_and_names(act_norm)
+
             # Evaluate against DDI Rules
             for rule in DDI_RULES:
                 rule_drug_a = rule["drug_a"].lower()
                 classes_b = [b.lower() for b in rule["drug_b_classes"]]
 
+                # Use specific pharmacological classes for A-side interaction matching (excluding broad physiological mechanisms)
+                rule_a_classes = {
+                    c.lower() for c in DRUG_CLASS_MAP.get(rule_drug_a, [])
+                    if c.lower() not in BROAD_MECHANISM_CLASSES
+                }
+                rule_a_classes.add(rule_drug_a)
+
+                cand_matches_a = (rule_drug_a in cand_norm) or bool(cand_classes & rule_a_classes)
+                act_matches_b = any(c in act_norm for c in classes_b) or bool(act_classes & set(classes_b))
+
+                act_matches_a = (rule_drug_a in act_norm) or bool(act_classes & rule_a_classes)
+                cand_matches_b = any(c in cand_norm for c in classes_b) or bool(cand_classes & set(classes_b))
+
                 # Match forward (candidate is A, active is B) or reverse (active is A, candidate is B)
-                is_match_fwd = (rule_drug_a in cand_norm) and any(c in act_norm for c in classes_b)
-                is_match_rev = (rule_drug_a in act_norm) and any(c in cand_norm for c in classes_b)
+                is_match_fwd = cand_matches_a and act_matches_b
+                is_match_rev = act_matches_a and cand_matches_b
 
                 if is_match_fwd or is_match_rev:
                     detected_warnings.append({
@@ -182,3 +229,4 @@ class DrugInteractionService:
                     })
 
         return detected_warnings
+

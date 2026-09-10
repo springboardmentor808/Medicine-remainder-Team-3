@@ -360,3 +360,323 @@ async def test_fcm_multi_device_support():
     assert token_phone in all_tokens
     assert token_tablet in all_tokens
 
+
+@pytest.mark.asyncio
+async def test_dose_action_rejects_unknown():
+    """Verify record_dose_action_atomic rejects unknown actions instead of defaulting to Taken."""
+    from typing import cast
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from app.services.adherence_service import AdherenceService
+    from app.schemas.pillsync_schemas import RecordActionRequest
+    from fastapi import HTTPException
+
+    req = RecordActionRequest.model_construct(
+        action="InvalidAction123",
+        medicine_id=str(uuid.uuid4()),
+        scheduled_date="2026-09-10",
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await AdherenceService.record_dose_action_atomic(cast(AsyncSession, None), uuid.uuid4(), req)
+    assert exc_info.value.status_code == 400
+    assert "Invalid action" in exc_info.value.detail
+
+
+def test_potassium_chloride_preserved_and_ddi_class_matching():
+    """Verify potassium chloride is preserved during normalization and DRUG_CLASS_MAP is used for A-side matching."""
+    from app.services.drug_interaction_service import DrugInteractionService
+
+    # 1. Normalization preserves "potassium chloride"
+    norm = DrugInteractionService._normalize_drug_name("Potassium Chloride 600mg Tablet")
+    assert norm == "potassium chloride"
+
+    # Other potassium salts still strip the salt counter-ion
+    los_norm = DrugInteractionService._normalize_drug_name("Losartan Potassium 50mg Tablet")
+    assert los_norm == "losartan"
+
+    # 2. Check interaction between Telmisartan and Potassium Chloride
+    warnings = DrugInteractionService.check_interactions(
+        candidate_drug_name="Telmisartan 40mg",
+        active_drug_names=["Potassium Chloride 600mg"],
+    )
+    assert len(warnings) >= 1
+    assert any("Hyperkalemia" in w["title"] for w in warnings)
+
+    # 3. Check A-side DRUG_CLASS_MAP matching: Tadalafil (PDE5i) + Nitroglycerin (Nitrates)
+    warnings_pde5 = DrugInteractionService.check_interactions(
+        candidate_drug_name="Tadalafil 20mg",
+        active_drug_names=["Nitroglycerin 0.5mg"],
+    )
+    assert len(warnings_pde5) >= 1
+    assert any("Hypotension" in w["title"] for w in warnings_pde5)
+
+
+@pytest.mark.asyncio
+async def test_link_patient_rejects_conflicting_email():
+    """Verify link_patient_to_caregiver rejects conflicting emails before auto-provisioning."""
+    from app.services.user_service import UserService
+    from app.schemas.auth_schema import LinkPatientRequest
+    from app.models.user import User
+    from fastapi import HTTPException
+
+    from tests.conftest import TestingSessionLocal
+
+    async with TestingSessionLocal() as session:
+        # Caregiver user
+        cg_user = User(
+            id=uuid.uuid4(),
+            username="test_cg_conflict",
+            email="caregiver_conflict@test.com",
+            hashed_password="pw",
+            full_name="Dr. Caregiver",
+            role="caregiver",
+            is_active=True,
+        )
+        # Existing admin user with an email
+        admin_user = User(
+            id=uuid.uuid4(),
+            username="test_admin_conflict",
+            email="admin_existing@test.com",
+            hashed_password="pw",
+            full_name="Admin Chief",
+            role="admin",
+            is_active=True,
+        )
+        session.add(cg_user)
+        session.add(admin_user)
+        await session.commit()
+
+        # Attempt to link using the admin's email -> must be rejected with 400
+        req = LinkPatientRequest(email="admin_existing@test.com")
+        with pytest.raises(HTTPException) as exc_info:
+            await UserService.link_patient_to_caregiver(cg_user, req, session)
+        assert exc_info.value.status_code == 400
+        assert "already exists with role" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_catalog_service_query_length_and_wildcards():
+    """Verify search_medicines enforces min query length and handles SQL wildcards safely."""
+    from app.services.catalog_service import search_medicines
+    from app.models.medicine_catalog import MedicineCatalog
+    from tests.conftest import TestingSessionLocal
+
+    async with TestingSessionLocal() as session:
+        # Query shorter than 2 chars returns empty list immediately
+        res_short = await search_medicines(session, query="a")
+        assert res_short == []
+
+        res_empty = await search_medicines(session, query="   ")
+        assert res_empty == []
+
+        # Wildcard string with % or _ does not error out
+        res_wild = await search_medicines(session, query="%%__")
+        assert isinstance(res_wild, list)
+
+        # Literal wildcard matching verification:
+        med_pct = MedicineCatalog(
+            brand_name="Glucose 5% Infusion",
+            salt_1_name="Dextrose",
+            is_discontinued=False,
+        )
+        med_num = MedicineCatalog(
+            brand_name="Glucose 500mg Infusion",
+            salt_1_name="Dextrose",
+            is_discontinued=False,
+        )
+        med_underscore = MedicineCatalog(
+            brand_name="Vitamin_D3 Forte",
+            salt_1_name="Cholecalciferol",
+            is_discontinued=False,
+        )
+        med_hyphen = MedicineCatalog(
+            brand_name="Vitamin-D3 Forte",
+            salt_1_name="Cholecalciferol",
+            is_discontinued=False,
+        )
+        session.add_all([med_pct, med_num, med_underscore, med_hyphen])
+        await session.commit()
+
+        # Search for "5%" must match "Glucose 5% Infusion" and NOT "Glucose 500mg Infusion"
+        res_pct = await search_medicines(session, query="5%")
+        matched_pct_names = [m.brand_name for m in res_pct]
+        assert "Glucose 5% Infusion" in matched_pct_names
+        assert "Glucose 500mg Infusion" not in matched_pct_names
+
+        # Search for "_D3" must match "Vitamin_D3 Forte" and NOT "Vitamin-D3 Forte"
+        res_us = await search_medicines(session, query="_D3")
+        matched_us_names = [m.brand_name for m in res_us]
+        assert "Vitamin_D3 Forte" in matched_us_names
+        assert "Vitamin-D3 Forte" not in matched_us_names
+
+        # Verify search_by_salt also treats SQL wildcards as literals
+        from app.services.catalog_service import search_by_salt
+        med_salt_pct = MedicineCatalog(
+            brand_name="Sodium Chloride 0.9% Solution",
+            salt_1_name="NaCl 0.9%",
+            is_discontinued=False,
+        )
+        med_salt_other = MedicineCatalog(
+            brand_name="Sodium Chloride 900mg Solution",
+            salt_1_name="NaCl 900mg",
+            is_discontinued=False,
+        )
+        session.add_all([med_salt_pct, med_salt_other])
+        await session.commit()
+
+        res_salt = await search_by_salt(session, salt_name="0.9%")
+        matched_salt_brands = [m.brand_name for m in res_salt]
+        assert "Sodium Chloride 0.9% Solution" in matched_salt_brands
+        assert "Sodium Chloride 900mg Solution" not in matched_salt_brands
+
+
+def test_disease_taxonomy_token_boundary_enforcement():
+    """Verify DiseaseTaxonomy requires a token boundary after mapped salt during partial matching."""
+    from app.services.disease_taxonomy_service import DiseaseTaxonomy
+
+    dt = DiseaseTaxonomy()
+
+    # Matches when bounded by space or punctuation
+    res_bound_space = dt.classify_medicine("Metformin 500mg")
+    assert res_bound_space["category"] == "Diabetes"
+
+    res_bound_dash = dt.classify_medicine("Metformin-HCL")
+    assert res_bound_dash["category"] == "Diabetes"
+
+    res_bound_slash = dt.classify_medicine("Metformin/Glipizide")
+    assert res_bound_slash["category"] == "Diabetes"
+
+    # Does NOT match when there is no token boundary
+    res_no_bound = dt.classify_medicine("Metformine")
+    assert res_no_bound["category"] == "General Healthcare"
+    assert res_no_bound["confidence"] == "low"
+
+    res_iron_bound = dt.classify_medicine("Iron Supplement")
+    assert res_iron_bound["category"] == "Vitamins"
+
+    res_iron_no_bound = dt.classify_medicine("Ironic")
+    assert res_iron_no_bound["category"] == "General Healthcare"
+
+
+def test_drug_interaction_broad_classes_not_used_as_aliases():
+    """Verify broad physiological/mechanism classes (vasodilator, serotonergic) are not used as A-side drug aliases."""
+    from app.services.drug_interaction_service import DrugInteractionService
+
+    # 1. Nitroglycerin + Isosorbide Dinitrate:
+    # Both have class 'vasodilator', but neither should match A-side 'sildenafil'.
+    # Should NOT trigger 'Potentially Fatal Hypotension (PDE5i + Nitrates)'!
+    warnings_nitrates = DrugInteractionService.check_interactions(
+        candidate_drug_name="Nitroglycerin 0.5mg",
+        active_drug_names=["Isosorbide Dinitrate 10mg"],
+    )
+    assert not any("PDE5i" in w["title"] for w in warnings_nitrates)
+
+    # 2. Fluoxetine + Sertraline:
+    # Both have 'serotonergic', but neither should match A-side 'tramadol'.
+    # Should NOT trigger Tramadol-specific Serotonin Syndrome rule!
+    warnings_ssri = DrugInteractionService.check_interactions(
+        candidate_drug_name="Fluoxetine 20mg",
+        active_drug_names=["Sertraline 50mg"],
+    )
+    assert not any("Tramadol" in w["description"] for w in warnings_ssri)
+
+    # 3. Specific pharmacological class Tadalafil (PDE5i) DOES match Sildenafil (PDE5i) rule against Nitroglycerin
+    warnings_pde5 = DrugInteractionService.check_interactions(
+        candidate_drug_name="Tadalafil 20mg",
+        active_drug_names=["Nitroglycerin 0.5mg"],
+    )
+    assert len(warnings_pde5) >= 1
+    assert any("Hypotension" in w["title"] for w in warnings_pde5)
+
+
+@pytest.mark.asyncio
+async def test_link_patient_all_supported_identifiers():
+    """Verify link_patient_to_caregiver supports patient_id, username, phone, code, email."""
+    from app.services.user_service import UserService
+    from app.schemas.auth_schema import LinkPatientRequest
+    from app.models.user import User
+    from tests.conftest import TestingSessionLocal
+
+    async with TestingSessionLocal() as session:
+        cg_id = uuid.uuid4()
+        cg_user = User(
+            id=cg_id,
+            username="cg_all_ids",
+            email="cg_all_ids@test.com",
+            hashed_password="pw",
+            full_name="Caregiver Identifier Test",
+            role="caregiver",
+            is_active=True,
+        )
+        p1_id = uuid.uuid4()
+        p1 = User(
+            id=p1_id,
+            username="pt_user_one",
+            email="pt_one@test.com",
+            phone="9876500001",
+            hashed_password="pw",
+            full_name="Patient One",
+            role="patient",
+            is_active=True,
+        )
+        p2_id = uuid.uuid4()
+        p2 = User(
+            id=p2_id,
+            username="pt_user_two",
+            email="pt_two@test.com",
+            phone="9876500002",
+            hashed_password="pw",
+            full_name="Patient Two",
+            role="patient",
+            is_active=True,
+        )
+        session.add_all([cg_user, p1, p2])
+        await session.commit()
+
+        # 1. Lookup by username only
+        res_uname = await UserService.link_patient_to_caregiver(
+            cg_user,
+            LinkPatientRequest(username="pt_user_one"),
+            session,
+        )
+        assert res_uname["patient"]["id"] == str(p1_id)
+
+        # 2. Lookup by phone only
+        res_phone = await UserService.link_patient_to_caregiver(
+            cg_user,
+            LinkPatientRequest(phone="9876500002"),
+            session,
+        )
+        assert res_phone["patient"]["id"] == str(p2_id)
+
+        # 3. Lookup by patient_id UUID string
+        res_pid = await UserService.link_patient_to_caregiver(
+            cg_user,
+            LinkPatientRequest(patient_id=str(p1_id)),
+            session,
+        )
+        assert res_pid["patient"]["id"] == str(p1_id)
+
+
+def test_refill_regressors_forward_kwargs():
+    """Verify GradientBoostedRegressor and QuantileGradientBoostedRegressor forward kwargs without discarding."""
+    import sys
+    from pathlib import Path
+    root_dir = Path(__file__).resolve().parent.parent.parent
+    sys.path.insert(0, str(root_dir))
+
+    from ai_training.train_refill import (
+        QuantileGradientBoostedRegressor,
+        GradientBoostedRegressor,
+    )
+
+    # Both models accept arbitrary kwargs without TypeError or silent discarding
+    q_model = QuantileGradientBoostedRegressor(quantile=0.5, n_estimators=10)
+    assert q_model.quantile == 0.5
+    assert q_model.n_estimators == 10
+
+    gb_model = GradientBoostedRegressor(quantile=0.75, n_estimators=25, learning_rate=0.05)
+    assert gb_model.quantile == 0.75
+    assert gb_model.n_estimators == 25
+    assert gb_model.learning_rate == 0.05
+
+

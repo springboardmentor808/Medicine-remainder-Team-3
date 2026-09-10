@@ -44,14 +44,17 @@ class MedicineLite:
     def __init__(self, row: dict):
         self.id = row.get("id", "")
         self.brand_name = row.get("brand_name", "")
+        raw_price = row.get("price_inr")
         try:
-            self.price_inr = float(row.get("price_inr", 0))
+            self.price_inr: Optional[float] = float(raw_price) if raw_price not in (None, "", "null", "None") else None
         except (ValueError, TypeError):
-            self.price_inr = 0.0
+            self.price_inr = None
+
+        raw_unit_price = row.get("price_per_unit_inr")
         try:
-            self.price_per_unit_inr = float(row.get("price_per_unit_inr", 0))
+            self.price_per_unit_inr: Optional[float] = float(raw_unit_price) if raw_unit_price not in (None, "", "null", "None") else None
         except (ValueError, TypeError):
-            self.price_per_unit_inr = 0.0
+            self.price_per_unit_inr = None
         self.is_discontinued = row.get("is_discontinued", "False") == "True"
         self.manufacturer = row.get("manufacturer", "")
         self.dosage_form = row.get("dosage_form", "")
@@ -96,6 +99,9 @@ class GenericSubstitutionEngine:
             )
 
         print(f"[GenericEngine] Loading catalog: {path}")
+        # Reset indexes when catalog reloads
+        self._name_index = {}
+        self._fingerprint_groups = defaultdict(list)
         count = 0
 
         with open(path, "r", encoding="utf-8") as f:
@@ -125,7 +131,8 @@ class GenericSubstitutionEngine:
         brand_name: str,
         max_results: int = 20,
         exclude_discontinued: bool = True,
-        same_dosage_form: bool = False,
+        same_dosage_form: bool = True,
+        exclude_not_cheaper: bool = True,
     ) -> dict:
         """
         Find cheaper generic alternatives for a given branded medicine.
@@ -135,7 +142,8 @@ class GenericSubstitutionEngine:
             max_results: Maximum number of alternatives to return.
             exclude_discontinued: If True, skip discontinued medicines.
             same_dosage_form: If True, only match medicines with the same form
-                              (e.g., only tablets for tablets).
+                              (e.g., only tablets for tablets). Defaults to True.
+            exclude_not_cheaper: If True, exclude alternatives that are not cheaper.
 
         Returns:
             dict with keys:
@@ -183,7 +191,15 @@ class GenericSubstitutionEngine:
             if same_dosage_form and med.dosage_form != source.dosage_form:
                 continue
 
+            # Skip if prices are missing
+            if source.price_per_unit_inr is None or med.price_per_unit_inr is None:
+                continue
+
             savings_per_unit = source.price_per_unit_inr - med.price_per_unit_inr
+            # Exclude alternatives that are not cheaper
+            if exclude_not_cheaper and savings_per_unit <= 0:
+                continue
+
             savings_percent = 0.0
             if source.price_per_unit_inr > 0:
                 savings_percent = (savings_per_unit / source.price_per_unit_inr) * 100
@@ -201,7 +217,7 @@ class GenericSubstitutionEngine:
             })
 
         # Sort by price per unit (cheapest first)
-        alternatives.sort(key=lambda x: x["price_per_unit_inr"])
+        alternatives.sort(key=lambda x: (x["price_per_unit_inr"] if x["price_per_unit_inr"] is not None else float("inf")))
 
         # Trim to max_results
         alternatives = alternatives[:max_results]
@@ -210,7 +226,8 @@ class GenericSubstitutionEngine:
         max_savings = 0.0
         if alternatives:
             cheapest = alternatives[0]["price_per_unit_inr"]
-            max_savings = round(source.price_per_unit_inr - cheapest, 2)
+            if source.price_per_unit_inr is not None and cheapest is not None:
+                max_savings = round(source.price_per_unit_inr - cheapest, 2)
 
         return {
             "query_medicine": {
@@ -235,7 +252,7 @@ class GenericSubstitutionEngine:
             self.load_catalog()
 
         query_lower = query.strip().lower()
-        if not query_lower:
+        if not query_lower or limit <= 0:
             return []
 
         results = []
@@ -291,7 +308,7 @@ if __name__ == "__main__":
         print(f"  Total Alternatives: {result['total_alternatives']}")
         print(f"  Max Savings/unit  : INR {result['max_savings_per_unit_inr']}")
 
-        print(f"\n  Top 5 Cheapest Alternatives:")
+        print("\n  Top 5 Cheapest Alternatives:")
         for i, alt in enumerate(result["alternatives"][:5], 1):
             flag = "[CHEAPER]" if alt["is_cheaper"] else ""
             print(
@@ -301,4 +318,4 @@ if __name__ == "__main__":
                 f"{flag}"
             )
 
-    print(f"\n  [OK] Generic Substitution Engine ready")
+    print("\n  [OK] Generic Substitution Engine ready")

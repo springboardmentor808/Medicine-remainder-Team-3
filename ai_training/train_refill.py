@@ -184,7 +184,9 @@ class QuantileGradientBoostedRegressor:
         quantile: float = 0.50,
         n_estimators: int = 60,
         learning_rate: float = 0.08,
+        **kwargs,
     ):
+        super().__init__(**kwargs)
         self.quantile = quantile
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
@@ -277,8 +279,19 @@ class QuantileGradientBoostedRegressor:
 
 class GradientBoostedRegressor(QuantileGradientBoostedRegressor):
     """Backward-compatible alias with default P50 median quantile."""
-    def __init__(self, n_estimators: int = 60, learning_rate: float = 0.08):
-        super().__init__(quantile=0.50, n_estimators=n_estimators, learning_rate=learning_rate)
+    def __init__(
+        self,
+        quantile: float = 0.50,
+        n_estimators: int = 60,
+        learning_rate: float = 0.08,
+        **kwargs,
+    ):
+        super().__init__(
+            quantile=quantile,
+            n_estimators=n_estimators,
+            learning_rate=learning_rate,
+            **kwargs,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +387,12 @@ def train():
     for gate, passed in gates.items():
         status = "PASSED" if passed else "FAILED"
         print(f"  {gate:20s} : {status}")
+
+    if not gates.get("all_passed", False):
+        failed_gates = [g for g, p in gates.items() if not p and g != "all_passed"]
+        raise RuntimeError(
+            f"Quality gate failure: {', '.join(failed_gates)} did not meet production thresholds. Model artifacts will not be exported."
+        )
 
     # Step 5: Export model
     print("\n[5/5] Exporting model artifacts...")

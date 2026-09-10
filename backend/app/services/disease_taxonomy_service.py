@@ -6,6 +6,7 @@ local disease taxonomy with 176+ active ingredient mappings.
 """
 
 import json
+import re
 from pathlib import Path
 from typing import Optional
 from urllib.request import urlopen, Request
@@ -229,9 +230,9 @@ class DiseaseTaxonomy:
                 "confidence": "high",
             }
 
-        # Partial match (prefix)
+        # Partial match (prefix with token boundary) — require mapped_salt to be bounded by whitespace or punctuation
         for mapped_salt, category in _SALT_TO_DISEASE_LOWER.items():
-            if key.startswith(mapped_salt) or mapped_salt.startswith(key):
+            if len(mapped_salt) >= 4 and re.match(rf"^{re.escape(mapped_salt)}(?:[\s\-_/+,.]|$)", key):
                 return {
                     "salt_name": salt_name.strip(),
                     "category": category,

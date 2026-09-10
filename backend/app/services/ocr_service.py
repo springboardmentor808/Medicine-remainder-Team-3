@@ -329,8 +329,8 @@ def _trocr_fallback_interface(image_crop: Any) -> Optional[str]:
             if match and match.get("verified"):
                 return match.get("matched_medicine") or cand
 
-    # Return longest clean candidate
-    clean_cands = [c for c in candidates if re.search(r"[a-zA-Z]", c)]
+    # Return longest clean candidate containing alphabetic characters
+    clean_cands = [c for c in candidates if any(ch.isalpha() for ch in c)]
     return max(clean_cands, key=len) if clean_cands else None
 
 

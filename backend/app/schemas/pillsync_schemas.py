@@ -1,6 +1,6 @@
 from datetime import datetime
-from pydantic import BaseModel, Field
-from typing import List, Optional
+from pydantic import BaseModel, Field, field_validator
+from typing import Any, List, Optional
 from enum import Enum
 
 class UserRole(str, Enum):
@@ -117,7 +117,16 @@ class RecordActionRequest(BaseModel):
     snooze_minutes: Optional[int] = Field(default=15, ge=1, le=1440)
     notes: Optional[str] = None
 
-    model_config = {"extra": "allow"}
+    @field_validator("action", mode="before")
+    @classmethod
+    def validate_action(cls, v: Any) -> str:
+        if isinstance(v, ReminderAction):
+            return v.value
+        if isinstance(v, str):
+            clean = v.strip().capitalize()
+            if clean in ["Taken", "Missed", "Snooze"]:
+                return clean
+        raise ValueError("Invalid action. Must be 'Taken', 'Missed', or 'Snooze'.")
 
 class DoseLogResponse(BaseModel):
     id: str

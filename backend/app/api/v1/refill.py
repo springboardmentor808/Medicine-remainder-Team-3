@@ -18,10 +18,10 @@ from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.pharmacy_schema import NearbyPharmacyListResponse, PharmacyResponse
 from app.schemas.refill_schema import (
+    CalibratedRefillPrediction,
     RefillPredictionRequest,
     RefillPredictionResponse,
 )
-from app.schemas.refill_schemas import CalibratedRefillPrediction
 from app.services.pharmacy_service import find_nearby_pharmacies
 from app.services.refill_service import (
     calculate_refill_prediction,

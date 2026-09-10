@@ -127,28 +127,40 @@ async def register_device_token(user_id: uuid.UUID, device_token: str) -> bool:
 
 
 async def get_device_tokens(user_id: uuid.UUID) -> list[str]:
-    """Retrieve all stored FCM device tokens for a user across multiple devices."""
+    """Retrieve all stored FCM device tokens for a user across multiple devices.
+    The primary token (from compatibility key) is placed first deterministically.
+    """
     client = get_redis()
-    tokens = set()
     key_single = f"{FCM_TOKEN_PREFIX}:{user_id}"
     key_set = f"{FCM_TOKEN_PREFIX}s:{user_id}"
 
+    primary_token: Optional[str] = None
+    try:
+        single = await client.get(key_single)
+        if single:
+            primary_token = single.decode("utf-8") if isinstance(single, bytes) else str(single)
+    except Exception as e:
+        logger.warning(f"[FCM] Failed to retrieve primary device token from Redis compatibility key: {e}")
+
+    other_tokens = set()
     if hasattr(client, "smembers"):
         try:
             raw_set = await client.smembers(key_set)
             for t in raw_set or []:
-                tokens.add(t.decode("utf-8") if isinstance(t, bytes) else str(t))
+                tok_str = t.decode("utf-8") if isinstance(t, bytes) else str(t)
+                if tok_str:
+                    other_tokens.add(tok_str)
         except Exception as e:
             logger.warning(f"[FCM] Failed to retrieve device tokens from Redis set: {e}")
 
-    try:
-        single = await client.get(key_single)
-        if single:
-            tokens.add(single.decode("utf-8") if isinstance(single, bytes) else str(single))
-    except Exception as e:
-        logger.warning(f"[FCM] Failed to retrieve primary device token from Redis: {e}")
+    # Build deterministic ordered list: primary token first, followed by remaining tokens sorted
+    ordered_tokens: list[str] = []
+    if primary_token:
+        ordered_tokens.append(primary_token)
+        other_tokens.discard(primary_token)
 
-    return sorted(t for t in tokens if t)
+    ordered_tokens.extend(sorted(other_tokens))
+    return [t for t in ordered_tokens if t]
 
 
 async def get_device_token(user_id: uuid.UUID) -> Optional[str]:
@@ -161,6 +173,7 @@ async def get_device_token(user_id: uuid.UUID) -> Optional[str]:
             return single.decode("utf-8") if isinstance(single, bytes) else str(single)
     except Exception as e:
         logger.warning(f"[FCM] Failed reading compatibility key from Redis: {e}")
+
     tokens = await get_device_tokens(user_id)
     return tokens[0] if tokens else None
 
@@ -168,19 +181,33 @@ async def get_device_token(user_id: uuid.UUID) -> Optional[str]:
 async def prune_device_token(user_id: uuid.UUID, device_token: str) -> None:
     """Remove an invalid or rejected FCM device registration token from Redis."""
     client = get_redis()
+    token_clean = device_token.strip()
     key_single = f"{FCM_TOKEN_PREFIX}:{user_id}"
     key_set = f"{FCM_TOKEN_PREFIX}s:{user_id}"
     try:
         if hasattr(client, "srem"):
-            await client.srem(key_set, device_token)
+            await client.srem(key_set, token_clean)
+
         single = await client.get(key_single)
         single_str = single.decode("utf-8") if isinstance(single, bytes) else str(single) if single else None
-        if single_str == device_token:
-            remaining = await get_device_tokens(user_id)
-            if remaining:
-                await client.set(key_single, remaining[0], ex=2592000)
+
+        # If the pruned token was the primary compatibility key
+        if single_str == token_clean:
+            remaining_tokens: list[str] = []
+            if hasattr(client, "smembers"):
+                raw_set = await client.smembers(key_set)
+                for t in raw_set or []:
+                    tok = t.decode("utf-8") if isinstance(t, bytes) else str(t)
+                    if tok and tok != token_clean:
+                        remaining_tokens.append(tok)
+
+            if remaining_tokens:
+                # Preserve the compatibility key by assigning another remaining token
+                await client.set(key_single, sorted(remaining_tokens)[0], ex=2592000)
             else:
+                # No tokens left, delete compatibility key
                 await client.delete(key_single)
+
         logger.info(f"[FCM] Pruned invalid device token for user {user_id}")
     except Exception as e:
         logger.warning(f"[FCM] Failed pruning token from Redis for user {user_id}: {e}")

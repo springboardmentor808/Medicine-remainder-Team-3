@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
 
@@ -10,10 +10,14 @@ import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
  * and provides structured user guidance with recovery actions.
  */
 export default function GlobalError({ error, reset }) {
+  const [errorId] = useState(
+    () => error?.digest || `ERR-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`
+  );
+
   useEffect(() => {
-    // Log exception to monitoring telemetry if configured
-    console.error('[PillSync Error Boundary Caught]:', error);
-  }, [error]);
+    // Log exception with the stable error identifier for telemetry correlation
+    console.error(`[PillSync Error Boundary Caught] [Error ID: ${errorId}]:`, error);
+  }, [error, errorId]);
 
   const isPayloadTooLarge = error?.message?.includes('10 MB') || error?.message?.includes('413');
   const isNotFound = error?.message?.includes('not found') || error?.message?.includes('404');
@@ -60,7 +64,7 @@ export default function GlobalError({ error, reset }) {
         </div>
 
         <p className="text-xs text-slate-500">
-          Error ID: {Date.now().toString(36).toUpperCase()} &bull; PillSync Clinical AI Safety
+          Error ID: {errorId} &bull; PillSync Clinical AI Safety
         </p>
       </div>
     </div>

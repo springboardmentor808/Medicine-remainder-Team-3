@@ -77,3 +77,7 @@ yarn-error.log*
 
 # Generated Catalogs & Cache
 backend/app/catalogs/*.json
+
+# Generated Reports & PDFs
+*.pdf
+tree_structure.html

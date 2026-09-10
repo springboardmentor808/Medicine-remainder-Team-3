@@ -92,51 +92,88 @@ class UserService:
     ) -> dict:
         """Link or auto-provision patient for a caregiver."""
         patient: Optional[User] = None
-        code_clean = (payload.code or "").strip().lower()
-        query_str = (payload.email or payload.patient_name or payload.code or "").strip()
 
-        if payload.code:
+        # 1. Lookup by UUID if patient_id or code is a valid UUID
+        raw_id = (payload.patient_id or payload.code or "").strip()
+        if raw_id:
             try:
-                code_uuid = uuid.UUID(code_clean)
-                res = await db.execute(select(User).where(User.id == code_uuid))
-                patient = res.scalars().first()
-            except (ValueError, AttributeError):
+                code_uuid = uuid.UUID(raw_id)
                 res = await db.execute(
                     select(User).where(
-                        or_(
-                            func.lower(User.email) == code_clean,
-                            func.lower(User.username) == code_clean,
-                        )
+                        User.id == code_uuid,
+                        User.role == UserRole.PATIENT,
+                        User.id != current_user.id,
                     )
                 )
                 patient = res.scalars().first()
+            except (ValueError, AttributeError):
+                pass
 
-        if not patient and query_str:
-            res = await db.execute(
-                select(User).where(
-                    or_(
-                        func.lower(User.email) == query_str.lower(),
-                        func.lower(User.username) == query_str.lower(),
-                        User.phone == query_str,
-                        func.lower(User.full_name) == query_str.lower(),
+        # 2. Comprehensive lookup across all supported patient identifiers
+        if not patient:
+            clauses = []
+            if payload.patient_id:
+                clauses.append(func.lower(User.username) == payload.patient_id.strip().lower())
+                clauses.append(func.lower(User.email) == payload.patient_id.strip().lower())
+            if payload.code:
+                code_clean = payload.code.strip().lower()
+                clauses.append(func.lower(User.email) == code_clean)
+                clauses.append(func.lower(User.username) == code_clean)
+            if payload.email:
+                clauses.append(func.lower(User.email) == payload.email.strip().lower())
+            if payload.username:
+                clauses.append(func.lower(User.username) == payload.username.strip().lower())
+            if payload.phone:
+                clauses.append(User.phone == payload.phone.strip())
+            if payload.patient_name:
+                clauses.append(func.lower(User.full_name) == payload.patient_name.strip().lower())
+
+            if clauses:
+                res = await db.execute(
+                    select(User).where(
+                        User.role == UserRole.PATIENT,
+                        User.id != current_user.id,
+                        or_(*clauses),
                     )
                 )
-            )
-            candidates = list(res.scalars().all())
-            if len(candidates) == 1:
-                patient = candidates[0]
-            elif len(candidates) > 1:
-                exact = [
-                    u for u in candidates
-                    if u.email.lower() == query_str.lower() or u.username.lower() == query_str.lower() or u.phone == query_str
-                ]
-                if len(exact) == 1:
-                    patient = exact[0]
-                else:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Multiple users match '{query_str}'. Please provide the exact patient email or link code.",
+                candidates = list(res.scalars().all())
+                if len(candidates) == 1:
+                    patient = candidates[0]
+                elif len(candidates) > 1:
+                    # Disambiguate with exact match priority: email > username > phone > code
+                    exact = None
+                    if payload.email:
+                        exact = next((u for u in candidates if u.email.lower() == payload.email.strip().lower()), None)
+                    if not exact and payload.username:
+                        exact = next((u for u in candidates if u.username.lower() == payload.username.strip().lower()), None)
+                    if not exact and payload.phone:
+                        exact = next((u for u in candidates if u.phone and u.phone == payload.phone.strip()), None)
+                    if not exact and payload.code:
+                        code_lower = payload.code.strip().lower()
+                        exact = next((u for u in candidates if u.email.lower() == code_lower or u.username.lower() == code_lower), None)
+                    if exact:
+                        patient = exact
+                    else:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Multiple patients match the provided identifiers. Please provide the exact patient email or link code.",
+                        )
+
+        if not patient:
+            # Reject conflicting emails before auto-provisioning
+            if payload.email:
+                existing_email_user = (
+                    await db.execute(
+                        select(User).where(func.lower(User.email) == payload.email.strip().lower())
                     )
+                ).scalars().first()
+                if existing_email_user:
+                    if existing_email_user.role != UserRole.PATIENT:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"A user with email '{payload.email}' already exists with role '{existing_email_user.role}'. Cannot link as patient.",
+                        )
+                    patient = existing_email_user
 
         if not patient:
             new_uname = None
@@ -150,10 +187,22 @@ class UserService:
                 if res.scalars().first():
                     new_uname = f"{new_uname}_{uuid.uuid4().hex[:4]}"
 
+                target_email = payload.email or f"{new_uname}@patient.pillsync.app"
+                conflict_check = (
+                    await db.execute(
+                        select(User).where(func.lower(User.email) == target_email.lower())
+                    )
+                ).scalars().first()
+                if conflict_check:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Email '{target_email}' already exists. Cannot auto-provision patient.",
+                    )
+
                 temp_init_pw = f"PillSync#{uuid.uuid4().hex[:8]}"
                 patient = User(
                     username=new_uname,
-                    email=payload.email or f"{new_uname}@patient.pillsync.app",
+                    email=target_email,
                     full_name=payload.patient_name or payload.email or "Linked Patient",
                     phone=payload.phone,
                     role=UserRole.PATIENT,
@@ -164,10 +213,25 @@ class UserService:
                 await db.flush()
                 await db.refresh(patient)
             else:
+                identifier_label = (
+                    payload.patient_id
+                    or payload.code
+                    or payload.email
+                    or payload.username
+                    or payload.phone
+                    or payload.patient_name
+                    or "unknown"
+                )
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Patient not found with provided identifier '{query_str}'.",
+                    detail=f"Patient not found with provided identifier '{identifier_label}'.",
                 )
+
+        if patient.id == current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Caregiver cannot link themselves as a patient.",
+            )
 
         if patient.role != UserRole.PATIENT and str(patient.role).lower() != "patient":
             raise HTTPException(

@@ -1,5 +1,4 @@
-"""
-PillSync User Management Router.
+"""PillSync User Management Router.
 
 Handles user profile CRUD, admin user listing, and caregiver-patient
 assignment. All endpoints are RBAC-protected.
@@ -473,4 +472,3 @@ async def admin_reset_user_password_endpoint(
         message=f"Password for user '{user.username}' has been reset.",
         detail=temp_pw,
     )
-

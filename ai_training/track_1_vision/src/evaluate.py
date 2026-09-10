@@ -141,3 +141,5 @@ def evaluate_model(
 
 if __name__ == "__main__":
     res = evaluate_model(num_synthetic_samples=50)
+    if not res.get("overall_passed", False):
+        sys.exit(1)

@@ -12,11 +12,10 @@ Features:
   - Paginated results
 
 Usage:
-    from app.services.catalog_service import CatalogService
+    from app.services.catalog_service import search_medicines, find_generic_alternatives
 
-    service = CatalogService()
-    results = await service.search_medicines(db, query="Augmentin", limit=10)
-    alternatives = await service.find_generic_alternatives(db, brand_name="Augmentin 625 Duo Tablet")
+    results = await search_medicines(db, query="Augmentin", limit=10)
+    alternatives = await find_generic_alternatives(db, brand_name="Augmentin 625 Duo Tablet")
 """
 
 from typing import Optional
@@ -54,17 +53,24 @@ async def search_medicines(
     Returns:
         List of matching MedicineCatalog records
     """
-    if not query or len(query.strip()) < 1:
+    if not query or len(query.strip()) < 2:
         return []
 
-    pattern = f"%{query.strip()}%"
+    # Escape LIKE wildcards: %, _, and \
+    escaped_query = (
+        query.strip()
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+    pattern = f"%{escaped_query}%"
 
     stmt = select(MedicineCatalog).where(
-        MedicineCatalog.brand_name.ilike(pattern)
+        MedicineCatalog.brand_name.ilike(pattern, escape="\\")
     )
 
     if exclude_discontinued:
-        stmt = stmt.where(MedicineCatalog.is_discontinued == False)
+        stmt = stmt.where(MedicineCatalog.is_discontinued.is_(False))
 
     if dosage_form:
         stmt = stmt.where(MedicineCatalog.dosage_form == dosage_form)
@@ -93,17 +99,23 @@ async def search_by_salt(
     if not salt_name or len(salt_name.strip()) < 2:
         return []
 
-    pattern = f"%{salt_name.strip()}%"
+    escaped_salt = (
+        salt_name.strip()
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+    pattern = f"%{escaped_salt}%"
 
     stmt = select(MedicineCatalog).where(
         or_(
-            MedicineCatalog.salt_1_name.ilike(pattern),
-            MedicineCatalog.salt_2_name.ilike(pattern),
+            MedicineCatalog.salt_1_name.ilike(pattern, escape="\\"),
+            MedicineCatalog.salt_2_name.ilike(pattern, escape="\\"),
         )
     )
 
     if exclude_discontinued:
-        stmt = stmt.where(MedicineCatalog.is_discontinued == False)
+        stmt = stmt.where(MedicineCatalog.is_discontinued.is_(False))
 
     stmt = stmt.order_by(
         MedicineCatalog.price_per_unit_inr.asc()
@@ -147,9 +159,15 @@ async def find_generic_alternatives(
 
     if not source:
         # Try fuzzy match
+        escaped_brand = (
+            brand_name.strip()
+            .replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+        )
         result = await db.execute(
             select(MedicineCatalog).where(
-                MedicineCatalog.brand_name.ilike(f"%{brand_name.strip()}%")
+                MedicineCatalog.brand_name.ilike(f"%{escaped_brand}%", escape="\\")
             ).limit(1)
         )
         source = result.scalar_one_or_none()
@@ -176,7 +194,7 @@ async def find_generic_alternatives(
     )
 
     if exclude_discontinued:
-        stmt = stmt.where(MedicineCatalog.is_discontinued == False)
+        stmt = stmt.where(MedicineCatalog.is_discontinued.is_(False))
 
     if same_dosage_form:
         stmt = stmt.where(MedicineCatalog.dosage_form == source.dosage_form)
@@ -203,15 +221,19 @@ async def find_generic_alternatives(
             "is_cheaper": savings_per_unit > 0,
         })
 
-    # Count total alternatives
-    count_result = await db.execute(
-        select(func.count(MedicineCatalog.id)).where(
-            and_(
-                MedicineCatalog.composition_fingerprint == source.composition_fingerprint,
-                MedicineCatalog.id != source.id,
-            )
+    # Count total alternatives (applying the same filters as the result set)
+    count_stmt = select(func.count(MedicineCatalog.id)).where(
+        and_(
+            MedicineCatalog.composition_fingerprint == source.composition_fingerprint,
+            MedicineCatalog.id != source.id,
         )
     )
+    if exclude_discontinued:
+        count_stmt = count_stmt.where(MedicineCatalog.is_discontinued.is_(False))
+    if same_dosage_form:
+        count_stmt = count_stmt.where(MedicineCatalog.dosage_form == source.dosage_form)
+
+    count_result = await db.execute(count_stmt)
     total_count = count_result.scalar() or 0
 
     max_savings = 0.0
@@ -254,7 +276,7 @@ async def get_dosage_form_stats(db: AsyncSession) -> list[dict]:
             MedicineCatalog.dosage_form,
             func.count(MedicineCatalog.id).label("count"),
         )
-        .where(MedicineCatalog.is_discontinued == False)
+        .where(MedicineCatalog.is_discontinued.is_(False))
         .group_by(MedicineCatalog.dosage_form)
         .order_by(desc("count"))
     )

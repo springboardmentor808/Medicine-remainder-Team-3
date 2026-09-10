@@ -24,7 +24,7 @@ from fastapi import HTTPException
 from app.models.medicine import Medicine
 from app.models.refill import Refill
 from app.models.schedule import DoseLog
-from app.schemas.refill_schemas import CalibratedRefillPrediction
+from app.schemas.refill_schema import CalibratedRefillPrediction
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 MODEL_PATH = PROJECT_ROOT / "backend" / "app" / "ml_artifacts" / "refill_forecaster_v1.json"
@@ -348,4 +348,3 @@ async def predict_calibrated_refill(
         requires_immediate_reorder=requires_reorder,
         confidence_score=0.94 if _engine.is_loaded else 0.70
     )
-

@@ -288,10 +288,9 @@ class DiseaseTaxonomy:
                 "category": _SALT_TO_DISEASE_LOWER[key],
                 "confidence": "high",
             }
-
-        # Partial match (prefix)
+        # Partial match (prefix) — restrict prefix match to avoid wrong categories
         for mapped_salt, category in _SALT_TO_DISEASE_LOWER.items():
-            if key.startswith(mapped_salt) or mapped_salt.startswith(key):
+            if len(mapped_salt) >= 4 and key.startswith(mapped_salt):
                 return {
                     "salt_name": salt_name.strip(),
                     "category": category,
@@ -328,7 +327,10 @@ class DiseaseTaxonomy:
                 data = json.loads(resp.read().decode("utf-8"))
 
             # NIH API returns [total_count, codes, extra_fields, display_strings]
-            conditions = data[3] if len(data) > 3 else []
+            if not isinstance(data, list) or len(data) <= 3 or not isinstance(data[3], list):
+                return []
+
+            conditions = data[3]
             # Flatten if nested
             flat = []
             for item in conditions:
@@ -338,10 +340,13 @@ class DiseaseTaxonomy:
                     flat.append(str(item))
 
             self._cache[cache_key] = flat
-            self._save_cache()
+            try:
+                self._save_cache()
+            except Exception as cache_err:
+                print(f"  [WARN] Failed to write NIH cache for '{query}': {cache_err}")
             return flat
 
-        except (URLError, HTTPError, TimeoutError, IndexError) as e:
+        except (URLError, HTTPError, TimeoutError, IndexError, json.JSONDecodeError, Exception) as e:
             print(f"  [WARN] NIH API error for '{query}': {e}")
             return []
 
@@ -381,10 +386,9 @@ if __name__ == "__main__":
         "Vitamin D3", "Unknown Drug XYZ",
     ]
 
-    print(f"\n--- Classification Tests ---")
+    print("\n--- Classification Tests ---")
     for salt in test_salts:
         result = taxonomy.classify_medicine(salt)
         print(f"  {salt:25s} -> {result['category']:25s} (confidence: {result['confidence']})")
 
-    print(f"\n  Total salt mappings: {len(SALT_TO_DISEASE_MAP)}")
     print("  [OK] Disease Taxonomy Engine ready")

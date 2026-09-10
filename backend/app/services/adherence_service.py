@@ -218,7 +218,10 @@ class AdherenceService:
         raw_action = req.action.value if hasattr(req.action, "value") else str(req.action)
         action_clean = raw_action.strip().capitalize()
         if action_clean not in ["Taken", "Missed", "Snooze"]:
-            action_clean = "Taken"
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid action '{raw_action}'. Must be one of: Taken, Missed, Snooze.",
+            )
 
         schedule_uuid = uuid.UUID(str(req.schedule_id)) if req.schedule_id else None
         if not schedule_uuid and req.medicine_id:

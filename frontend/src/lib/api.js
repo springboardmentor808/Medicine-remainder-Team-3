@@ -119,11 +119,25 @@ apiClient.interceptors.response.use(
 );
 
 // ── Helper & Graceful Error Normalization ─────────────────────────────────────
-export const emitToast = (message, type = 'error') => {
+export const emitToast = (messageOrObj, typeOrMsg = 'error') => {
   if (typeof window !== 'undefined') {
+    let finalMessage = messageOrObj;
+    let finalType = typeOrMsg;
+
+    const KNOWN_TYPES = ['error', 'success', 'info', 'warning'];
+
+    if (messageOrObj && typeof messageOrObj === 'object') {
+      finalMessage = messageOrObj.message || messageOrObj.detail || '';
+      finalType = messageOrObj.type || 'error';
+    } else if (KNOWN_TYPES.includes(messageOrObj) && !KNOWN_TYPES.includes(typeOrMsg)) {
+      // Reverse argument order: emitToast(type, message)
+      finalType = messageOrObj;
+      finalMessage = typeOrMsg;
+    }
+
     window.dispatchEvent(
       new CustomEvent('pillsync:toast', {
-        detail: { message, type, id: Date.now() },
+        detail: { message: finalMessage, type: finalType, id: Date.now() },
       })
     );
   }
@@ -891,4 +905,3 @@ export const assistantAPI = {
 
 // ── Default Export ────────────────────────────────────────────────────────────
 export default apiClient;
-
