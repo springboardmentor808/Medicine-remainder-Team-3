@@ -94,6 +94,46 @@ DDI_RULES: List[Dict[str, Any]] = [
         "description": "Potent CYP3A4 inhibition elevates atorvastatin serum concentrations by up to 400%, precipitating severe myopathy, acute rhabdomyolysis, and renal failure.",
         "action": "Temporarily suspend statin therapy during course of antibiotic/antifungal.",
     },
+
+    # 7. Nitrates + ACE Inhibitors (Severe Hypotensive Collapse)
+    {
+        "drug_a": "nitroglycerin",
+        "drug_b_classes": ["lisinopril", "enalapril", "ramipril", "ace_inhibitor"],
+        "severity": "CRITICAL",
+        "title": "Severe Hypotensive Collapse (Nitrates + ACE Inhibitors)",
+        "description": "Dual systemic arterial and venous vasodilation. Nitroglycerin promotes cGMP venous dilation while Lisinopril prevents angiotensin II vasoconstriction, precipitating severe orthostatic hypotension, syncope, and hypoperfusion.",
+        "action": "Titrate doses with extreme caution. Avoid rapid postural changes. Monitor blood pressure closely after nitrate administration.",
+    },
+
+    # 8. Macrolides + Opioids (CYP3A4 Inhibition & Respiratory Depression)
+    {
+        "drug_a": "clarithromycin",
+        "drug_b_classes": ["tramadol"],
+        "severity": "CRITICAL",
+        "title": "Severe Tramadol Toxicity & Respiratory Depression (Clarithromycin + Tramadol)",
+        "description": "Clarithromycin is a potent CYP3A4 inhibitor that severely retards Tramadol elimination, causing massive plasma accumulation of active opioid compounds, profound CNS depression, and life-threatening respiratory arrest.",
+        "action": "ABSOLUTE CONTRAINDICATION. Avoid combination. Substitute Clarithromycin with Azithromycin or switch to non-opioid analgesia.",
+    },
+
+    # 9. Macrolides + Nitrates (Hemodynamic Instability)
+    {
+        "drug_a": "clarithromycin",
+        "drug_b_classes": ["nitroglycerin", "nitrates"],
+        "severity": "MAJOR",
+        "title": "Hemodynamic Instability & Cardiac Conduction Mismatch (Clarithromycin + Nitroglycerin)",
+        "description": "Macrolide antibiotics alter autonomic cardiovascular tone and hepatic CYP3A4 clearance dynamics, destabilizing nitrate-mediated vascular smooth muscle relaxation and inducing erratic hemodynamic swings.",
+        "action": "Monitor blood pressure and pulse rate closely. Administer nitrate only while seated.",
+    },
+
+    # 10. Calcium Supplements + ACE Inhibitors (Bioavailability Reduction)
+    {
+        "drug_a": "calcium",
+        "drug_b_classes": ["lisinopril", "enalapril", "ramipril", "ace_inhibitor"],
+        "severity": "MODERATE",
+        "title": "Reduced ACE Inhibitor Absorption (Calcium + Lisinopril)",
+        "description": "Oral polyvalent calcium salts alter gastric pH and form insoluble chelates with ACE inhibitors, reducing gastrointestinal bioavailability and therapeutic efficacy.",
+        "action": "Separate administration times by at least 2 hours (e.g. Lisinopril in morning, Calcium with lunch/dinner).",
+    },
 ]
 
 # Drug class mapping for active ingredients
@@ -116,6 +156,7 @@ DRUG_CLASS_MAP: Dict[str, List[str]] = {
     "losartan": ["arb", "raas_blocker"],
     "enalapril": ["ace_inhibitor", "raas_blocker"],
     "ramipril": ["ace_inhibitor", "raas_blocker"],
+    "lisinopril": ["ace_inhibitor", "raas_blocker"],
     "spironolactone": ["aldosterone_antagonist", "potassium_sparing_diuretic"],
     "metformin": ["biguanide", "antidiabetic"],
     "azithromycin": ["macrolide", "qt_prolonging"],
@@ -127,6 +168,8 @@ DRUG_CLASS_MAP: Dict[str, List[str]] = {
     "escitalopram": ["ssri", "serotonergic"],
     "atorvastatin": ["statin", "cyp3a4_substrate"],
     "clarithromycin": ["macrolide", "cyp3a4_inhibitor"],
+    "calcium": ["mineral_supplement", "divalent_cation"],
+    "paracetamol": ["analgesic", "antipyretic", "acetaminophen"],
 }
 
 # Broad mechanism / physiological classes that must NOT be used as drug aliases for drug A

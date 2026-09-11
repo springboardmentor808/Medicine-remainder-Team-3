@@ -301,10 +301,28 @@ function ScanPageInner() {
                     </span>
                     <Badge variant="taken" size="xs">Ready to Save</Badge>
                   </div>
-                  <div className="space-y-1 text-caption text-on-surface">
-                    <p><strong>Medicine:</strong> {extractedData.medicine_name || 'Not detected'}</p>
-                    <p><strong>Dosage:</strong> {extractedData.dosage || 'Not detected'}</p>
-                    <p><strong>Frequency:</strong> {extractedData.frequency || '1x daily'}</p>
+                  <div className="space-y-1.5 text-caption text-on-surface">
+                    {extractedData.medicines && extractedData.medicines.length > 1 ? (
+                      <div className="space-y-1.5">
+                        <p className="font-bold text-teal-700 dark:text-teal-300 text-xs">
+                          Multi-Rx Detected ({extractedData.medicines.length} Medicines):
+                        </p>
+                        <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                          {extractedData.medicines.map((m, idx) => (
+                            <div key={idx} className="p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
+                              <span className="font-semibold text-slate-800 dark:text-slate-100">{m.medicine_name} {m.dosage ? `(${m.dosage})` : ''}</span>
+                              <span className="text-[10px] text-teal-600 dark:text-teal-400 font-bold">{m.frequency || `${m.daily_frequency || 1}x/day`}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <p><strong>Medicine:</strong> {extractedData.medicine_name || 'Not detected'}</p>
+                        <p><strong>Dosage:</strong> {extractedData.dosage || 'Not detected'}</p>
+                        <p><strong>Frequency:</strong> {extractedData.frequency || '1x daily'}</p>
+                      </>
+                    )}
                   </div>
                   <Button
                     variant="primary"

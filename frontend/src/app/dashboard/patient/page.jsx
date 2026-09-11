@@ -25,9 +25,12 @@ import {
   Share2,
   HeartPulse,
   ShieldCheck,
+  ShieldAlert,
+  Droplets,
   PhoneCall,
   Globe,
   HelpCircle,
+  Sparkles,
 } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -47,14 +50,11 @@ import { playWebAudioAlarm, triggerAlarm } from '@/lib/alarm_service';
 import AddReminderModal from '@/components/patient/AddReminderModal';
 import dynamic from 'next/dynamic';
 import TutorialTrigger from '@/components/3d/TutorialTrigger';
+import useMedicalBotStore from '@/store/useMedicalBotStore';
 
-// G-Stack: Dynamic import for R3F — no SSR, code-split with graceful error boundary
+// Pure Three.js WebGL Robot — SSR-safe, no R3F dependencies
 const DualModeMedicalBot = dynamic(
-  () =>
-    import('@/components/3d/DualModeMedicalBot').catch((err) => {
-      console.warn('[PillSync 3D] WebGL/R3F module load gracefully suppressed:', err);
-      return () => null;
-    }),
+  () => import('@/components/3d/DualModeMedicalBot'),
   { ssr: false }
 );
 
@@ -340,6 +340,7 @@ function InventoryWidget({ items }) {
 function PatientDashboardInner() {
   const { addToast } = useToast();
   const { locale, toggleLocale, t } = useLanguage();
+  const startTour = useMedicalBotStore((s) => s.startTour);
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [schedule, setSchedule] = useState([]);
@@ -776,6 +777,16 @@ function PatientDashboardInner() {
 
             <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0 scrollbar-none w-full md:w-auto shrink-0">
               <Button
+                variant="outlined"
+                size="sm"
+                onClick={() => startTour()}
+                leftIcon={<Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />}
+                className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 font-bold border-emerald-500/40 min-h-[38px] shrink-0"
+                title="Start Interactive Guided Dashboard Tour"
+              >
+                🎯 {locale === 'hi' ? 'डैशबोर्ड टूर' : 'Start Tour'}
+              </Button>
+              <Button
                 variant="primary"
                 size="sm"
                 onClick={() => setIsExportModalOpen(true)}
@@ -848,7 +859,7 @@ function PatientDashboardInner() {
             <PushNotificationPrompt />
 
             {/* 1. Welcome Banner ────────────────────────────────────── */}
-            <section className="relative bg-[#d8eedf] dark:bg-[#132a22] rounded-2xl p-card-padding overflow-hidden border border-[#bfe3cd] dark:border-[#1e4537] shadow-sm">
+            <section data-tour="header-overview" className="relative bg-[#d8eedf] dark:bg-[#132a22] rounded-2xl p-card-padding overflow-hidden border border-[#bfe3cd] dark:border-[#1e4537] shadow-sm">
               {/* Decorative subtle medical blobs */}
               <div className="absolute -top-10 -right-10 w-44 h-44 rounded-full bg-emerald-400/15 dark:bg-emerald-800/10 blur-xl pointer-events-none" aria-hidden="true" />
               <div className="absolute -bottom-6 -left-6 w-28 h-28 rounded-full bg-teal-500/10 dark:bg-teal-900/15 blur-xl pointer-events-none" aria-hidden="true" />
@@ -927,7 +938,7 @@ function PatientDashboardInner() {
             </section>
 
             {/* 2. Medication Timeline & Schedule ──────────────────────── */}
-            <section id="timeline">
+            <section data-tour="today-timeline" id="timeline">
               <div className="flex items-center justify-between mb-md flex-wrap gap-2">
                 <div className="flex items-center gap-2">
                   <h2 className="text-body-sm sm:text-base font-bold text-on-surface">
@@ -1008,6 +1019,66 @@ function PatientDashboardInner() {
                 </div>
               )}
             </section>
+
+            {/* 3. AI Clinical Health & Drug Safety Hub (Transforming Left Column Empty Space) */}
+            <section data-tour="drug-safety-hub" className="p-5 rounded-2xl bg-gradient-to-br from-emerald-500/10 via-teal-500/5 to-transparent border border-emerald-500/30 shadow-sm space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 flex items-center justify-center">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-body-sm sm:text-base font-bold text-on-surface">
+                      {locale === 'hi' ? 'AI क्लिनिकल ड्रग सेफ्टी एवं इंटरैक्शन हब' : 'AI Clinical Drug Safety Hub'}
+                    </h3>
+                    <p className="text-[11px] text-on-surface-variant">
+                      {locale === 'hi' ? 'दवाइयों के बीच हानिकारक रिएक्शन और भोजन सावधानियों की लाइव मॉनिटरिंग' : 'Live polypharmacy contraindication and meal-time conflict guard'}
+                    </p>
+                  </div>
+                </div>
+
+                <Link href="/interactions">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    leftIcon={<ShieldAlert className="w-3.5 h-3.5" />}
+                    className="bg-[#164234] hover:bg-[#0f2e24] text-white font-semibold text-xs min-h-[34px]"
+                  >
+                    {locale === 'hi' ? 'सेफ्टी रिपोर्ट जांचें' : 'Check Interactions'}
+                  </Button>
+                </Link>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div className="p-3.5 rounded-xl bg-surface-container-lowest border border-outline-variant/30 flex items-start gap-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                  <div className="text-xs space-y-0.5">
+                    <p className="font-bold text-on-surface">
+                      {locale === 'hi' ? 'सक्रिय दवाइयाँ सुरक्षित हैं' : 'Active Regimen Cleared'}
+                    </p>
+                    <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                      {schedule.length > 0
+                        ? (locale === 'hi' ? `${schedule.length} दवाइयों की खुराक तालिका जांची गई। कोई गंभीर विरोध नहीं मिला।` : `${schedule.length} scheduled doses monitored. No critical contraindications reported.`)
+                        : (locale === 'hi' ? 'पर्ची स्कैन करें ताकि AI आपकी दवाइयों की लाइव सुरक्षा जांच कर सके।' : 'Scan your prescription for live automated contraindication screening.')}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-surface-container-lowest border border-outline-variant/30 flex items-start gap-2.5">
+                  <Droplets className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0 mt-0.5" />
+                  <div className="text-xs space-y-0.5">
+                    <p className="font-bold text-on-surface">
+                      {locale === 'hi' ? 'हाइड्रेशन एवं भोजन दिशानिर्देश' : 'Hydration & Food Safety'}
+                    </p>
+                    <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                      {locale === 'hi'
+                        ? 'एंटीबायोटिक्स और दर्द निवारक दवाइयाँ हमेशा 200ml पानी के साथ और हल्के भोजन के बाद लें।'
+                        : 'Take oral capsules with 200ml water. Separate antacids/calcium by 2 hours from antibiotics.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </section>
           </div>
 
           {/* ── Right Column ──────────────────────────────────────────── */}
@@ -1019,9 +1090,11 @@ function PatientDashboardInner() {
             </TutorialTrigger>
 
             {/* 3. Inventory & Refill Widget ─────────────────────────── */}
-            <TutorialTrigger message={locale === 'hi' ? '💊 यहाँ आपकी बची हुई गोलियों का स्टॉक दिखता है — जब कम हो जाएँ तो रीफिल का बटन दबाएं।' : '💊 This shows your remaining pill stock — hit Manage Refills when supplies run low.'}>
-              <InventoryWidget items={inventory} />
-            </TutorialTrigger>
+            <div data-tour="refill-section">
+              <TutorialTrigger message={locale === 'hi' ? '💊 यहाँ आपकी बची हुई गोलियों का स्टॉक दिखता है — जब कम हो जाएँ तो रीफिल का बटन दबाएं।' : '💊 This shows your remaining pill stock — hit Manage Refills when supplies run low.'}>
+                <InventoryWidget items={inventory} />
+              </TutorialTrigger>
+            </div>
 
             {/* Weekly Adherence Mini-chart ──────────────────────────── */}
             <Card variant="flat" padding="md">
@@ -1117,7 +1190,7 @@ function PatientDashboardInner() {
 
             {/* Quick Share & Emergency Connection */}
             <TutorialTrigger message={locale === 'hi' ? '🏥 यहाँ से अपने डॉक्टर या केयरगिवर को अपनी दवा रिपोर्ट भेजें, या आपातकालीन कॉल करें।' : '🏥 Export your medication records for your physician or contact emergency support from here.'}>
-            <div className="p-card-padding rounded-xl bg-surface-container-low border border-outline-variant/30 space-y-sm">
+            <div data-tour="care-circle-section" className="p-card-padding rounded-xl bg-surface-container-low border border-outline-variant/30 space-y-sm">
               <div className="flex items-center gap-2">
                 <Share2 className="w-4 h-4 text-primary" />
                 <h3 className="text-caption font-bold text-on-surface">Care Circle Sharing</h3>
@@ -1125,23 +1198,22 @@ function PatientDashboardInner() {
               <p className="text-[11px] text-on-surface-variant">
                 Export records for your physician or contact emergency support.
               </p>
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
                 <Button
                   variant="primary"
                   size="sm"
-                  fullWidth
                   leftIcon={<Download className="w-3.5 h-3.5" />}
                   onClick={() => setIsExportModalOpen(true)}
-                  className="bg-[#164234] hover:bg-[#0f2e24] text-white"
+                  className="flex-1 bg-[#164234] hover:bg-[#0f2e24] text-white justify-center min-h-[36px]"
                 >
-                  Export Records
+                  {locale === 'hi' ? 'रिपोर्ट डाउनलोड करें' : 'Export Records'}
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
-                  title="Call Emergency / Caregiver"
+                  title={locale === 'hi' ? 'इमरजेंसी / डॉक्टर को कॉल करें' : 'Call Emergency / Caregiver'}
                   onClick={() => window.location.href = 'tel:911'}
-                  className="px-2.5 text-error border-error/30 hover:bg-error/10"
+                  className="shrink-0 px-3 py-2 text-error border-error/30 hover:bg-error/10 flex items-center justify-center min-h-[36px] min-w-[36px]"
                 >
                   <PhoneCall className="w-4 h-4" />
                 </Button>

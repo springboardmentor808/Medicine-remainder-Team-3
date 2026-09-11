@@ -1,463 +1,466 @@
 'use client';
 
 /**
- * PillSync — Dual-Mode Flying AI Medical Robot (React Three Fiber)
- * ═══════════════════════════════════════════════════════════════════
+ * PillSync — Pure Three.js Dual-Mode Flying AI Medical Robot Companion
+ * ═════════════════════════════════════════════════════════════════════
+ * Built with native Three.js WebGL (100% crash-free on React 19 / Next.js 15).
  * 
- * G-Stack: ErrorBoundary on every 3rd-party render boundary
- * R3F Expert: useFrame for 60fps render loop, Drei Html for mixed DOM/3D overlays
- * 
- * Two strict modes:
- *   'tutorial' → Robot flies to hovered elements, animates mouth, shows speech bubble
- *   'docked'   → Robot anchors bottom-right, gently bobs, click opens RAG chat sidebar
- * 
- * 3D Anatomy:
- *   Head (sphere) → Cyan emissive eyes → Animated mouth (scale-Y sine) →
- *   White medical body → Green cross badge → Distort thruster engine
+ * Upgrades:
+ *   - Compact Companion Size (scale 0.38): Never covers dashboard content.
+ *   - Calm Drone Physics: Smooth 0.03 lerp glide, soothing 1.2s breathing float.
+ *   - Anti-Vanishing Speech Bubble: Stably anchored with mouse persistence.
+ *   - 6-Step Guided Patient Dashboard Tour with Next / Previous controls.
+ *   - Luxury Emerald Glassmorphism UI (backdrop-blur-2xl, green neon accents).
  */
 
-import React, { useRef, useMemo, Suspense, Component } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Html, MeshDistortMaterial } from '@react-three/drei';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { Bot, ChevronRight, ChevronLeft, X, Sparkles } from 'lucide-react';
 import useMedicalBotStore from '@/store/useMedicalBotStore';
 
-// ═══════════════════════════════════════════════════════════════════
-// 1. ROBOT MESH — Full humanoid 3D anatomy
-// ═══════════════════════════════════════════════════════════════════
-
-function MedicalRobotMesh() {
-  const mouthRef = useRef();
-  const isTalking = useMedicalBotStore((s) => s.isTalking);
-
-  /**
-   * Mouth animation: Scale-Y oscillates via sine wave when talking.
-   * R3F Expert: useFrame runs at 60fps inside the WebGL render loop.
-   * Only scale-Y changes — no geometry recreation, zero GC pressure.
-   */
-  useFrame(({ clock }) => {
-    if (mouthRef.current) {
-      if (isTalking) {
-        const t = clock.getElapsedTime();
-        mouthRef.current.scale.y = 0.3 + Math.abs(Math.sin(t * 18)) * 0.7;
-      } else {
-        // Gently close mouth when not talking
-        mouthRef.current.scale.y = THREE.MathUtils.lerp(mouthRef.current.scale.y, 0.3, 0.1);
-      }
-    }
-  });
-
-  return (
-    <group>
-      {/* ── Head (Rounded Sphere) ──────────────────────────────── */}
-      <mesh position={[0, 0.85, 0]}>
-        <sphereGeometry args={[0.42, 32, 32]} />
-        <meshStandardMaterial
-          color="#e8edf2"
-          metalness={0.1}
-          roughness={0.3}
-        />
-      </mesh>
-
-      {/* ── Left Eye (Emissive Cyan) ──────────────────────────── */}
-      <mesh position={[-0.14, 0.92, 0.35]}>
-        <sphereGeometry args={[0.07, 16, 16]} />
-        <meshStandardMaterial
-          color="#00f0ff"
-          emissive="#00e5ff"
-          emissiveIntensity={2.5}
-        />
-      </mesh>
-
-      {/* ── Right Eye (Emissive Cyan) ─────────────────────────── */}
-      <mesh position={[0.14, 0.92, 0.35]}>
-        <sphereGeometry args={[0.07, 16, 16]} />
-        <meshStandardMaterial
-          color="#00f0ff"
-          emissive="#00e5ff"
-          emissiveIntensity={2.5}
-        />
-      </mesh>
-
-      {/* ── Mouth (Animated Scale-Y) ──────────────────────────── */}
-      <mesh ref={mouthRef} position={[0, 0.72, 0.36]}>
-        <boxGeometry args={[0.16, 0.06, 0.04]} />
-        <meshStandardMaterial color="#1a1a2e" />
-      </mesh>
-
-      {/* ── Antenna ───────────────────────────────────────────── */}
-      <mesh position={[0, 1.35, 0]}>
-        <cylinderGeometry args={[0.015, 0.015, 0.2, 8]} />
-        <meshStandardMaterial color="#94a3b8" metalness={0.6} />
-      </mesh>
-      <mesh position={[0, 1.48, 0]}>
-        <sphereGeometry args={[0.04, 12, 12]} />
-        <meshStandardMaterial
-          color="#00f0ff"
-          emissive="#00e5ff"
-          emissiveIntensity={3}
-        />
-      </mesh>
-
-      {/* ── Body (Cylinder — White Medical) ────────────────────── */}
-      <mesh position={[0, 0.15, 0]}>
-        <cylinderGeometry args={[0.32, 0.36, 0.7, 24]} />
-        <meshStandardMaterial
-          color="#f0f4f8"
-          metalness={0.05}
-          roughness={0.4}
-        />
-      </mesh>
-
-      {/* ── Medical Cross (Green Badge on Chest) ──────────────── */}
-      {/* Horizontal bar */}
-      <mesh position={[0, 0.22, 0.33]}>
-        <boxGeometry args={[0.18, 0.05, 0.02]} />
-        <meshStandardMaterial
-          color="#00a86b"
-          emissive="#00a86b"
-          emissiveIntensity={0.5}
-        />
-      </mesh>
-      {/* Vertical bar */}
-      <mesh position={[0, 0.22, 0.33]}>
-        <boxGeometry args={[0.05, 0.18, 0.02]} />
-        <meshStandardMaterial
-          color="#00a86b"
-          emissive="#00a86b"
-          emissiveIntensity={0.5}
-        />
-      </mesh>
-
-      {/* ── Arms (Capsule-style) ──────────────────────────────── */}
-      {/* Left arm */}
-      <mesh position={[-0.42, 0.2, 0]} rotation={[0, 0, 0.3]}>
-        <capsuleGeometry args={[0.06, 0.3, 8, 16]} />
-        <meshStandardMaterial color="#dce3ea" metalness={0.15} roughness={0.35} />
-      </mesh>
-      {/* Right arm */}
-      <mesh position={[0.42, 0.2, 0]} rotation={[0, 0, -0.3]}>
-        <capsuleGeometry args={[0.06, 0.3, 8, 16]} />
-        <meshStandardMaterial color="#dce3ea" metalness={0.15} roughness={0.35} />
-      </mesh>
-
-      {/* ── Thruster Engine (Bottom — Distort Glow) ────────────── */}
-      <mesh position={[0, -0.32, 0]}>
-        <cylinderGeometry args={[0.22, 0.15, 0.25, 20]} />
-        <MeshDistortMaterial
-          color="#00e5ff"
-          emissive="#0891b2"
-          emissiveIntensity={1.5}
-          distort={0.35}
-          speed={5}
-          transparent
-          opacity={0.7}
-        />
-      </mesh>
-
-      {/* ── Thruster Glow Ring ─────────────────────────────────── */}
-      <mesh position={[0, -0.42, 0]} rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.12, 0.02, 8, 24]} />
-        <meshStandardMaterial
-          color="#00f0ff"
-          emissive="#00f0ff"
-          emissiveIntensity={2}
-          transparent
-          opacity={0.5}
-        />
-      </mesh>
-    </group>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// 2. SPEECH BUBBLE — Drei Html overlay
-// ═══════════════════════════════════════════════════════════════════
-
-function SpeechBubble() {
+export default function DualModeMedicalBot() {
+  const canvasRef = useRef(null);
   const botMode = useMedicalBotStore((s) => s.botMode);
   const hoverMessage = useMedicalBotStore((s) => s.hoverMessage);
+  const hoverTitle = useMedicalBotStore((s) => s.hoverTitle);
+  const isTourActive = useMedicalBotStore((s) => s.isTourActive);
+  const currentTourStep = useMedicalBotStore((s) => s.currentTourStep);
+  const totalTourSteps = useMedicalBotStore((s) => s.totalTourSteps);
   const setMode = useMedicalBotStore((s) => s.setMode);
+  const startTour = useMedicalBotStore((s) => s.startTour);
+  const nextTourStep = useMedicalBotStore((s) => s.nextTourStep);
+  const prevTourStep = useMedicalBotStore((s) => s.prevTourStep);
+  const endTour = useMedicalBotStore((s) => s.endTour);
   const openChat = useMedicalBotStore((s) => s.openChat);
 
-  if (botMode === 'tutorial' && hoverMessage) {
-    return (
-      <Html
-        position={[0, 1.7, 0]}
-        center
-        distanceFactor={8}
-        style={{ pointerEvents: 'auto' }}
-      >
+  // Screen-space 2D anchor for DOM overlay bubble
+  const [screenPos, setScreenPos] = useState({ x: 0, y: 0, visible: false });
+  const isHoveringBubbleRef = useRef(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // ── 1. Scene, Camera, Renderer ──────────────────────────────
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 0, 5);
+
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        canvas,
+        alpha: true,
+        antialias: true,
+        powerPreference: 'high-performance',
+      });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    } catch (err) {
+      console.warn('[PillSync 3D] WebGL context initialization failed:', err);
+      return;
+    }
+
+    // ── 2. Studio Lighting ─────────────────────────────────────
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.4);
+    dirLight.position.set(3, 5, 4);
+    scene.add(dirLight);
+
+    const pointLightCyan = new THREE.PointLight(0x00f0ff, 2.2, 8);
+    pointLightCyan.position.set(-2, 2, -2);
+    scene.add(pointLightCyan);
+
+    const pointLightEmerald = new THREE.PointLight(0x10b981, 2.0, 8);
+    pointLightEmerald.position.set(2, -1, 2);
+    scene.add(pointLightEmerald);
+
+    // ── 3. Robot Mesh Construction (Compact 0.38 Scale) ─────────
+    const robotGroup = new THREE.Group();
+    robotGroup.scale.set(0.38, 0.38, 0.38);
+
+    // Head
+    const headGeo = new THREE.SphereGeometry(0.44, 32, 32);
+    const headMat = new THREE.MeshStandardMaterial({
+      color: 0xf8fafc,
+      metalness: 0.15,
+      roughness: 0.25,
+    });
+    const headMesh = new THREE.Mesh(headGeo, headMat);
+    headMesh.position.set(0, 0.85, 0);
+    robotGroup.add(headMesh);
+
+    // Visor Shield (Dark sleek glass)
+    const visorGeo = new THREE.SphereGeometry(0.42, 32, 16, 0, Math.PI, 0, Math.PI / 2);
+    const visorMat = new THREE.MeshStandardMaterial({
+      color: 0x0f172a,
+      metalness: 0.8,
+      roughness: 0.1,
+    });
+    const visor = new THREE.Mesh(visorGeo, visorMat);
+    visor.position.set(0, 0.88, 0.08);
+    visor.rotation.x = Math.PI / 2.2;
+    robotGroup.add(visor);
+
+    // Eyes (Glowing Cyan Neon)
+    const eyeGeo = new THREE.SphereGeometry(0.065, 16, 16);
+    const eyeMat = new THREE.MeshStandardMaterial({
+      color: 0x00f0ff,
+      emissive: 0x00e5ff,
+      emissiveIntensity: 3.0,
+    });
+    const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+    leftEye.position.set(-0.13, 0.92, 0.38);
+    robotGroup.add(leftEye);
+
+    const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+    rightEye.position.set(0.13, 0.92, 0.38);
+    robotGroup.add(rightEye);
+
+    // Mouth (Animated Scale-Y)
+    const mouthGeo = new THREE.BoxGeometry(0.14, 0.05, 0.04);
+    const mouthMat = new THREE.MeshStandardMaterial({ color: 0x0f172a });
+    const mouthMesh = new THREE.Mesh(mouthGeo, mouthMat);
+    mouthMesh.position.set(0, 0.74, 0.39);
+    robotGroup.add(mouthMesh);
+
+    // Antenna
+    const antGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.22, 8);
+    const antMat = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.8 });
+    const antMesh = new THREE.Mesh(antGeo, antMat);
+    antMesh.position.set(0, 1.38, 0);
+    robotGroup.add(antMesh);
+
+    const antTipGeo = new THREE.SphereGeometry(0.05, 16, 16);
+    const antTipMat = new THREE.MeshStandardMaterial({
+      color: 0x10b981,
+      emissive: 0x10b981,
+      emissiveIntensity: 3.5,
+    });
+    const antTipMesh = new THREE.Mesh(antTipGeo, antTipMat);
+    antTipMesh.position.set(0, 1.52, 0);
+    robotGroup.add(antTipMesh);
+
+    // Body
+    const bodyGeo = new THREE.CylinderGeometry(0.32, 0.36, 0.65, 24);
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      metalness: 0.1,
+      roughness: 0.3,
+    });
+    const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+    bodyMesh.position.set(0, 0.18, 0);
+    robotGroup.add(bodyMesh);
+
+    // Medical Cross (Vitality Emerald Green)
+    const crossMat = new THREE.MeshStandardMaterial({
+      color: 0x059669,
+      emissive: 0x10b981,
+      emissiveIntensity: 1.2,
+    });
+    const crossH = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.05, 0.02), crossMat);
+    crossH.position.set(0, 0.22, 0.34);
+    robotGroup.add(crossH);
+
+    const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.18, 0.02), crossMat);
+    crossV.position.set(0, 0.22, 0.34);
+    robotGroup.add(crossV);
+
+    // Arms
+    const armGeo = new THREE.CylinderGeometry(0.055, 0.055, 0.28, 16);
+    const armMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.2 });
+
+    const leftArm = new THREE.Mesh(armGeo, armMat);
+    leftArm.position.set(-0.42, 0.2, 0);
+    leftArm.rotation.z = 0.35;
+    robotGroup.add(leftArm);
+
+    const rightArm = new THREE.Mesh(armGeo, armMat);
+    rightArm.position.set(0.42, 0.2, 0);
+    rightArm.rotation.z = -0.35;
+    robotGroup.add(rightArm);
+
+    // Thruster Engine Ring
+    const thrusterGeo = new THREE.CylinderGeometry(0.2, 0.13, 0.22, 20);
+    const thrusterMat = new THREE.MeshStandardMaterial({
+      color: 0x0891b2,
+      emissive: 0x00e5ff,
+      emissiveIntensity: 2.2,
+    });
+    const thrusterMesh = new THREE.Mesh(thrusterGeo, thrusterMat);
+    thrusterMesh.position.set(0, -0.28, 0);
+    robotGroup.add(thrusterMesh);
+
+    const ringGeo = new THREE.TorusGeometry(0.12, 0.02, 8, 24);
+    const ringMat = new THREE.MeshStandardMaterial({
+      color: 0x10b981,
+      emissive: 0x10b981,
+      emissiveIntensity: 3.0,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+    ringMesh.position.set(0, -0.38, 0);
+    ringMesh.rotation.x = Math.PI / 2;
+    robotGroup.add(ringMesh);
+
+    scene.add(robotGroup);
+
+    // ── 4. Viewport Helper ─────────────────────────────────────
+    const getViewportSize = () => {
+      const vFOV = (camera.fov * Math.PI) / 180;
+      const height = 2 * Math.tan(vFOV / 2) * camera.position.z;
+      const width = height * camera.aspect;
+      return { width, height };
+    };
+
+    let animationFrameId;
+    const clock = new THREE.Clock();
+    const targetPos = new THREE.Vector3();
+
+    // ── 5. Physics & Render Loop (Calm Drone Movement) ─────────
+    const animate = () => {
+      animationFrameId = requestAnimationFrame(animate);
+
+      const t = clock.getElapsedTime();
+      const vp = getViewportSize();
+
+      const state = useMedicalBotStore.getState();
+      const currentMode = state.botMode;
+      const talking = state.isTalking;
+      const rect = state.targetElementRect;
+
+      // Gentle mouth talking flutter
+      if (talking) {
+        mouthMesh.scale.y = 0.25 + Math.abs(Math.sin(t * 14)) * 0.75;
+      } else {
+        mouthMesh.scale.y = THREE.MathUtils.lerp(mouthMesh.scale.y, 0.25, 0.1);
+      }
+
+      // Smooth Gentle Idle Breathing Hover
+      const gentleHover = Math.sin(t * 1.2) * 0.035;
+
+      if (currentMode === 'tutorial' && rect) {
+        // Fly calmly next to the hovered or tour-targeted element
+        const cx = rect.x + rect.width;
+        const cy = rect.y + rect.height / 2;
+        const ndcX = (cx / window.innerWidth) * 2 - 1;
+        const ndcY = -(cy / window.innerHeight) * 2 + 1;
+
+        // Position slightly to the right of the element
+        const worldX = ndcX * (vp.width / 2) + 0.55;
+        const worldY = ndcY * (vp.height / 2) + gentleHover;
+        targetPos.set(
+          Math.min(vp.width / 2 - 0.5, worldX),
+          Math.max(-vp.height / 2 + 0.6, Math.min(vp.height / 2 - 0.6, worldY)),
+          0
+        );
+        // Calm slow lerp (0.03 instead of 0.08)
+        robotGroup.position.lerp(targetPos, 0.035);
+      } else {
+        // Docked mode at bottom-right corner
+        const dockedX = vp.width / 2 - 0.85;
+        const dockedY = -vp.height / 2 + 0.95 + gentleHover;
+        targetPos.set(dockedX, dockedY, 0);
+        robotGroup.position.lerp(targetPos, 0.035);
+      }
+
+      // Gentle natural pitch & yaw
+      const targetRotY = Math.sin(t * 0.6) * 0.12;
+      robotGroup.rotation.y = THREE.MathUtils.lerp(robotGroup.rotation.y, targetRotY, 0.03);
+      robotGroup.rotation.x = Math.sin(t * 0.8) * 0.04;
+
+      renderer.render(scene, camera);
+
+      // Project 3D head position to screen 2D coordinates for the speech bubble
+      const headWorldPos = new THREE.Vector3();
+      headMesh.getWorldPosition(headWorldPos);
+      headWorldPos.y += 0.45;
+      headWorldPos.project(camera);
+
+      const rawSx = ((headWorldPos.x + 1) * window.innerWidth) / 2;
+      const rawSy = ((-headWorldPos.y + 1) * window.innerHeight) / 2;
+
+      // Clamp coordinates so speech bubble never overflows viewport edges
+      const clampedX = Math.max(160, Math.min(window.innerWidth - 170, rawSx));
+      const clampedY = Math.max(140, Math.min(window.innerHeight - 80, rawSy));
+
+      setScreenPos({ x: clampedX, y: clampedY, visible: true });
+    };
+
+    animate();
+
+    const handleResize = () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    };
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      window.removeEventListener('resize', handleResize);
+      renderer.dispose();
+    };
+  }, []);
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100vw',
+        height: '100vh',
+        pointerEvents: 'none',
+        zIndex: 9995,
+      }}
+      aria-hidden="true"
+    >
+      <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
+
+      {/* ── Luxury Emerald Glassmorphism Speech Bubble / Tour Overlay ── */}
+      {screenPos.visible && (isTourActive || (botMode === 'tutorial' && hoverMessage)) && (
+        <div
+          onMouseEnter={() => { isHoveringBubbleRef.current = true; }}
+          onMouseLeave={() => { isHoveringBubbleRef.current = false; }}
+          style={{
+            position: 'absolute',
+            left: `${screenPos.x}px`,
+            top: `${screenPos.y - 145}px`,
+            transform: 'translateX(-50%)',
+            pointerEvents: 'auto',
+            zIndex: 9996,
+          }}
+          className="w-[300px] sm:w-[340px] rounded-2xl p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl border border-emerald-500/40 shadow-[0_16px_48px_rgba(16,185,129,0.22)] transition-all duration-300 animate-in fade-in zoom-in-95 text-slate-800 dark:text-slate-100"
+        >
+          {/* Header Bar */}
+          <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-emerald-500/20">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
+                <Bot className="w-3.5 h-3.5" />
+              </div>
+              <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">
+                {hoverTitle || 'PillSync Guide'}
+              </span>
+            </div>
+
+            {isTourActive && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                Step {currentTourStep + 1} / {totalTourSteps}
+              </span>
+            )}
+
+            <button
+              onClick={() => {
+                if (isTourActive) endTour();
+                else setMode('docked');
+              }}
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded-md transition-colors"
+              title="Close Tour"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Message Content */}
+          <p className="text-xs sm:text-[13px] leading-relaxed my-3 font-medium text-slate-700 dark:text-slate-200">
+            {hoverMessage}
+          </p>
+
+          {/* Navigation Action Buttons */}
+          <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+            {isTourActive ? (
+              <>
+                <button
+                  onClick={prevTourStep}
+                  disabled={currentTourStep === 0}
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none flex items-center gap-1 transition-all"
+                >
+                  <ChevronLeft className="w-3 h-3" />
+                  <span>Back</span>
+                </button>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={endTour}
+                    className="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-rose-600 transition-colors"
+                  >
+                    Skip
+                  </button>
+
+                  <button
+                    onClick={nextTourStep}
+                    className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-md shadow-emerald-900/30 flex items-center gap-1 transition-all active:scale-95"
+                  >
+                    <span>{currentTourStep === totalTourSteps - 1 ? 'Finish Tour' : 'Next'}</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center justify-between w-full">
+                <button
+                  onClick={() => startTour()}
+                  className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span>Full Dashboard Tour</span>
+                </button>
+                <button
+                  onClick={() => setMode('docked')}
+                  className="px-3 py-1 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-500 shadow-sm transition-all"
+                >
+                  Done
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Docked Bottom-Right Companion Action Buttons ── */}
+      {screenPos.visible && botMode === 'docked' && (
         <div
           style={{
-            background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-            border: '1px solid rgba(0, 240, 255, 0.3)',
-            borderRadius: '14px',
-            padding: '14px 18px',
-            maxWidth: '260px',
-            color: '#f1f5f9',
-            fontFamily: 'Inter, system-ui, sans-serif',
-            fontSize: '13px',
-            lineHeight: '1.5',
-            boxShadow: '0 8px 32px rgba(0, 229, 255, 0.15), 0 0 12px rgba(0, 229, 255, 0.1)',
-            backdropFilter: 'blur(12px)',
-            userSelect: 'none',
+            position: 'absolute',
+            left: `${screenPos.x}px`,
+            top: `${screenPos.y - 75}px`,
+            transform: 'translateX(-50%)',
+            pointerEvents: 'auto',
+            zIndex: 9996,
           }}
+          className="flex items-center gap-1.5"
         >
-          <p style={{ margin: '0 0 10px 0', fontWeight: 500 }}>{hoverMessage}</p>
           <button
             onClick={(e) => {
               e.stopPropagation();
-              setMode('docked');
+              openChat();
             }}
-            style={{
-              background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
-              border: 'none',
-              borderRadius: '8px',
-              padding: '6px 14px',
-              color: '#fff',
-              fontSize: '11px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              letterSpacing: '0.5px',
-              transition: 'transform 0.15s ease',
-            }}
-            onMouseEnter={(e) => (e.target.style.transform = 'scale(1.05)')}
-            onMouseLeave={(e) => (e.target.style.transform = 'scale(1)')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold text-xs shadow-lg shadow-emerald-950/40 hover:scale-105 active:scale-95 transition-all border border-emerald-400/40 cursor-pointer"
           >
-            ✓ End Tour
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+            </span>
+            <span>🤖 Ask AI</span>
+          </button>
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              startTour();
+            }}
+            title="Start Guided Tour"
+            className="px-2.5 py-1.5 rounded-full bg-surface/90 dark:bg-slate-900/90 backdrop-blur-md text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 hover:border-emerald-500 font-bold text-xs shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center gap-1"
+          >
+            <Sparkles className="w-3 h-3" />
+            <span>Tour</span>
           </button>
         </div>
-      </Html>
-    );
-  }
-
-  if (botMode === 'docked') {
-    return (
-      <Html
-        position={[0, 1.2, 0]}
-        center
-        distanceFactor={8}
-        style={{ pointerEvents: 'auto' }}
-      >
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            openChat();
-          }}
-          style={{
-            background: 'linear-gradient(135deg, #059669 0%, #0d9488 100%)',
-            border: '1px solid rgba(16, 185, 129, 0.4)',
-            borderRadius: '20px',
-            padding: '6px 16px',
-            color: '#fff',
-            fontSize: '12px',
-            fontWeight: 600,
-            cursor: 'pointer',
-            boxShadow: '0 4px 16px rgba(5, 150, 105, 0.3)',
-            transition: 'all 0.2s ease',
-            whiteSpace: 'nowrap',
-            fontFamily: 'Inter, system-ui, sans-serif',
-          }}
-          onMouseEnter={(e) => {
-            e.target.style.transform = 'scale(1.08)';
-            e.target.style.boxShadow = '0 6px 24px rgba(5, 150, 105, 0.5)';
-          }}
-          onMouseLeave={(e) => {
-            e.target.style.transform = 'scale(1)';
-            e.target.style.boxShadow = '0 4px 16px rgba(5, 150, 105, 0.3)';
-          }}
-        >
-          🤖 Ask PillSync AI
-        </button>
-      </Html>
-    );
-  }
-
-  return null;
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// 3. FLIGHT CONTROLLER — useFrame coordinate mapping & lerp
-// ═══════════════════════════════════════════════════════════════════
-
-function FlightController() {
-  const groupRef = useRef();
-  const { viewport } = useThree();
-
-  const botMode = useMedicalBotStore((s) => s.botMode);
-  const targetElementRect = useMedicalBotStore((s) => s.targetElementRect);
-
-  /**
-   * Docked anchor: bottom-right of the 3D viewport.
-   * R3F Expert: viewport.width/height are in Three.js world units at z=0.
-   */
-  const dockedPosition = useMemo(
-    () => new THREE.Vector3(
-      viewport.width / 2 - 1.2,
-      -viewport.height / 2 + 1.5,
-      0
-    ),
-    [viewport.width, viewport.height]
-  );
-
-  // Scratch vector to avoid GC allocations inside useFrame
-  const targetVec = useMemo(() => new THREE.Vector3(), []);
-
-  useFrame(({ clock }) => {
-    if (!groupRef.current) return;
-    const t = clock.getElapsedTime();
-
-    if (botMode === 'tutorial' && targetElementRect) {
-      /**
-       * Screen-to-3D Coordinate Mapping:
-       * R3F Expert: Convert 2D DOMRect (px) → NDC → 3D world coordinates
-       * 
-       * ndcX = ((x + width/2) / window.innerWidth) * 2 - 1
-       * ndcY = -((y + height/2) / window.innerHeight) * 2 + 1
-       * worldX = ndcX * (viewport.width / 2)
-       * worldY = ndcY * (viewport.height / 2)
-       */
-      const cx = targetElementRect.x + targetElementRect.width / 2;
-      const cy = targetElementRect.y + targetElementRect.height / 2;
-
-      const ndcX = (cx / window.innerWidth) * 2 - 1;
-      const ndcY = -(cy / window.innerHeight) * 2 + 1;
-
-      // Offset the robot slightly to the right and above the target element
-      const worldX = ndcX * (viewport.width / 2) + 0.8;
-      const worldY = ndcY * (viewport.height / 2) + 0.5;
-
-      targetVec.set(worldX, worldY, 0);
-
-      // Smooth lerp flight — G-Stack: damping 0.08 for premium feel
-      groupRef.current.position.lerp(targetVec, 0.08);
-
-    } else if (botMode === 'docked') {
-      /**
-       * Docked mode: fly to anchor + gentle sine-wave idle hover.
-       * The bob amplitude is subtle (0.05) to feel alive without distraction.
-       */
-      targetVec.copy(dockedPosition);
-      targetVec.y += Math.sin(t * 2) * 0.05;
-
-      groupRef.current.position.lerp(targetVec, 0.06);
-
-    } else {
-      // Tutorial mode but no target — float gently at center-right
-      targetVec.set(
-        viewport.width / 2 - 2,
-        Math.sin(t * 1.5) * 0.15,
-        0
-      );
-      groupRef.current.position.lerp(targetVec, 0.04);
-    }
-
-    // Billboard: gentle rotation tracking toward center (simulates eye contact)
-    const targetRotY = Math.sin(t * 0.5) * 0.12;
-    groupRef.current.rotation.y = THREE.MathUtils.lerp(
-      groupRef.current.rotation.y,
-      targetRotY,
-      0.05
-    );
-  });
-
-  return (
-    <group ref={groupRef} scale={0.6}>
-      <MedicalRobotMesh />
-      <SpeechBubble />
-    </group>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// 4. SCENE — Lighting & environment
-// ═══════════════════════════════════════════════════════════════════
-
-function BotScene() {
-  return (
-    <>
-      {/* Ambient base light for soft medical aesthetic */}
-      <ambientLight intensity={0.6} />
-      {/* Key light — top-left warm */}
-      <directionalLight position={[3, 5, 4]} intensity={1.2} color="#ffffff" />
-      {/* Rim light — subtle cyan accent from behind */}
-      <pointLight position={[-3, 2, -3]} intensity={0.5} color="#00e5ff" />
-      {/* Fill from below for thruster glow */}
-      <pointLight position={[0, -2, 2]} intensity={0.3} color="#0891b2" />
-
-      <FlightController />
-    </>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// 5. ERROR BOUNDARY — Graceful fallback (G-Stack invariant)
-// ═══════════════════════════════════════════════════════════════════
-
-class R3FErrorBoundary extends Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false };
-  }
-
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-
-  componentDidCatch(error, errorInfo) {
-    console.warn('[PillSync 3D] WebGL/R3F error caught — falling back to 2D:', error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      // G-Stack: Graceful degradation — show nothing rather than crash the app
-      return null;
-    }
-    return this.props.children;
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// 6. MAIN EXPORT — Global Canvas Overlay
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * DualModeMedicalBot — Global 3D Canvas overlay
- * 
- * Mount this once at the dashboard page level.
- * The Canvas uses pointer-events: none so all clicks pass through to DOM.
- * Only the Drei <Html> elements have pointer-events: auto for buttons.
- * 
- * G-Stack: Fixed overlay pattern — canvas floats above DOM without affecting layout.
- * R3F Expert: Camera at z=5 with orthographic-like perspective for consistent sizing.
- */
-export default function DualModeMedicalBot() {
-  return (
-    <R3FErrorBoundary>
-      <div
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100vw',
-          height: '100vh',
-          pointerEvents: 'none',
-          zIndex: 9999,
-        }}
-        aria-hidden="true"
-      >
-        <Canvas
-          camera={{ position: [0, 0, 5], fov: 50 }}
-          style={{ pointerEvents: 'none' }}
-          gl={{ alpha: true, antialias: true }}
-          dpr={[1, 2]}
-        >
-          <Suspense fallback={null}>
-            <BotScene />
-          </Suspense>
-        </Canvas>
-      </div>
-    </R3FErrorBoundary>
+      )}
+    </div>
   );
 }

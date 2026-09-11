@@ -119,6 +119,9 @@ apiClient.interceptors.response.use(
 );
 
 // ── Helper & Graceful Error Normalization ─────────────────────────────────────
+let lastEmittedToast = '';
+let lastEmittedTime = 0;
+
 export const emitToast = (messageOrObj, typeOrMsg = 'error') => {
   if (typeof window !== 'undefined') {
     let finalMessage = messageOrObj;
@@ -134,6 +137,14 @@ export const emitToast = (messageOrObj, typeOrMsg = 'error') => {
       finalType = messageOrObj;
       finalMessage = typeOrMsg;
     }
+
+    // Deduplicate identical toasts emitted within 3 seconds
+    const now = Date.now();
+    if (finalMessage === lastEmittedToast && now - lastEmittedTime < 3000) {
+      return;
+    }
+    lastEmittedToast = finalMessage;
+    lastEmittedTime = now;
 
     window.dispatchEvent(
       new CustomEvent('pillsync:toast', {
@@ -161,8 +172,10 @@ const handleError = (error) => {
     msg = msg.map((e) => e.msg || JSON.stringify(e)).join(', ');
   }
 
-  // Graceful status-specific user guidance
-  if (status === 404) {
+  // Graceful human-friendly guidance instead of raw developer jargon
+  if (error.code === 'ECONNABORTED' || error.message?.includes('timeout') || error.message?.includes('15000ms')) {
+    msg = 'Network connection timed out. Loading local offline records.';
+  } else if (status === 404) {
     msg = 'The requested medical record or scan result was not found.';
   } else if (status === 413) {
     msg = 'Upload failed: Prescription image exceeds maximum allowed size (10 MB). Please upload a smaller or cropped image.';

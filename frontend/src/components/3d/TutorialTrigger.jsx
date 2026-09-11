@@ -5,47 +5,41 @@
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  * G-Stack Pattern: Reusable compound component with zero prop-drilling.
  * 
- * Usage:
- *   <TutorialTrigger message="यह आपकी दवाइयों का दैनिक टाइमलाइन है">
- *     <DoseTimelineCard />
- *   </TutorialTrigger>
- * 
- * Behavior:
+ * Features:
  *   - Only active when botMode === 'tutorial'
  *   - On hover: captures element's DOMRect + sends message to Zustand store
- *   - On leave: clears the target so the robot stops tracking
- *   - In 'docked' mode: renders children without any hover behavior (zero overhead)
+ *   - Graceful 450ms safety debounce on leave so moving mouse to speech bubble never dismisses it
+ *   - During active guided tours, targets remain stably pinned
  */
 
 import React, { useRef, useCallback } from 'react';
 import useMedicalBotStore from '@/store/useMedicalBotStore';
 
-export default function TutorialTrigger({ message, children, className = '' }) {
+export default function TutorialTrigger({ message, title = null, children, className = '' }) {
   const wrapperRef = useRef(null);
+  const leaveTimerRef = useRef(null);
   const botMode = useMedicalBotStore((s) => s.botMode);
+  const isTourActive = useMedicalBotStore((s) => s.isTourActive);
   const setTarget = useMedicalBotStore((s) => s.setTarget);
   const clearTarget = useMedicalBotStore((s) => s.clearTarget);
 
-  /**
-   * On mouse enter: capture the element's bounding rect and send it
-   * to the store so the 3D robot knows where to fly.
-   * R3F Expert: DOMRect provides (x, y, width, height) which we later
-   * convert to NDC → 3D world coordinates in the robot's useFrame loop.
-   */
   const handleMouseEnter = useCallback(() => {
-    if (botMode !== 'tutorial' || !wrapperRef.current) return;
+    if (leaveTimerRef.current) {
+      clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = null;
+    }
+    if (botMode !== 'tutorial' || !wrapperRef.current || isTourActive) return;
     const rect = wrapperRef.current.getBoundingClientRect();
-    setTarget(rect, message);
-  }, [botMode, message, setTarget]);
+    setTarget(rect, message, title);
+  }, [botMode, isTourActive, message, title, setTarget]);
 
-  /**
-   * On mouse leave: clear the target so the robot gently floats back
-   * to its idle position.
-   */
   const handleMouseLeave = useCallback(() => {
-    if (botMode !== 'tutorial') return;
-    clearTarget();
-  }, [botMode, clearTarget]);
+    if (botMode !== 'tutorial' || isTourActive) return;
+    // 450ms safety buffer allows mouse to reach speech bubble without vanishing
+    leaveTimerRef.current = setTimeout(() => {
+      clearTarget();
+    }, 450);
+  }, [botMode, isTourActive, clearTarget]);
 
   return (
     <div

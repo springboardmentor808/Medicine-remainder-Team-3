@@ -260,7 +260,9 @@ SYSTEM_PROMPT_TEMPLATE = """You are PillSync AI — a grounded, clinical medical
 STRICT RULES:
 1. ONLY answer using the patient context provided below. If information is absent, say "I don't have that information in your records."
 2. NEVER invent a dosage, drug name, or interaction. NEVER hallucinate.
-3. Respond in {language} language.
+3. LANGUAGE HANDLING: You are fully bilingual (fluent in Hindi हिन्दी, Hinglish, and English).
+   - If the patient asks or speaks in Hindi or Hinglish (e.g. 'kya tum hindi me bol sakte ho', 'batao', 'dawa'), or if language is Hindi, ALWAYS respond warmly and naturally in Hindi (using clean Devanagari or natural conversational Hinglish). NEVER refuse to speak Hindi!
+   - Otherwise, respond in English.
 4. Be empathetic, clinical, and concise. Use emoji sparingly for clarity.
 5. If the user mentions an emergency, direct them to call 108 (India) or 911 (US) immediately.
 
@@ -285,12 +287,13 @@ def build_grounded_prompt(
     context: Dict[str, Any],
     locale: str = "en",
     additional_context: str = "",
+    is_hindi: bool = False,
 ) -> str:
     """
     Constructs the grounded system prompt with the patient's live data.
     G-Stack: Strict clinical constraints ensure zero hallucination.
     """
-    language = "Hindi (हिन्दी)" if locale == "hi" else "English"
+    language = "Hindi (हिन्दी) / Hinglish" if (locale == "hi" or is_hindi) else "English"
     user_name = context.get("user_name", "Patient")
 
     # Format active medicines
@@ -419,8 +422,12 @@ async def handle_assistant_query(
                 "intent": intent,
             }
 
+    # Check if query contains Hindi or Hinglish phrases
+    hindi_cues = ['hindi', 'हिन्दी', 'हिंदी', 'kya', 'kaise', 'batao', 'dawa', 'goli', 'kab', 'lena', 'chahiye', 'dard', 'khana', 'peena', 'kripya', 'aur', 'mera', 'meri', 'aaj', 'kal', 'time']
+    is_hindi_detected = locale == 'hi' or any(re.search(r'\b' + re.escape(w) + r'\b', latest_message.lower()) for w in hindi_cues) or 'hindi' in latest_message.lower()
+
     # ── Pass 3: Grounded LLM Response ───────────────────────────
-    system_prompt = build_grounded_prompt(context, locale, additional_context)
+    system_prompt = build_grounded_prompt(context, locale, additional_context, is_hindi=is_hindi_detected)
 
     # Build conversation for the LLM
     llm_messages = [{"role": "system", "content": system_prompt}]
@@ -428,13 +435,14 @@ async def handle_assistant_query(
         if msg.get("role") in ("user", "assistant"):
             llm_messages.append(msg)
 
-    # Try Gemini 1.5 Flash — G-Stack: Sub-400ms TTFT, ultra-low cost
+    # Try Gemini 3.6 Flash — G-Stack: Sub-400ms TTFT, ultra-low cost
     try:
         import google.generativeai as genai
         from app.core.config import settings
 
         api_key = getattr(settings, 'GEMINI_API_KEY', None) or getattr(settings, 'GOOGLE_API_KEY', None)
         if api_key:
+            genai.configure(api_key=api_key)
             try:
                 model = genai.GenerativeModel('gemini-3.6-flash')
             except Exception:
@@ -446,7 +454,7 @@ async def handle_assistant_query(
                 role = "model" if msg["role"] in ("assistant", "system") else "user"
                 gemini_contents.append({"role": role, "parts": [msg["content"]]})
 
-            response = model.generate_content(gemini_contents)
+            response = await model.generate_content_async(gemini_contents)
 
             return {
                 "type": "TEXT",

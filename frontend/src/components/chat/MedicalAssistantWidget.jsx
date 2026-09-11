@@ -157,6 +157,7 @@ function MessageBubble({ message }) {
 
 export default function MedicalAssistantWidget() {
   const isChatOpen = useMedicalBotStore((s) => s.isChatOpen);
+  const openChat = useMedicalBotStore((s) => s.openChat);
   const closeChat = useMedicalBotStore((s) => s.closeChat);
   const { locale } = useLanguage();
 
@@ -250,7 +251,26 @@ export default function MedicalAssistantWidget() {
     }
   }, [handleSend]);
 
-  if (!isChatOpen) return null;
+  if (!isChatOpen) {
+    return (
+      <div className="fixed bottom-6 right-6 z-[9990]">
+        <button
+          onClick={openChat}
+          className="group relative flex items-center gap-2.5 px-5 py-3 rounded-full bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 text-white font-medium text-sm shadow-xl shadow-emerald-950/40 hover:shadow-emerald-500/30 hover:scale-105 active:scale-95 transition-all duration-300 border border-emerald-400/30 backdrop-blur-md"
+          aria-label="Open PillSync AI Assistant"
+        >
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-400"></span>
+          </span>
+          <Bot className="w-5 h-5 text-white" />
+          <span className="font-semibold tracking-wide">
+            {locale === 'hi' ? 'PillSync AI से पूछें 💬' : 'Ask PillSync AI 💬'}
+          </span>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -344,9 +364,9 @@ export default function MedicalAssistantWidget() {
               </div>
               <div className="bg-slate-800 rounded-2xl rounded-bl-md px-4 py-3 border border-slate-700">
                 <div className="flex gap-1">
-                  <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse-wave" style={{ animationDelay: '0ms' }} />
+                  <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse-wave" style={{ animationDelay: '200ms' }} />
+                  <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse-wave" style={{ animationDelay: '400ms' }} />
                 </div>
               </div>
             </div>
@@ -411,6 +431,19 @@ export default function MedicalAssistantWidget() {
         }
         .animate-pulse-slow {
           animation: pulse-slow 2s ease-in-out infinite;
+        }
+        @keyframes pulse-wave {
+          0%, 100% {
+            transform: translateY(0);
+            opacity: 0.35;
+          }
+          50% {
+            transform: translateY(-4px);
+            opacity: 1;
+          }
+        }
+        .animate-pulse-wave {
+          animation: pulse-wave 1.4s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
         }
       `}</style>
     </>

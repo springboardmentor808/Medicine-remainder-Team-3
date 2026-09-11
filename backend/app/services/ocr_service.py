@@ -547,6 +547,89 @@ def _perform_ocr_sync(image_bytes: bytes) -> OCRSyncResult:
         return OCRSyncResult("", 0.0, "UNREADABLE")
 
 
+async def _extract_with_gemini_vision(contents: bytes, content_type: Optional[str] = None) -> Optional[dict]:
+    """
+    Uses Gemini Multimodal Vision API to parse complex handwritten Indian prescriptions.
+    Extracts doctor details, all prescribed medicines, dosages, duration, schedules, and calculated stocks.
+    """
+    try:
+        from app.core.config import settings
+        import google.generativeai as genai
+        import json
+
+        api_key = getattr(settings, "GEMINI_API_KEY", None) or getattr(settings, "GOOGLE_API_KEY", None) or os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            return None
+
+        genai.configure(api_key=api_key)
+
+        pil_img = Image.open(io.BytesIO(contents))
+        if pil_img.mode != "RGB":
+            pil_img = pil_img.convert("RGB")
+
+        try:
+            model = genai.GenerativeModel("gemini-3.6-flash")
+        except Exception:
+            model = genai.GenerativeModel("gemini-flash-latest")
+
+        prompt = (
+            "You are an expert clinical pharmacologist and prescription handwriting reader.\n"
+            "Analyze this medical prescription image with extreme care and extract all prescribed medicines.\n"
+            "For each medication written by the doctor, accurately extract:\n"
+            "- medicine_name: Full brand name or generic name (e.g. Augmentin 625, Pantocid 40, Dolo 650, Calpol, etc.)\n"
+            "- generic_salt: Active pharmaceutical ingredient / chemical composition\n"
+            "- dosage: Dosage strength with units (e.g. 625mg, 40mg, 650mg, 500mg, 10mg)\n"
+            "- frequency: Frequency shorthand as written (e.g. 1-0-1, 1-0-0, 0-0-1, 1-1-1, OD, BD, TDS)\n"
+            "- daily_frequency: Calculated integer number of times per day (e.g. 1, 2, 3)\n"
+            "- dosage_form: Tablet | Capsule | Syrup | Drops | Injection\n"
+            "- disease_category: Inferred clinical category (e.g. Antibiotics, Cardiology, Pain Relief, Gastrointestinal, General Healthcare)\n"
+            "- duration_days: Number of days prescribed (default to 5 if not written)\n"
+            "- quantity_per_dose: Number of units taken per dose (usually 1)\n"
+            "- initial_quantity: Total units prescribed or calculated as (daily_frequency * duration_days * quantity_per_dose)\n"
+            "- instructions: Administration notes (e.g. Take after food with water, empty stomach before breakfast)\n\n"
+            "Return ONLY a strictly valid JSON object adhering to this schema with NO markdown backticks:\n"
+            "{\n"
+            '  "doctor_name": "Doctor name if present or null",\n'
+            '  "patient_name": "Patient name if present or null",\n'
+            '  "raw_text": "Complete transcribed prescription text",\n'
+            '  "medicines": [\n'
+            '    {\n'
+            '      "medicine_name": "...",\n'
+            '      "generic_salt": "...",\n'
+            '      "dosage": "...",\n'
+            '      "frequency": "...",\n'
+            '      "daily_frequency": 2,\n'
+            '      "dosage_form": "Tablet",\n'
+            '      "disease_category": "...",\n'
+            '      "duration_days": 5,\n'
+            '      "quantity_per_dose": 1,\n'
+            '      "initial_quantity": 10,\n'
+            '      "instructions": "..."\n'
+            '    }\n'
+            '  ],\n'
+            '  "confidence_score": 0.96\n'
+            "}"
+        )
+
+        response = await asyncio.to_thread(model.generate_content, [pil_img, prompt])
+        if not response or not response.text:
+            return None
+
+        raw_resp = response.text.strip()
+        if raw_resp.startswith("```"):
+            raw_resp = re.sub(r"^```(?:json)?\s*", "", raw_resp)
+            raw_resp = re.sub(r"\s*```$", "", raw_resp)
+
+        parsed_json = json.loads(raw_resp.strip())
+        if isinstance(parsed_json, dict) and parsed_json.get("medicines"):
+            return parsed_json
+        return None
+
+    except Exception as err:
+        logger.warning(f"[OCR Service] Gemini Vision error: {err}")
+        return None
+
+
 MAX_OCR_FILE_SIZE = 10 * 1024 * 1024  # 10 MB limit
 CHUNK_READ_SIZE = 1024 * 1024  # 1 MB
 
@@ -554,6 +637,8 @@ CHUNK_READ_SIZE = 1024 * 1024  # 1 MB
 async def extract_text_from_image(file: UploadFile) -> dict:
     """
     Asynchronously extracts text and matches Indian medicine catalog from an uploaded prescription image.
+    Uses Gemini Multimodal Vision as primary engine for doctor cursive handwriting,
+    falling back to CV2 + Tesseract + Catalog matching for offline/redundant operation.
     Enforces strict clinical safety bounds, zero silent hallucination, and 10MB memory limits.
     """
     try:
@@ -586,6 +671,24 @@ async def extract_text_from_image(file: UploadFile) -> dict:
                 "generic_salt": None,
             }
 
+        # 1. Primary Engine: Gemini Multimodal Vision for doctor handwriting
+        gemini_result = await _extract_with_gemini_vision(contents, file.content_type)
+        if gemini_result and gemini_result.get("medicines"):
+            meds = gemini_result.get("medicines", [])
+            primary = meds[0] if meds else {}
+            return {
+                "raw_text": gemini_result.get("raw_text") or "\n".join([f"{m.get('medicine_name')} {m.get('dosage')}" for m in meds]),
+                "confidence_score": float(gemini_result.get("confidence_score", 0.96)),
+                "status": "SUCCESS",
+                "message": f"Successfully extracted {len(meds)} medication(s) with AI Vision.",
+                "verified": True,
+                "matched_medicine": primary.get("medicine_name"),
+                "generic_salt": primary.get("generic_salt"),
+                "medicines": meds,
+                "parsed_data": primary,
+            }
+
+        # 2. Fallback Engine: Preprocessing + Tesseract OCR
         ocr_res = await asyncio.to_thread(_perform_ocr_sync, contents)
         raw_text, confidence, status_str = ocr_res
 

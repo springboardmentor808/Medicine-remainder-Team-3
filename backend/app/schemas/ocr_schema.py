@@ -97,6 +97,10 @@ class OCRScanResponse(BaseModel):
         None,
         description="MongoDB document ID of the saved scan result",
     )
+    medicines: Optional[list[dict]] = Field(
+        default_factory=list,
+        description="All extracted medications from multi-medicine prescriptions",
+    )
 
 
 # ===================================================================

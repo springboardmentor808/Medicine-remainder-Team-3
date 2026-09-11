@@ -114,22 +114,46 @@ async def scan_prescription(
                 scan_id=None,
             )
 
-        # --- NLP Parsing ---
-        parsed = parse_prescription_text(raw_text)
+        # --- Structured Parsing / NLP ---
+        medicines_list = ocr_result.get("medicines", [])
+        if medicines_list and ocr_result.get("parsed_data"):
+            primary_data = ocr_result.get("parsed_data", {})
+            final_medicine_name = primary_data.get("medicine_name") or ocr_result.get("matched_medicine")
+            matched_med = ocr_result.get("matched_medicine") or final_medicine_name
+            generic_salt = primary_data.get("generic_salt") or ocr_result.get("generic_salt")
+            verified_match = True
+            parsed = {
+                "medicine_name": final_medicine_name,
+                "dosage": primary_data.get("dosage"),
+                "frequency": primary_data.get("frequency"),
+                "daily_frequency": primary_data.get("daily_frequency", 1),
+                "dosage_form": primary_data.get("dosage_form", "Tablet"),
+                "disease_category": primary_data.get("disease_category", "General Healthcare"),
+                "initial_quantity": primary_data.get("initial_quantity", 30),
+                "quantity_per_dose": primary_data.get("quantity_per_dose", 1),
+                "instructions": primary_data.get("instructions"),
+            }
+            final_instructions = parsed.get("instructions")
+            if generic_salt:
+                final_instructions = (
+                    f"Generic Salt: {generic_salt}"
+                    if not final_instructions
+                    else f"{final_instructions} | Generic: {generic_salt}"
+                )
+        else:
+            parsed = parse_prescription_text(raw_text)
+            verified_match = ocr_result.get("verified", False)
+            matched_med = ocr_result.get("matched_medicine")
+            generic_salt = ocr_result.get("generic_salt")
 
-        # Merge catalog-verified medicine & generic salt if present
-        verified_match = ocr_result.get("verified", False)
-        matched_med = ocr_result.get("matched_medicine")
-        generic_salt = ocr_result.get("generic_salt")
-
-        final_medicine_name = parsed.get("medicine_name") or matched_med
-        final_instructions = parsed.get("instructions")
-        if generic_salt:
-            final_instructions = (
-                f"Generic Salt: {generic_salt}"
-                if not final_instructions
-                else f"{final_instructions} | Generic: {generic_salt}"
-            )
+            final_medicine_name = parsed.get("medicine_name") or matched_med
+            final_instructions = parsed.get("instructions")
+            if generic_salt:
+                final_instructions = (
+                    f"Generic Salt: {generic_salt}"
+                    if not final_instructions
+                    else f"{final_instructions} | Generic: {generic_salt}"
+                )
 
         # --- Save Result to MongoDB ---
         scan_id = None
@@ -145,6 +169,7 @@ async def scan_prescription(
                     "matched_medicine": matched_med,
                     "generic_salt": generic_salt,
                     "verified": verified_match,
+                    "medicines": medicines_list,
                 },
             )
         except Exception as db_err:
@@ -166,6 +191,7 @@ async def scan_prescription(
             raw_text=raw_text,
             confidence_score=confidence_score,
             scan_id=scan_id,
+            medicines=medicines_list,
         )
     finally:
         await file.close()

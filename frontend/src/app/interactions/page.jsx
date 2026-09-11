@@ -174,10 +174,60 @@ const COMPREHENSIVE_INTERACTIONS = [
     evidence: "FDA Simvastatin Safety Advisory Update",
     category: "Cardiology / Lipidology",
   },
+  {
+    id: "ddi-13",
+    pair: ["Nitroglycerin", "Lisinopril"],
+    severity: "critical",
+    title: "Severe Hypotensive Collapse & Cerebral Hypoperfusion",
+    mechanism: "Dual systemic arterial & venous vasodilation. Nitroglycerin promotes cGMP-mediated venous pooling while Lisinopril blocks angiotensin-II vasoconstriction. Concurrent use precipitates precipitous blood pressure drops, reflex syncope, and hypoperfusion.",
+    symptoms: "Profound orthostatic dizziness, systolic BP < 85 mmHg, vertigo, syncope (fainting), blurred vision, cold extremities.",
+    recommendation: "Titrate doses with extreme caution under cardiology oversight. Advise patient to sit or recline when administering sublingual nitrates. Never stand up abruptly.",
+    evidence: "AHA/ACC Heart Failure & Angina Clinical Guidelines",
+    category: "Cardiovascular / Vasodilators & ACEi",
+  },
+  {
+    id: "ddi-14",
+    pair: ["Clarithromycin", "Tramadol"],
+    severity: "critical",
+    title: "Severe Tramadol Toxicity, CNS Depression & Respiratory Arrest",
+    mechanism: "Clarithromycin is a potent intestinal and hepatic CYP3A4 inhibitor. Inhibiting Tramadol's CYP3A4 elimination pathway leads to massive accumulation of active Tramadol in systemic circulation, precipitating life-threatening central nervous system depression and respiratory failure.",
+    symptoms: "Shallow, labored breathing (<10 breaths/min), severe somnolence, stupor, pinpoint pupils, cold/clammy skin, seizure activity.",
+    recommendation: "ABSOLUTE CONTRAINDICATION. Avoid concurrent administration. If antibiotic is required, substitute with Azithromycin (minimal CYP3A4 inhibition). If analgesia required, switch to non-opioid.",
+    evidence: "FDA MedWatch Drug Safety Alert · CPIC Opioid Pharmacogenomics Guidelines",
+    category: "Pain Management / Antimicrobial & Opioids",
+  },
+  {
+    id: "ddi-15",
+    pair: ["Clarithromycin", "Nitroglycerin"],
+    severity: "major",
+    title: "Hemodynamic Instability & Cardiac Conduction Mismatch",
+    mechanism: "Macrolide antibiotics alter autonomic cardiovascular tone and hepatic CYP3A4 clearance dynamics, destabilizing nitrate-mediated vascular smooth muscle relaxation and inducing erratic hemodynamic swings.",
+    symptoms: "Facial flushing, severe throbbing headache, palpitations, sudden dizziness, fluctuating systolic pressures.",
+    recommendation: "Monitor blood pressure and pulse rate closely during concurrent therapy. Administer nitrate only in a seated position.",
+    evidence: "European Heart Journal · Clinical Pharmacokinetics Database",
+    category: "Cardiovascular / Antimicrobial",
+  },
+  {
+    id: "ddi-16",
+    pair: ["Calcium", "Lisinopril"],
+    severity: "moderate",
+    title: "Reduced ACE Inhibitor Absorption & Blood Pressure Rebound",
+    mechanism: "High doses of oral polyvalent calcium salts alter gastric pH and form insoluble chelates, reducing gastrointestinal bioavailability of Lisinopril by up to 25%.",
+    symptoms: "Suboptimal blood pressure control, persistent borderline hypertension despite compliance.",
+    recommendation: "Separate administration times by at least 2 hours (e.g. take Lisinopril in morning, Calcium supplement with lunch or dinner).",
+    evidence: "British Journal of Clinical Pharmacology · ESC Hypertension Guidelines",
+    category: "Hypertension / Mineral Supplements",
+  },
 ];
 
 // Curated Popular Clinical Presets & Quick Test Presets
 const CLINICAL_PRESETS = [
+  {
+    label: "🚨 6-Drug High Risk",
+    description: "Nitroglycerin + Lisinopril + Tramadol + Clarithromycin + Calcium + Paracetamol",
+    drugs: ["Nitroglycerin", "Calcium", "Lisinopril", "Paracetamol", "Tramadol", "Clarithromycin"],
+    type: "danger",
+  },
   {
     label: "⚡ High-Risk Bleeding",
     description: "Warfarin + Aspirin (Anticoagulant synergy)",
@@ -643,6 +693,24 @@ export default function InteractionsPage() {
     const penalty = criticalCount * 35 + majorCount * 22 + moderateCount * 10;
     return Math.max(15, 100 - penalty);
   }, [selectedMeds.length, criticalCount, majorCount, moderateCount]);
+
+  // Dynamic active risk tier based on safety score & detected conflicts
+  const activeRiskTier = useMemo(() => {
+    if (criticalCount > 0 || safetyScore < 50) return "critical";
+    if (majorCount > 0 || safetyScore < 80) return "major";
+    return "harmonized";
+  }, [criticalCount, majorCount, safetyScore]);
+
+  // Automatically update severity filter when detected conflict profile changes
+  useEffect(() => {
+    if (criticalCount > 0) {
+      setSeverityFilter("critical");
+    } else if (majorCount > 0) {
+      setSeverityFilter("major");
+    } else {
+      setSeverityFilter("all");
+    }
+  }, [criticalCount, majorCount, selectedMeds.length]);
 
   // Filtered interaction list based on user filter
   const filteredInteractions = useMemo(() => {
@@ -1240,16 +1308,22 @@ export default function InteractionsPage() {
                   </p>
                 </div>
                 <Badge
-                  variant={safetyScore >= 80 ? "success" : safetyScore >= 50 ? "warning" : "danger"}
-                  className="font-bold uppercase tracking-wider text-[11px] px-2.5 py-1"
+                  variant={activeRiskTier === "harmonized" ? "success" : activeRiskTier === "major" ? "warning" : "danger"}
+                  className="font-bold uppercase tracking-wider text-[11px] px-2.5 py-1 transition-all duration-300 shadow-sm"
                 >
-                  {safetyScore >= 80 ? "Optimal Safety" : safetyScore >= 50 ? "Caution Advised" : "High Clinical Risk"}
+                  {activeRiskTier === "harmonized" ? "Optimal Safety" : activeRiskTier === "major" ? "Caution Advised" : "High Clinical Risk"}
                 </Badge>
               </div>
 
-              {/* Radial Score Meter (Enlarged for visual balance and impact) */}
+              {/* Radial Score Meter (Dynamic Score Glow & Risk Focus) */}
               <div className="flex flex-col items-center justify-center py-5">
-                <div className="relative w-48 h-48 sm:w-52 sm:h-52 flex items-center justify-center">
+                <div className={`relative w-48 h-48 sm:w-52 sm:h-52 flex items-center justify-center transition-all duration-500 ${
+                  activeRiskTier === "critical"
+                    ? "filter drop-shadow-[0_0_18px_rgba(244,63,94,0.35)]"
+                    : activeRiskTier === "major"
+                    ? "filter drop-shadow-[0_0_18px_rgba(245,158,11,0.35)]"
+                    : "filter drop-shadow-[0_0_18px_rgba(20,184,166,0.3)]"
+                }`}>
                   <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
                     <path
                       className="text-slate-100 dark:text-slate-800"
@@ -1260,9 +1334,9 @@ export default function InteractionsPage() {
                     />
                     <path
                       className={`${
-                        safetyScore >= 80
+                        activeRiskTier === "harmonized"
                           ? "text-teal-500"
-                          : safetyScore >= 50
+                          : activeRiskTier === "major"
                           ? "text-amber-500"
                           : "text-rose-500"
                       } transition-all duration-1000 ease-out`}
@@ -1275,20 +1349,32 @@ export default function InteractionsPage() {
                     />
                   </svg>
                   <div className="absolute flex flex-col items-center justify-center text-center">
-                    <span className="text-5xl font-black tracking-tight text-slate-900 dark:text-white">
+                    <span className={`text-5xl font-black tracking-tight transition-colors duration-300 ${
+                      activeRiskTier === "critical"
+                        ? "text-rose-600 dark:text-rose-400"
+                        : activeRiskTier === "major"
+                        ? "text-amber-600 dark:text-amber-400"
+                        : "text-slate-900 dark:text-white"
+                    }`}>
                       {safetyScore}%
                     </span>
-                    <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider mt-1">
+                    <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider mt-0.5">
                       Safety Score
                     </span>
-                    <span className="text-[10px] text-teal-600 dark:text-teal-400 font-bold mt-0.5">
-                      {selectedMeds.length} drugs evaluated
+                    <span className={`text-[10px] font-extrabold uppercase tracking-wider mt-1 px-2 py-0.5 rounded-full transition-all duration-300 ${
+                      activeRiskTier === "critical"
+                        ? "bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 ring-1 ring-rose-300 dark:ring-rose-800"
+                        : activeRiskTier === "major"
+                        ? "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 ring-1 ring-amber-300 dark:ring-amber-800"
+                        : "bg-teal-100 text-teal-700 dark:bg-teal-950/60 dark:text-teal-300 ring-1 ring-teal-300 dark:ring-teal-800"
+                    }`}>
+                      {activeRiskTier === "critical" ? "Critical Risk Focus" : activeRiskTier === "major" ? "Major Caution Focus" : "Harmonized Profile"}
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Interactive Severity Counter Cards (Spacious) */}
+              {/* Interactive Severity Counter Cards (Score-Driven Dynamic Focus Rings) */}
               <div className="space-y-2 pt-1">
                 <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">
                   <span className="flex items-center gap-1.5">
@@ -1299,58 +1385,87 @@ export default function InteractionsPage() {
                 </div>
 
                 <div className="grid grid-cols-3 gap-2.5">
-                  {/* Critical / Severe Card */}
+                  {/* Critical / Severe Card with Score-Driven Dynamic Focus Ring */}
                   <button
                     type="button"
                     onClick={() => setSeverityFilter(severityFilter === "critical" ? "all" : "critical")}
-                    className={`p-3 rounded-2xl border text-center transition-all flex flex-col items-center justify-between ${
+                    className={`p-3 rounded-2xl border text-center transition-all duration-300 flex flex-col items-center justify-between relative overflow-hidden ${
+                      activeRiskTier === "critical"
+                        ? "ring-2 ring-rose-500 ring-offset-2 dark:ring-offset-slate-900 shadow-lg shadow-rose-500/25 scale-[1.03] border-rose-400"
+                        : "hover:scale-[1.02]"
+                    } ${
                       severityFilter === "critical"
-                        ? "bg-rose-600 text-white border-rose-600 shadow-md scale-105"
+                        ? "bg-rose-600 text-white border-rose-600 shadow-md"
                         : "bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 hover:border-rose-400"
                     }`}
                   >
+                    {activeRiskTier === "critical" && (
+                      <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                    )}
                     <div className="flex items-center gap-1">
-                      <Flame className="w-3.5 h-3.5" />
+                      <Flame className={`w-3.5 h-3.5 ${severityFilter === "critical" ? "text-white" : "text-rose-600 dark:text-rose-400"}`} />
                       <span className="text-[11px] font-bold">Critical</span>
                     </div>
                     <p className="text-2xl font-black my-0.5">{criticalCount}</p>
-                    <span className="text-[9px] opacity-80 font-medium">Contraindicated</span>
+                    <span className="text-[9px] opacity-80 font-medium">
+                      {activeRiskTier === "critical" ? "● Active Focus" : "Contraindicated"}
+                    </span>
                   </button>
 
-                  {/* Major Card */}
+                  {/* Major Card with Score-Driven Dynamic Focus Ring */}
                   <button
                     type="button"
                     onClick={() => setSeverityFilter(severityFilter === "major" ? "all" : "major")}
-                    className={`p-3 rounded-2xl border text-center transition-all flex flex-col items-center justify-between ${
+                    className={`p-3 rounded-2xl border text-center transition-all duration-300 flex flex-col items-center justify-between relative overflow-hidden ${
+                      activeRiskTier === "major"
+                        ? "ring-2 ring-amber-500 ring-offset-2 dark:ring-offset-slate-900 shadow-lg shadow-amber-500/25 scale-[1.03] border-amber-400"
+                        : "hover:scale-[1.02]"
+                    } ${
                       severityFilter === "major"
-                        ? "bg-amber-500 text-white border-amber-500 shadow-md scale-105"
+                        ? "bg-amber-500 text-white border-amber-500 shadow-md"
                         : "bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/60 text-amber-700 dark:text-amber-300 hover:border-amber-400"
                     }`}
                   >
+                    {activeRiskTier === "major" && (
+                      <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                    )}
                     <div className="flex items-center gap-1">
-                      <AlertTriangle className="w-3.5 h-3.5" />
+                      <AlertTriangle className={`w-3.5 h-3.5 ${severityFilter === "major" ? "text-white" : "text-amber-600 dark:text-amber-400"}`} />
                       <span className="text-[11px] font-bold">Major</span>
                     </div>
                     <p className="text-2xl font-black my-0.5">{majorCount}</p>
-                    <span className="text-[9px] opacity-80 font-medium">CYP / Metabolic</span>
+                    <span className="text-[9px] opacity-80 font-medium">
+                      {activeRiskTier === "major" ? "● Active Focus" : "CYP / Metabolic"}
+                    </span>
                   </button>
 
-                  {/* Harmonized Card */}
+                  {/* Harmonized Card with Score-Driven Dynamic Focus Ring */}
                   <button
                     type="button"
                     onClick={() => setSeverityFilter("all")}
-                    className={`p-3 rounded-2xl border text-center transition-all flex flex-col items-center justify-between ${
-                      severityFilter === "all"
+                    className={`p-3 rounded-2xl border text-center transition-all duration-300 flex flex-col items-center justify-between relative overflow-hidden ${
+                      activeRiskTier === "harmonized"
+                        ? "ring-2 ring-teal-500 ring-offset-2 dark:ring-offset-slate-900 shadow-lg shadow-teal-500/25 scale-[1.03] border-teal-400"
+                        : "hover:scale-[1.02]"
+                    } ${
+                      severityFilter === "all" && activeRiskTier === "harmonized"
                         ? "bg-teal-50 dark:bg-teal-950/40 border-teal-300 dark:border-teal-800 text-teal-700 dark:text-teal-300"
+                        : severityFilter === "all"
+                        ? "bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300"
                         : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400"
                     }`}
                   >
+                    {activeRiskTier === "harmonized" && (
+                      <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-teal-500 animate-ping" />
+                    )}
                     <div className="flex items-center gap-1">
-                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <ShieldCheck className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
                       <span className="text-[11px] font-bold">Harmonized</span>
                     </div>
                     <p className="text-2xl font-black my-0.5">{harmonizedCount}</p>
-                    <span className="text-[9px] opacity-80 font-medium">Safe Profile</span>
+                    <span className="text-[9px] opacity-80 font-medium">
+                      {activeRiskTier === "harmonized" ? "● Active Focus" : "Safe Profile"}
+                    </span>
                   </button>
                 </div>
               </div>

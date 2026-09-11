@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
@@ -23,8 +23,10 @@ export default function RefillPage() {
   const [pharmacyLoading, setPharmacyLoading] = useState(false);
   const [pharmacyError, setPharmacyError] = useState('');
   const [searchRadius, setSearchRadius] = useState(5); // 5km
-  const [userCoords, setUserCoords] = useState({ lat: 28.6139, lng: 77.209 }); // Default New Delhi
+  const [userCoords, setUserCoords] = useState({ lat: 25.3845, lng: 82.9569 }); // Default Varanasi
+  const [locationName, setLocationName] = useState('Varanasi, Uttar Pradesh');
   const [showMap, setShowMap] = useState(true);
+  const hasFetchedRef = useRef(false);
 
   // Quick Refill Modal
   const [selectedMedForRefill, setSelectedMedForRefill] = useState(null);
@@ -49,11 +51,13 @@ export default function RefillPage() {
     setPharmacyLoading(true);
     setPharmacyError('');
     try {
+      const targetLat = lat !== undefined ? lat : 25.3845;
+      const targetLng = lng !== undefined ? lng : 82.9569;
       const res = await refillAPI.nearbyPharmacies({
-        lat: lat || userCoords.lat,
-        lon: lng || userCoords.lng,
-        lng: lng || userCoords.lng,
-        radius_km: radius || searchRadius,
+        lat: targetLat,
+        lon: targetLng,
+        lng: targetLng,
+        radius_km: radius || 5,
       });
       const data = res?.pharmacies || res?.data?.pharmacies || (Array.isArray(res) ? res : []);
       setPharmacies(Array.isArray(data) ? data : []);
@@ -62,27 +66,62 @@ export default function RefillPage() {
     } finally {
       setPharmacyLoading(false);
     }
-  }, [userCoords, searchRadius]);
+  }, []);
 
   useEffect(() => {
+    let isMounted = true;
     fetchLowStockMedicines();
 
-    // Try to get user location
-    if (typeof window !== 'undefined' && 'geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const newCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          setUserCoords(newCoords);
-          fetchNearbyPharmacies(newCoords.lat, newCoords.lng, searchRadius);
-        },
-        () => {
-          // Default location fallback
-          fetchNearbyPharmacies(28.6139, 77.209, searchRadius);
-        }
-      );
-    } else {
-      fetchNearbyPharmacies(28.6139, 77.209, searchRadius);
+    if (!hasFetchedRef.current) {
+      hasFetchedRef.current = true;
+
+      // Try to get user location with high accuracy and single clean fetch
+      if (typeof window !== 'undefined' && 'geolocation' in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          async (pos) => {
+            if (!isMounted) return;
+            const newCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            setUserCoords(newCoords);
+            fetchNearbyPharmacies(newCoords.lat, newCoords.lng, searchRadius);
+
+            // Client-side quick reverse geocoding
+            try {
+              const geoRes = await fetch(
+                `https://nominatim.openstreetmap.org/reverse?format=json&lat=${newCoords.lat}&lon=${newCoords.lng}&zoom=14`,
+                { headers: { 'Accept-Language': 'en' } }
+              );
+              if (geoRes.ok && isMounted) {
+                const geoData = await geoRes.json();
+                const city =
+                  geoData.address?.city ||
+                  geoData.address?.town ||
+                  geoData.address?.county ||
+                  geoData.address?.state_district ||
+                  'Varanasi';
+                const state = geoData.address?.state || 'Uttar Pradesh';
+                setLocationName(`${city}, ${state}`);
+              }
+            } catch {
+              if (isMounted) setLocationName('Varanasi, Uttar Pradesh');
+            }
+          },
+          () => {
+            if (!isMounted) return;
+            // Default location fallback (Varanasi, UP)
+            fetchNearbyPharmacies(25.3845, 82.9569, searchRadius);
+            setLocationName('Varanasi, Uttar Pradesh');
+          },
+          { enableHighAccuracy: true, timeout: 6000, maximumAge: 300000 }
+        );
+      } else {
+        fetchNearbyPharmacies(25.3845, 82.9569, searchRadius);
+        setLocationName('Varanasi, Uttar Pradesh');
+      }
     }
+
+    return () => {
+      isMounted = false;
+    };
   }, [fetchLowStockMedicines, fetchNearbyPharmacies, searchRadius]);
 
   // Refill request submit
@@ -293,6 +332,7 @@ export default function RefillPage() {
           <div className="pt-2">
             <PharmacyMapView
               userCoords={userCoords}
+              locationName={locationName}
               pharmacies={pharmacies}
               selectedPharmacy={pharmacies.find((p) => p.name === selectedPharmacy)}
               onSelectPharmacy={(p) => {

@@ -6,7 +6,8 @@ import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 
 export default function PharmacyMapView({
-  userCoords = { lat: 28.6139, lng: 77.2090 },
+  userCoords = { lat: 25.3845, lng: 82.9569 },
+  locationName = 'Varanasi, Uttar Pradesh',
   pharmacies = [],
   selectedPharmacy = null,
   onSelectPharmacy = () => {},
@@ -30,8 +31,8 @@ export default function PharmacyMapView({
     );
   }
 
-  const lat = userCoords?.lat || 28.6139;
-  const lng = userCoords?.lng || 77.2090;
+  const lat = userCoords?.lat || 25.3845;
+  const lng = userCoords?.lng || 82.9569;
 
   // Compute bbox for OpenStreetMap embed based on search radius
   const delta = (searchRadius || 5) / 111.0;
@@ -58,7 +59,7 @@ export default function PharmacyMapView({
         <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none">
           <div className="bg-surface/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-outline-variant/50 shadow-sm pointer-events-auto flex items-center gap-2 text-xs font-semibold text-on-surface">
             <span className="w-2.5 h-2.5 rounded-full bg-primary animate-pulse" />
-            <span>GPS: {lat.toFixed(4)}, {lng.toFixed(4)} ({searchRadius}km radius)</span>
+            <span>📍 {locationName ? `${locationName} • ` : ''}GPS: {lat.toFixed(4)}, {lng.toFixed(4)} ({searchRadius}km radius)</span>
           </div>
 
           <a

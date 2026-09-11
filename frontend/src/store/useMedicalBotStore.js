@@ -5,12 +5,14 @@
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  * G-Stack Pattern: Zustand over Redux — zero boilerplate, single import.
  * 
- * Two strict modes:
- *   'tutorial' → Flying onboarding guide (first-time users)
- *   'docked'   → Static bottom-right assistant (returning users)
+ * Modes:
+ *   'tutorial' → Interactive guided walkthrough of patient dashboard
+ *   'docked'   → Compact bottom-right companion (returning users)
  * 
- * Persistence: botMode saved to localStorage so returning users
- * skip the tutorial automatically.
+ * Features:
+ *   - 6-step guided interactive tour across dashboard components
+ *   - Auto-scroll and target tracking for smooth drone flight
+ *   - Persistent mode stored in localStorage
  */
 
 import { create } from 'zustand';
@@ -18,80 +20,162 @@ import { create } from 'zustand';
 // ── LocalStorage Key ─────────────────────────────────────────────
 const STORAGE_KEY = 'pillsync_bot_mode';
 
-/**
- * Read persisted bot mode from localStorage.
- * First-time users default to 'tutorial', returning users to 'docked'.
- */
 function getInitialMode() {
-  if (typeof window === 'undefined') return 'tutorial';
+  if (typeof window === 'undefined') return 'docked';
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved === 'docked' || saved === 'tutorial') return saved;
   } catch {
-    // SSR or localStorage unavailable — safe fallback
+    // safe fallback
   }
-  return 'tutorial';
+  return 'docked';
 }
 
-/**
- * Persist mode change to localStorage.
- */
 function persistMode(mode) {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(STORAGE_KEY, mode);
   } catch {
-    // Silently fail if storage is full or blocked
+    // silent
   }
 }
 
-// ── Zustand Store ────────────────────────────────────────────────
-const useMedicalBotStore = create((set) => ({
+export const DASHBOARD_TOUR_STEPS = [
+  {
+    stepIndex: 0,
+    selector: '[data-tour="header-overview"]',
+    title: 'Patient Overview & Stats',
+    message: 'नमस्ते! यह आपका मुख्य स्वास्थ्य डैशबोर्ड है। यहाँ आज की कुल दवाइयाँ, खुराक की स्थिति और ओवरऑल स्वास्थ्य समरी दिखती है।',
+  },
+  {
+    stepIndex: 1,
+    selector: '[data-tour="today-timeline"]',
+    title: "Today's Schedule & Alarms",
+    message: 'यह आपकी दैनिक खुराक टाइमलाइन है। समय होने पर अलार्म बजेगा और आप यहीं से "Take Dose" बटन दबाकर दवा लॉग कर सकते हैं।',
+  },
+  {
+    stepIndex: 2,
+    selector: '[data-tour="my-prescriptions"]',
+    title: 'Active Medications & Stock',
+    message: 'यहाँ आपकी सभी सक्रिय दवाइयाँ, बची हुई गोलियों की गिनती (Current Stock) और डॉक्टर के पर्चे की पूरी जानकारी सुरक्षित रहती है।',
+  },
+  {
+    stepIndex: 3,
+    selector: '[data-tour="drug-safety-hub"]',
+    title: 'AI Drug Safety & Clinical Check',
+    message: 'PillSync का AI इंजन आपकी सभी दवाइयों के बीच हानिकारक रिएक्शन (Contraindications) और खाने-पीने की सावधानियों की लाइव जाँच करता है।',
+  },
+  {
+    stepIndex: 4,
+    selector: '[data-tour="refill-section"]',
+    title: 'Smart Refill & Nearby Chemists',
+    message: 'दवाई कम होने पर स्वचालित चेतावनी मिलती है, और आप OpenStreetMap पर अपने घर के सबसे नज़दीकी मेडिकल स्टोर देख सकते हैं।',
+  },
+  {
+    stepIndex: 5,
+    selector: '[data-tour="care-circle-section"]',
+    title: 'Care Circle & Emergency SOS',
+    message: 'अपने परिवार के सदस्यों और डॉक्टर के साथ दवाइयाँ समय पर लेने का रिकॉर्ड साझा करें और आपातकाल में एक क्लिक पर कॉल करें।',
+  },
+];
+
+const useMedicalBotStore = create((set, get) => ({
   // ── State ──────────────────────────────────────────────────────
-  botMode: getInitialMode(),          // 'tutorial' | 'docked'
-  hoverMessage: null,                  // string | null — tooltip text
-  targetElementRect: null,             // DOMRect | null — screen position of hovered element
-  isTalking: false,                    // drives mouth animation (sine-wave scale-Y)
-  isChatOpen: false,                   // controls slide-over RAG chat sidebar
+  botMode: getInitialMode(),           // 'tutorial' | 'docked'
+  hoverMessage: null,                   // string | null
+  hoverTitle: null,                     // string | null
+  targetElementRect: null,              // DOMRect | null
+  isTalking: false,                     // drives mouth animation
+  isChatOpen: false,                    // controls slide-over RAG chat sidebar
+  isTourActive: false,                  // true during interactive 6-step walkthrough
+  currentTourStep: 0,                   // 0 to 5
+  totalTourSteps: DASHBOARD_TOUR_STEPS.length,
 
   // ── Actions ────────────────────────────────────────────────────
-
-  /**
-   * Switch between tutorial and docked modes.
-   * Persists to localStorage so the user's preference survives page reloads.
-   * G-Stack: Single source of truth for bot behavior across all components.
-   */
   setMode: (mode) => {
     persistMode(mode);
     set({
       botMode: mode,
-      // Clear tutorial state when docking
-      ...(mode === 'docked' ? { hoverMessage: null, targetElementRect: null, isTalking: false } : {}),
+      ...(mode === 'docked' ? { hoverMessage: null, hoverTitle: null, targetElementRect: null, isTalking: false, isTourActive: false } : {}),
     });
   },
 
-  /**
-   * Called by <TutorialTrigger> on hover — sets the flight target.
-   * Only meaningful when botMode === 'tutorial'.
-   */
-  setTarget: (rect, message) =>
-    set({ targetElementRect: rect, hoverMessage: message, isTalking: true }),
+  setTarget: (rect, message, title = null) =>
+    set({ targetElementRect: rect, hoverMessage: message, hoverTitle: title, isTalking: true }),
 
-  /**
-   * Called by <TutorialTrigger> on mouse leave — clears the flight target.
-   */
-  clearTarget: () =>
-    set({ targetElementRect: null, hoverMessage: null, isTalking: false }),
+  clearTarget: () => {
+    // If tour is actively running, do not clear target on random mouse moves
+    if (get().isTourActive) return;
+    set({ targetElementRect: null, hoverMessage: null, hoverTitle: null, isTalking: false });
+  },
 
-  /**
-   * Open the slide-over RAG chat sidebar (docked mode action).
-   * G-Stack: Chat state lives in the same store — no context gymnastics.
-   */
+  startTour: () => {
+    set({ botMode: 'tutorial', isTourActive: true, currentTourStep: 0 });
+    get().goToTourStep(0);
+  },
+
+  goToTourStep: (stepIdx) => {
+    if (stepIdx < 0 || stepIdx >= DASHBOARD_TOUR_STEPS.length) {
+      get().endTour();
+      return;
+    }
+
+    const step = DASHBOARD_TOUR_STEPS[stepIdx];
+    set({ currentTourStep: stepIdx, isTourActive: true, botMode: 'tutorial', isTalking: true });
+
+    if (typeof window !== 'undefined') {
+      const el = document.querySelector(step.selector);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => {
+          const rect = el.getBoundingClientRect();
+          set({
+            targetElementRect: rect,
+            hoverMessage: step.message,
+            hoverTitle: step.title,
+            isTalking: true,
+          });
+        }, 350);
+      } else {
+        // Fallback if specific section is scrolled or collapsed
+        set({
+          hoverMessage: step.message,
+          hoverTitle: step.title,
+          isTalking: true,
+        });
+      }
+    }
+  },
+
+  nextTourStep: () => {
+    const nextIdx = get().currentTourStep + 1;
+    if (nextIdx < DASHBOARD_TOUR_STEPS.length) {
+      get().goToTourStep(nextIdx);
+    } else {
+      get().endTour();
+    }
+  },
+
+  prevTourStep: () => {
+    const prevIdx = get().currentTourStep - 1;
+    if (prevIdx >= 0) {
+      get().goToTourStep(prevIdx);
+    }
+  },
+
+  endTour: () => {
+    persistMode('docked');
+    set({
+      isTourActive: false,
+      botMode: 'docked',
+      targetElementRect: null,
+      hoverMessage: null,
+      hoverTitle: null,
+      isTalking: false,
+    });
+  },
+
   openChat: () => set({ isChatOpen: true }),
-
-  /**
-   * Close the slide-over RAG chat sidebar.
-   */
   closeChat: () => set({ isChatOpen: false }),
 }));
 

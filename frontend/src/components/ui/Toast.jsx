@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useCallback, useState, createContext, useContext } from 'react';
 import { createPortal } from 'react-dom';
+import { X } from 'lucide-react';
 
 /**
  * Toast — Vitality Core Design System
@@ -31,10 +32,16 @@ export function ToastProvider({ children, position = 'top-center', maxToasts = 5
   const addToast = useCallback(
     ({ title, description, variant = 'default', duration = 4000, action }) => {
       const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      setToasts((prev) => [
-        { id, title, description, variant, duration, action },
-        ...prev.slice(0, maxToasts - 1),
-      ]);
+      setToasts((prev) => {
+        // Prevent duplicate toasts stacking on top of each other
+        if (prev.some((t) => t.title === title && t.variant === variant)) {
+          return prev;
+        }
+        return [
+          { id, title, description, variant, duration, action },
+          ...prev.slice(0, maxToasts - 1),
+        ];
+      });
       return id;
     },
     [maxToasts]
@@ -138,7 +145,7 @@ function ToastItem({ id, title, description, variant = 'default', duration = 400
 
   const dismiss = useCallback(() => {
     setExiting(true);
-    setTimeout(() => onDismiss(id), 300);
+    onDismiss(id);
   }, [id, onDismiss]);
 
   useEffect(() => {
@@ -215,12 +222,16 @@ function ToastItem({ id, title, description, variant = 'default', duration = 400
 
         {/* Dismiss */}
         <button
-          onClick={dismiss}
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            dismiss();
+          }}
           type="button"
           aria-label="Dismiss notification"
-          className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full hover:opacity-70 transition-opacity focus:outline-none mt-0.5"
+          className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full hover:bg-black/15 dark:hover:bg-white/15 transition-colors focus:outline-none cursor-pointer mt-0.5 z-10"
         >
-          <span className="material-symbols-outlined text-[16px]">close</span>
+          <X className="w-3.5 h-3.5" />
         </button>
       </div>
     </div>
