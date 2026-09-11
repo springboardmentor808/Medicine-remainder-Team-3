@@ -48,9 +48,13 @@ import AddReminderModal from '@/components/patient/AddReminderModal';
 import dynamic from 'next/dynamic';
 import TutorialTrigger from '@/components/3d/TutorialTrigger';
 
-// G-Stack: Dynamic import for R3F — no SSR, code-split for zero main-bundle impact
+// G-Stack: Dynamic import for R3F — no SSR, code-split with graceful error boundary
 const DualModeMedicalBot = dynamic(
-  () => import('@/components/3d/DualModeMedicalBot'),
+  () =>
+    import('@/components/3d/DualModeMedicalBot').catch((err) => {
+      console.warn('[PillSync 3D] WebGL/R3F module load gracefully suppressed:', err);
+      return () => null;
+    }),
   { ssr: false }
 );
 
