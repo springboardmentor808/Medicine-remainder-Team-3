@@ -435,8 +435,10 @@ async def handle_assistant_query(
 
         api_key = getattr(settings, 'GEMINI_API_KEY', None) or getattr(settings, 'GOOGLE_API_KEY', None)
         if api_key:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            try:
+                model = genai.GenerativeModel('gemini-3.6-flash')
+            except Exception:
+                model = genai.GenerativeModel('gemini-flash-latest')
 
             # Convert to Gemini format
             gemini_contents = []

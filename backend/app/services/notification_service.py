@@ -53,11 +53,17 @@ def _init_firebase() -> bool:
             _firebase_initialized = True
             logger.info("[FCM] Firebase initialized successfully via FIREBASE_CREDENTIALS_JSON.")
             return True
-        elif os.path.exists(cred_path):
-            cred = credentials.Certificate(cred_path)
+        resolved_path = None
+        for p in [cred_path, os.path.basename(cred_path), os.path.join("backend", os.path.basename(cred_path))]:
+            if p and os.path.exists(p):
+                resolved_path = p
+                break
+
+        if resolved_path:
+            cred = credentials.Certificate(resolved_path)
             firebase_admin.initialize_app(cred)
             _firebase_initialized = True
-            logger.info(f"[FCM] Firebase initialized successfully via {cred_path}.")
+            logger.info(f"[FCM] Firebase initialized successfully via {resolved_path}.")
             return True
         else:
             logger.warning(
