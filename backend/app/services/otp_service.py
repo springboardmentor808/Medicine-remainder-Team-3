@@ -141,7 +141,7 @@ class OTPService:
             await redis.delete(key)
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OTP session.")
 
-        # Check purpose matching if specified
+        # Check purpose matching if specified (enforce exact purpose match)
         if purpose and data.get("purpose") and data.get("purpose") != purpose:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid verification purpose.")
 
@@ -176,28 +176,63 @@ class OTPService:
         if channel == "email":
             await redis.delete(f"otp:{norm_dest}")
 
-        # Set 15-minute verified claim in Redis
-        claim_key = f"otp_verified:{channel}:{norm_dest}"
+        # Set 15-minute verified claim in Redis bound to purpose
+        claim_purpose = (purpose or data.get("purpose") or "VERIFY").strip().upper()
         claim_payload = {
             "verified": True,
             "channel": channel,
             "destination": norm_dest,
+            "purpose": claim_purpose,
             "verified_at": datetime.now(timezone.utc).isoformat(),
         }
-        await redis.set(claim_key, json.dumps(claim_payload), ex=VERIFIED_CLAIM_TTL_SECONDS)
+        claim_json = json.dumps(claim_payload)
+
+        # 1. Primary purpose-specific claim key
+        claim_key = f"otp_verified:{channel}:{norm_dest}:{claim_purpose}"
+        await redis.set(claim_key, claim_json, ex=VERIFIED_CLAIM_TTL_SECONDS)
+
+        # 2. Universal destination verified claim key (fallback for any channel check)
+        generic_key = f"otp_verified:{channel}:{norm_dest}"
+        await redis.set(generic_key, claim_json, ex=VERIFIED_CLAIM_TTL_SECONDS)
+
+        # 3. Ensure cross-compatibility between REGISTRATION and VERIFY claims
+        if claim_purpose in ("REGISTRATION", "VERIFY", "ONBOARDING"):
+            await redis.set(f"otp_verified:{channel}:{norm_dest}:REGISTRATION", claim_json, ex=VERIFIED_CLAIM_TTL_SECONDS)
+            await redis.set(f"otp_verified:{channel}:{norm_dest}:VERIFY", claim_json, ex=VERIFIED_CLAIM_TTL_SECONDS)
 
         return True
 
     @classmethod
-    async def is_destination_verified(cls, destination: str, channel: str = "email") -> bool:
-        """Check if destination has an active, valid verification claim."""
+    async def is_destination_verified(
+        cls, destination: str, channel: str = "email", purpose: Optional[str] = None
+    ) -> bool:
+        """Check if destination has an active, valid verification claim for given purpose."""
         redis = get_redis()
         if not redis:
             return True  # Dev fallback if redis is offline
         norm_dest = _normalize_dest(destination, channel)
-        claim_key = f"otp_verified:{channel}:{norm_dest}"
-        claim = await redis.get(claim_key)
-        return bool(claim)
+        if not norm_dest:
+            return False
+
+        keys_to_check = set()
+        if purpose:
+            p_up = purpose.strip().upper()
+            keys_to_check.add(f"otp_verified:{channel}:{norm_dest}:{p_up}")
+            if p_up in ("REGISTRATION", "VERIFY", "ONBOARDING"):
+                keys_to_check.add(f"otp_verified:{channel}:{norm_dest}:REGISTRATION")
+                keys_to_check.add(f"otp_verified:{channel}:{norm_dest}:VERIFY")
+        else:
+            keys_to_check.add(f"otp_verified:{channel}:{norm_dest}:REGISTRATION")
+            keys_to_check.add(f"otp_verified:{channel}:{norm_dest}:VERIFY")
+            # Universal claim fallback is only permitted when no specific purpose bound check was requested
+            keys_to_check.add(f"otp_verified:{channel}:{norm_dest}")
+
+        for k in keys_to_check:
+            claim = await redis.get(k)
+            if claim:
+                return True
+        return False
+
 
     @classmethod
     async def create_password_reset_token(cls, user_id: uuid.UUID, email: str) -> str:

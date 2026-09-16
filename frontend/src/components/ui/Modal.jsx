@@ -39,6 +39,7 @@ function Modal({
   preventScroll = true,
   children,
   className = '',
+  glassmorphic = false,
   'aria-label': ariaLabel,
 }) {
   const overlayRef = useRef(null);
@@ -112,7 +113,7 @@ function Modal({
       onClick={handleBackdropClick}
       className={[
         'fixed inset-0 z-50 flex sm:items-center sm:justify-center items-end justify-center p-0 sm:p-4',
-        'bg-inverse-surface/40 backdrop-blur-sm',
+        glassmorphic ? 'bg-black/70 backdrop-blur-md' : 'bg-inverse-surface/40 backdrop-blur-sm',
         'animate-fade-in',
       ].join(' ')}
       aria-modal="true"
@@ -124,7 +125,9 @@ function Modal({
         ref={dialogRef}
         className={[
           // Base
-          'relative w-full bg-surface-container-lowest rounded-t-2xl sm:rounded-lg shadow-modal',
+          glassmorphic
+            ? 'relative w-full bg-slate-950/85 backdrop-blur-2xl rounded-t-3xl sm:rounded-3xl border border-white/20 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.8),0_0_40px_rgba(16,185,129,0.15)] ring-1 ring-white/10 text-white'
+            : 'relative w-full bg-surface-container-lowest rounded-t-2xl sm:rounded-lg shadow-modal',
           'flex flex-col max-h-[92dvh] sm:max-h-[90vh] pb-safe sm:pb-0',
           'animate-fade-in',
           // Size
@@ -135,15 +138,24 @@ function Modal({
       >
         {/* ── Header ────────────────────────────────────────────────── */}
         {(title || showCloseButton) && (
-          <div className="flex items-start justify-between gap-sm px-md sm:px-lg pt-md sm:pt-lg pb-sm sm:pb-md border-b border-outline-variant/40 shrink-0">
+          <div className={[
+            'flex items-start justify-between gap-sm px-md sm:px-lg pt-md sm:pt-lg pb-sm sm:pb-md shrink-0',
+            glassmorphic ? 'border-b border-white/10' : 'border-b border-outline-variant/40'
+          ].join(' ')}>
             <div>
               {title && (
-                <h2 className="text-body-lg sm:text-headline-sm font-semibold text-on-surface leading-snug">
+                <h2 className={[
+                  'text-body-lg sm:text-headline-sm font-semibold leading-snug',
+                  glassmorphic ? 'text-white' : 'text-on-surface'
+                ].join(' ')}>
                   {title}
                 </h2>
               )}
               {description && (
-                <p id="modal-desc" className="text-caption text-on-surface-variant mt-1">
+                <p id="modal-desc" className={[
+                  'text-caption mt-1',
+                  glassmorphic ? 'text-slate-300' : 'text-on-surface-variant'
+                ].join(' ')}>
                   {description}
                 </p>
               )}
@@ -154,11 +166,10 @@ function Modal({
                 type="button"
                 aria-label="Close dialog"
                 className={[
-                  'shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full',
-                  'text-on-surface-variant',
-                  'hover:bg-surface-container hover:text-on-surface',
-                  'active:bg-surface-container-high active:scale-95',
-                  'transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                  'shrink-0 min-w-[40px] min-h-[40px] flex items-center justify-center rounded-full transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-primary active:scale-95',
+                  glassmorphic
+                    ? 'text-white/70 hover:text-white bg-white/10 hover:bg-white/20 border border-white/15'
+                    : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface active:bg-surface-container-high',
                 ].join(' ')}
               >
                 <span className="material-symbols-outlined text-[20px]">close</span>
@@ -182,11 +193,12 @@ function Modal({
 }
 
 // ── Modal.Footer ─────────────────────────────────────────────────────────────
-Modal.Footer = function ModalFooter({ children, className = '', align = 'right' }) {
+Modal.Footer = function ModalFooter({ children, className = '', align = 'right', glassmorphic = false }) {
   return (
     <div
       className={[
-        'flex items-center gap-sm pt-md mt-md border-t border-outline-variant/40',
+        'flex items-center gap-sm pt-md mt-md shrink-0',
+        glassmorphic ? 'border-t border-white/10' : 'border-t border-outline-variant/40',
         align === 'right'  ? 'justify-end' :
         align === 'left'   ? 'justify-start' :
         align === 'center' ? 'justify-center' : 'justify-between',

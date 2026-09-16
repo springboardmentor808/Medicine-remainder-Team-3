@@ -29,7 +29,7 @@ import Button from '@/components/ui/Button';
 import EmptyState from '@/components/ui/EmptyState';
 import AdherenceRing from '@/components/ui/AdherenceRing';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
-import { exportAPI, patientAPI, medicineAPI, analyticsAPI } from '@/lib/api';
+import { exportAPI, patientAPI, medicineAPI, analyticsAPI, caregiverAPI } from '@/lib/api';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -71,6 +71,50 @@ function AdherencePageInner() {
   const [doseHistory, setDoseHistory] = useState([]);
   // Real heatmap from PostgreSQL (week-grid: array of weeks, each with 7 day objects)
   const [heatmapData, setHeatmapData] = useState([]);
+
+  // Caregiver Roster State
+  const [currentUser, setCurrentUser] = useState(null);
+  const [wardPatients, setWardPatients] = useState([]);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('pillsync_user');
+      if (stored) {
+        const u = JSON.parse(stored);
+        setCurrentUser(u);
+        if (u.role === 'caregiver') {
+          Promise.allSettled([
+            caregiverAPI.getPatients(),
+            caregiverAPI.patientOverview(),
+          ]).then(([ptsRes, ovRes]) => {
+            const pts = ptsRes.status === 'fulfilled' ? (ptsRes.value?.data || ptsRes.value) : [];
+            const rawPts = Array.isArray(pts) ? pts : (pts?.patients || pts?.items || []);
+            const ovs = ovRes.status === 'fulfilled' ? (ovRes.value?.data || ovRes.value) : [];
+            const rawOvs = Array.isArray(ovs) ? ovs : (ovs?.reports || ovs?.items || []);
+
+            const mapped = rawPts.map((p) => {
+              const stat = rawOvs.find((o) => String(o.patient_id) === String(p.id)) || {};
+              const isDemoPatient = String(p.id).startsWith('00000000-0000-4000-8000-00000000000');
+              const adh = stat.adherence_percentage !== undefined && stat.adherence_percentage !== null
+                ? stat.adherence_percentage
+                : (isDemoPatient ? (String(p.id).endsWith('1') ? 94 : 68) : null);
+              const missed = stat.missed_doses !== undefined && stat.missed_doses !== null
+                ? stat.missed_doses
+                : (isDemoPatient ? (adh !== null && adh < 75 ? 3 : 0) : 0);
+              return {
+                id: p.id,
+                name: p.full_name || p.username || 'Patient',
+                adherence: adh !== null ? Math.round(adh) : null,
+                missedDoses: missed,
+                isDemo: isDemoPatient,
+              };
+            });
+            setWardPatients(mapped);
+          }).catch(() => {});
+        }
+      }
+    } catch {}
+  }, []);
 
   // Fetch all real data in parallel — no mocks
   useEffect(() => {
@@ -261,6 +305,61 @@ function AdherencePageInner() {
       </header>
 
       <main className="max-w-4xl mx-auto px-gutter py-lg">
+        {/* ── Caregiver Ward Roster Scorecard ─────────────────────── */}
+        {currentUser?.role === 'caregiver' && wardPatients.length > 0 && (
+          <Card className="mb-lg border border-[#bfe3cd] dark:border-[#1e4537] bg-[#f4faf6] dark:bg-[#0e241c]/60">
+            <div className="p-card-padding">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2 text-[#11382d] dark:text-[#a0e5be]">
+                  <Activity className="w-5 h-5 text-[#164234] dark:text-[#a0e5be]" />
+                  <h2 className="text-body-sm font-bold">Monitored Ward Compliance Roster</h2>
+                </div>
+                <Badge variant="caregiver" size="xs">Caregiver Pro</Badge>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {wardPatients.map((p) => (
+                  <div
+                    key={p.id}
+                    className="p-4 rounded-xl bg-white dark:bg-surface-container-low border border-outline-variant/30 flex items-center justify-between gap-3 shadow-xs"
+                  >
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <h3 className="text-sm font-bold text-on-surface">{p.name}</h3>
+                        {p.isDemo && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] bg-secondary/15 text-secondary uppercase font-bold">Sample</span>
+                        )}
+                      </div>
+                      <p className="text-caption text-on-surface-variant mt-0.5">
+                        {p.adherence === null ? (
+                          <span className="text-on-surface-variant font-medium">ℹ️ No dose logs recorded yet</span>
+                        ) : p.missedDoses > 0 ? (
+                          <span className="text-error font-medium">⚠️ {p.missedDoses} missed doses reported</span>
+                        ) : (
+                          <span className="text-emerald-600 font-medium">✅ Full compliance on schedule</span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      {p.adherence !== null ? (
+                        <>
+                          <p className={`text-xl font-bold ${p.adherence > 80 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                            {p.adherence}%
+                          </p>
+                          <p className="text-[10px] text-on-surface-variant uppercase font-semibold">Adherence</p>
+                        </>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-semibold bg-surface-container-high text-on-surface-variant">
+                          No Data
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Card>
+        )}
+
         {/* ── Overall Adherence Ring ──────────────────────────────── */}
         <Card className="mb-lg">
           <div className="p-card-padding">

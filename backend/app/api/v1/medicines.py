@@ -11,14 +11,18 @@ Provides endpoints for:
     - PATCH  /{medicine_id}/stock   — Update stock level.
 """
 
+from datetime import datetime, timezone
 import uuid
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
+from app.models.caregiver_patient import caregiver_patients
 from app.schemas.medicine_schema import (
     DiseaseGroupResponse,
     MedicineCreate,
@@ -44,6 +48,106 @@ router = APIRouter(prefix="/medicines", tags=["Medicines"])
 
 
 # ---------------------------------------------------------------------------
+# Demo Patients & Sample Medicines for Mentor Presentation / Unassigned Caregiver
+# ---------------------------------------------------------------------------
+DEMO_PATIENT_1_ID = uuid.UUID("00000000-0000-4000-8000-000000000001")
+DEMO_PATIENT_2_ID = uuid.UUID("00000000-0000-4000-8000-000000000002")
+
+SAMPLE_DEMO_MEDICINES: list[MedicineResponse] = [
+    MedicineResponse(
+        id=uuid.UUID("11111111-0000-4000-8000-000000000001"),
+        user_id=DEMO_PATIENT_1_ID,
+        name="Metformin 500mg",
+        disease_category="Diabetes",
+        dosage="500mg",
+        initial_quantity=60,
+        current_stock=45,
+        daily_frequency=2,
+        quantity_per_dose=1,
+        notes="Take with breakfast and dinner",
+        days_until_empty=22.5,
+        created_at=datetime(2026, 1, 1, 8, 0, 0, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 1, 1, 8, 0, 0, tzinfo=timezone.utc),
+    ),
+    MedicineResponse(
+        id=uuid.UUID("11111111-0000-4000-8000-000000000002"),
+        user_id=DEMO_PATIENT_1_ID,
+        name="Lisinopril 10mg",
+        disease_category="Blood Pressure",
+        dosage="10mg",
+        initial_quantity=30,
+        current_stock=12,
+        daily_frequency=1,
+        quantity_per_dose=1,
+        notes="Take once daily in morning",
+        days_until_empty=12.0,
+        created_at=datetime(2026, 1, 1, 8, 0, 0, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 1, 1, 8, 0, 0, tzinfo=timezone.utc),
+    ),
+    MedicineResponse(
+        id=uuid.UUID("11111111-0000-4000-8000-000000000003"),
+        user_id=DEMO_PATIENT_1_ID,
+        name="Atorvastatin 20mg",
+        disease_category="Heart Medications",
+        dosage="20mg",
+        initial_quantity=30,
+        current_stock=30,
+        daily_frequency=1,
+        quantity_per_dose=1,
+        notes="Take at bedtime",
+        days_until_empty=30.0,
+        created_at=datetime(2026, 1, 1, 8, 0, 0, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 1, 1, 8, 0, 0, tzinfo=timezone.utc),
+    ),
+    MedicineResponse(
+        id=uuid.UUID("22222222-0000-4000-8000-000000000001"),
+        user_id=DEMO_PATIENT_2_ID,
+        name="Donepezil 10mg",
+        disease_category="General Healthcare",
+        dosage="10mg",
+        initial_quantity=30,
+        current_stock=28,
+        daily_frequency=1,
+        quantity_per_dose=1,
+        notes="Take before bedtime with water",
+        days_until_empty=28.0,
+        created_at=datetime(2026, 1, 1, 8, 0, 0, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 1, 1, 8, 0, 0, tzinfo=timezone.utc),
+    ),
+    MedicineResponse(
+        id=uuid.UUID("22222222-0000-4000-8000-000000000002"),
+        user_id=DEMO_PATIENT_2_ID,
+        name="Memantine 10mg",
+        disease_category="General Healthcare",
+        dosage="10mg",
+        initial_quantity=30,
+        current_stock=8,
+        daily_frequency=2,
+        quantity_per_dose=1,
+        notes="Take twice daily with meals",
+        days_until_empty=4.0,
+        created_at=datetime(2026, 1, 1, 8, 0, 0, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 1, 1, 8, 0, 0, tzinfo=timezone.utc),
+    ),
+    MedicineResponse(
+        id=uuid.UUID("22222222-0000-4000-8000-000000000003"),
+        user_id=DEMO_PATIENT_2_ID,
+        name="Vitamin D3 1000 IU",
+        disease_category="Vitamins",
+        dosage="1000 IU",
+        initial_quantity=60,
+        current_stock=60,
+        daily_frequency=1,
+        quantity_per_dose=1,
+        notes="Take once daily after breakfast",
+        days_until_empty=60.0,
+        created_at=datetime(2026, 1, 1, 8, 0, 0, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 1, 1, 8, 0, 0, tzinfo=timezone.utc),
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -57,6 +161,8 @@ def _compute_days_until_empty(medicine) -> float | None:
 
 def _to_response(medicine) -> MedicineResponse:
     """Convert a Medicine ORM instance to its response schema."""
+    if isinstance(medicine, MedicineResponse):
+        return medicine
     med_id = uuid.UUID(str(medicine.id)) if isinstance(medicine.id, (str, uuid.UUID)) else medicine.id
     u_id = uuid.UUID(str(medicine.user_id)) if isinstance(medicine.user_id, (str, uuid.UUID)) else medicine.user_id
     return MedicineResponse(
@@ -118,8 +224,8 @@ async def create_medicine_endpoint(
     status_code=status.HTTP_200_OK,
     summary="List Medicines",
     description=(
-        "Retrieve a paginated list of the user's medicines. "
-        "Supports filtering by disease category and name search."
+        "Retrieve a paginated list of medicines. "
+        "Supports filtering by disease category, name search, and monitored patient ID."
     ),
 )
 async def list_medicines_endpoint(
@@ -131,21 +237,80 @@ async def list_medicines_endpoint(
     search: str | None = Query(
         None, description="Search by medicine name (case-insensitive)"
     ),
+    patient_id: uuid.UUID | None = Query(
+        None, description="Caregiver/Admin: Filter by specific monitored patient"
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> MedicineListResponse:
-    """List all medicines for the authenticated user."""
-    medicines, total = await get_medicines_by_user(
+    """List all medicines for the authenticated user or monitored patient."""
+    is_caregiver = getattr(current_user, "role", "") in ("caregiver", "admin")
+    target_user_id = current_user.id
+
+    if patient_id:
+        if is_caregiver:
+            if str(patient_id) in ("00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"):
+                filtered = [m for m in SAMPLE_DEMO_MEDICINES if m.user_id == patient_id]
+                if disease_category:
+                    filtered = [m for m in filtered if m.disease_category.lower() == disease_category.lower()]
+                if search:
+                    filtered = [m for m in filtered if search.lower() in m.name.lower()]
+                return MedicineListResponse(
+                    medicines=filtered,
+                    total=len(filtered),
+                    page=page,
+                    page_size=page_size,
+                )
+            if getattr(current_user, "role", "") == "caregiver":
+                link_check = await db.execute(
+                    select(caregiver_patients).where(
+                        caregiver_patients.c.caregiver_id == current_user.id,
+                        caregiver_patients.c.patient_id == patient_id,
+                    )
+                )
+                if not link_check.first():
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="You are not authorized to view medications for this patient.",
+                    )
+            target_user_id = patient_id
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only caregivers and administrators can inspect other patient inventories.",
+            )
+    elif is_caregiver and getattr(current_user, "role", "") == "caregiver":
+        # Check if caregiver has any linked patients in database
+        linked_stmt = select(caregiver_patients.c.patient_id).where(
+            caregiver_patients.c.caregiver_id == current_user.id
+        )
+        linked_res = await db.execute(linked_stmt)
+        linked_ids = [r[0] for r in linked_res.all()]
+        if not linked_ids:
+            # Unassigned caregiver: present curated demo medicines for Robert Chen & Eleanor Vance
+            filtered = list(SAMPLE_DEMO_MEDICINES)
+            if disease_category:
+                filtered = [m for m in filtered if m.disease_category.lower() == disease_category.lower()]
+            if search:
+                filtered = [m for m in filtered if search.lower() in m.name.lower()]
+            return MedicineListResponse(
+                medicines=filtered,
+                total=len(filtered),
+                page=page,
+                page_size=page_size,
+            )
+
+    medicines_list, total_count = await get_medicines_by_user(
         db,
-        user_id=current_user.id,
-        page=page,
-        page_size=page_size,
+        user_id=target_user_id,
         disease_category=disease_category,
         search=search,
+        page=page,
+        page_size=page_size,
     )
     return MedicineListResponse(
-        medicines=[_to_response(m) for m in medicines],
-        total=total,
+        medicines=[_to_response(m) for m in medicines_list],
+        total=total_count,
         page=page,
         page_size=page_size,
     )
@@ -160,14 +325,63 @@ async def list_medicines_endpoint(
     response_model=list[DiseaseGroupResponse],
     status_code=status.HTTP_200_OK,
     summary="Group Medicines by Disease",
-    description="Retrieve the user's medicines grouped by disease category.",
+    description="Retrieve medicines grouped by disease category.",
 )
 async def grouped_by_disease_endpoint(
+    patient_id: uuid.UUID | None = Query(None, description="Optional monitored patient ID filter"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[DiseaseGroupResponse]:
-    """Group the authenticated user's medicines by disease category."""
-    groups = await get_medicines_grouped_by_disease(db, current_user.id)
+    """Group medicines by disease category."""
+    is_caregiver = getattr(current_user, "role", "") in ("caregiver", "admin")
+
+    if patient_id:
+        if not is_caregiver:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only caregivers and administrators can inspect other patient inventories.",
+            )
+        if str(patient_id) in ("00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"):
+            demo_meds = [m for m in SAMPLE_DEMO_MEDICINES if m.user_id == patient_id]
+            groups = {}
+            for m in demo_meds:
+                groups.setdefault(m.disease_category, []).append(m)
+            return [
+                DiseaseGroupResponse(category=cat, count=len(meds), medicines=meds)
+                for cat, meds in groups.items()
+            ]
+        if getattr(current_user, "role", "") == "caregiver":
+            link_check = await db.execute(
+                select(caregiver_patients).where(
+                    caregiver_patients.c.caregiver_id == current_user.id,
+                    caregiver_patients.c.patient_id == patient_id,
+                )
+            )
+            if not link_check.first():
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You are not authorized to view medications for this patient.",
+                )
+        target_id = patient_id
+    elif is_caregiver and getattr(current_user, "role", "") == "caregiver":
+        linked_stmt = select(caregiver_patients.c.patient_id).where(
+            caregiver_patients.c.caregiver_id == current_user.id
+        )
+        linked_res = await db.execute(linked_stmt)
+        linked_ids = [r[0] for r in linked_res.all()]
+        if not linked_ids:
+            groups = {}
+            for m in SAMPLE_DEMO_MEDICINES:
+                groups.setdefault(m.disease_category, []).append(m)
+            return [
+                DiseaseGroupResponse(category=cat, count=len(meds), medicines=meds)
+                for cat, meds in groups.items()
+            ]
+        target_id = current_user.id
+    else:
+        target_id = current_user.id
+
+    groups = await get_medicines_grouped_by_disease(db, target_id)
     return [
         DiseaseGroupResponse(
             category=category,

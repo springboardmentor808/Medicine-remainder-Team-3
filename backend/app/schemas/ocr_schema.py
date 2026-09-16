@@ -97,9 +97,32 @@ class OCRScanResponse(BaseModel):
         None,
         description="MongoDB document ID of the saved scan result",
     )
+    # Multi-Medicine Array Support:
+    # -------------------------------------------------------------
+    # Clinical prescriptions typically contain multiple concurrent medications.
+    # When scanned via Gemini Flash Vision structured parsing, each identified drug
+    # is extracted as a normalized dictionary within this list.
+    #
+    # Backwards Compatibility Guarantee:
+    # Root fields (medicine_name, dosage, frequency, etc.) are kept synchronized with
+    # medicines[0] (the primary medication) so legacy single-item consumers continue
+    # to function without modification.
+    #
+    # Item Schema per element:
+    # {
+    #   "medicine_name": str,
+    #   "dosage": str,
+    #   "frequency": str,
+    #   "daily_frequency": int,
+    #   "dosage_form": str,
+    #   "disease_category": str,
+    #   "initial_quantity": int,
+    #   "quantity_per_dose": int,
+    #   "instructions": str
+    # }
     medicines: Optional[list[dict]] = Field(
         default_factory=list,
-        description="All extracted medications from multi-medicine prescriptions",
+        description="All extracted medications from multi-medicine prescriptions with normalized clinical attributes",
     )
 
 

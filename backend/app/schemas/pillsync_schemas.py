@@ -171,8 +171,33 @@ class AdherenceReportResponse(BaseModel):
     taken_doses: int
     missed_doses: int
     snoozed_doses: int
-    adherence_percentage: float
+    adherence_percentage: Optional[float] = None
     consistency_grade: str
+
+
+# Caregiver Queue Schemas
+class CaregiverQueueItem(BaseModel):
+    schedule_id: str
+    patient_id: str
+    patient_name: str
+    patient_phone: Optional[str] = None
+    medicine_id: str
+    medicine_name: str
+    dosage: str
+    scheduled_time: str
+    dose_label: Optional[str] = None
+    status: str  # "Taken", "Missed", "Pending"
+    action_time: Optional[datetime] = None
+    is_demo: bool = False
+
+class CaregiverQueueResponse(BaseModel):
+    date: str
+    total_doses: int
+    pending_count: int
+    taken_count: int
+    missed_count: int
+    is_demo: bool = False
+    items: List[CaregiverQueueItem]
 
 
 # Module 6: AI Refill Prediction Engine Schemas

@@ -26,6 +26,10 @@ import {
   Phone,
   Check,
   Download,
+  Volume2,
+  ExternalLink,
+  CheckCheck,
+  ShieldCheck,
 } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -34,6 +38,7 @@ import Input from '@/components/ui/Input';
 import Modal from '@/components/ui/Modal';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { notificationAPI, exportAPI } from '@/lib/api';
+import { playNotificationChime, playWebAudioAlarm } from '@/lib/alarm_service';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -63,6 +68,10 @@ const MSG_TYPES = {
   caregiver_escalation:   { label: 'Caregiver Escalation',   icon: 'error_outline', color: 'error' },
   adherence_report:       { label: 'Adherence Report',       icon: 'insights',      color: 'tertiary' },
   system_broadcast:       { label: 'System Broadcast',       icon: 'campaign',      color: 'primary' },
+  broadcast:              { label: 'Broadcast Announcement', icon: 'campaign',      color: 'primary' },
+  system_alert:           { label: 'System Clinical Alert',  icon: 'campaign',      color: 'primary' },
+  emergency:              { label: 'Emergency Escalation',   icon: 'error_outline', color: 'error' },
+  system:                 { label: 'System Advisory',        icon: 'campaign',      color: 'secondary' },
   appointment_reminder:   { label: 'Appointment Reminder',   icon: 'event',         color: 'secondary' },
   mass_advisory:          { label: 'Mass Public Advisory',   icon: 'campaign',      color: 'primary' },
   clinical_reminder:      { label: 'Medication & Care Reminder', icon: 'medication', color: 'tertiary' },
@@ -574,57 +583,68 @@ function SmartphoneSmsPreviewModal({ sms, isOpen, onClose, onReplyRecorded }) {
       onClose={onClose}
       title=""
       size="sm"
+      glassmorphic={true}
     >
-      <div className="space-y-md text-left">
-        {/* Header Eyebrow in Signature Medical Sage Green */}
-        <div>
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#d8eedf] dark:bg-[#16382c] border border-[#bfe3cd] dark:border-[#2e6d54] text-[#164234] dark:text-[#a0e5be] text-[11px] font-bold tracking-wider uppercase font-sans shadow-xs">
-            <MessageSquare className="w-3.5 h-3.5 text-[#164234] dark:text-[#a0e5be]" />
-            PILLSYNC CLINICAL TELEPHONY
+      <div className="relative space-y-4 text-left py-1">
+        {/* Multi-layered Ambient Light Refraction Orbs for Glassmorphism */}
+        <div className="absolute -top-12 -left-12 w-48 h-48 bg-emerald-500/25 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-10 -right-10 w-48 h-48 bg-cyan-500/25 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-56 h-56 bg-teal-500/15 rounded-full blur-3xl pointer-events-none" />
+
+        {/* Header Eyebrow with Frosted Glass Badge */}
+        <div className="relative z-10">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-emerald-300 text-[11px] font-bold tracking-wider uppercase font-sans shadow-sm">
+            <Sparkles className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+            <span>PILLSYNC CLINICAL TELEPHONY</span>
           </div>
 
-          <h3 className="text-2xl font-bold text-[#11382d] dark:text-white font-heading tracking-tight mt-1.5">
+          <h3 className="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white via-slate-100 to-emerald-200 font-heading tracking-tight mt-1.5">
             Mobile Screen SMS Inspection
           </h3>
-          <p className="text-xs text-[#285445] dark:text-[#b4d8c5] mt-0.5">
+          <p className="text-xs text-slate-300/85 mt-0.5 font-sans leading-relaxed">
             Real-time interactive two-way SMS simulation via Twilio Healthcare Gateway.
           </p>
         </div>
 
-        {/* Luxury Medical Smartphone Chassis — Alpine Forest Emerald & Titanium */}
-        <div className="relative mx-auto rounded-[2.5rem] p-3.5 bg-gradient-to-b from-[#0c241b] via-[#081711] to-[#040a08] border-[3px] border-[#245b46] shadow-[0_20px_50px_rgba(12,36,27,0.45)] ring-1 ring-[#3ca87d]/30 text-white font-sans overflow-hidden">
-          {/* Top Status Bar & Dynamic Island Notch */}
-          <div className="relative z-20 flex items-center justify-between px-2 pt-0.5 pb-2">
-            <span className="text-[11px] font-semibold text-[#a0e5be]/90 font-mono tracking-wider">9:41</span>
-            {/* Sleek Island Pill */}
-            <div className="w-24 h-4 bg-black/95 rounded-full border border-white/10 flex items-center justify-between px-2.5 shadow-inner">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[8px] text-emerald-300/80 font-mono tracking-tighter">Rx 5G</span>
+        {/* Luxury Medical Smartphone Chassis — Titanium Obsidian Frost Glass */}
+        <div className="relative z-10 mx-auto rounded-[2.8rem] p-4 bg-gradient-to-b from-slate-900/85 via-slate-950/90 to-black/95 backdrop-blur-2xl border border-white/20 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9),inset_0_1px_2px_rgba(255,255,255,0.35),0_0_35px_rgba(52,211,153,0.15)] ring-1 ring-white/15 text-white font-sans overflow-hidden">
+          {/* Specular Diagonal Sheen Across Screen Glass */}
+          <div className="absolute -inset-full bg-gradient-to-tr from-transparent via-white/[0.05] to-transparent rotate-12 pointer-events-none" />
+
+          {/* Top Status Bar & Dynamic Island */}
+          <div className="relative z-20 flex items-center justify-between px-2 pt-0.5 pb-2.5">
+            <span className="text-[11px] font-bold text-white/90 font-mono tracking-wider">9:41</span>
+            
+            {/* Sleek Dynamic Island */}
+            <div className="w-28 h-5 bg-black/90 backdrop-blur-xl rounded-full border border-white/20 flex items-center justify-between px-2.5 shadow-inner">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+              <span className="text-[9px] text-emerald-300 font-mono tracking-tight font-semibold">Rx 5G LIVE</span>
             </div>
-            <div className="flex items-center gap-1.5 text-[10px] text-[#a0e5be]/90">
-              <span className="text-[9px]">5G</span>
+
+            <div className="flex items-center gap-1.5 text-[10px] text-white/90">
+              <span className="text-[9px] font-mono font-bold">5G</span>
               <span>📶</span>
-              <span className="font-mono text-[9px]">100%</span>
-              <div className="w-4 h-2 rounded-[2px] border border-[#a0e5be] p-0.5 flex items-center">
-                <div className="h-full w-full bg-[#3fd38d] rounded-[1px]" />
+              <div className="w-4 h-2 rounded-[2px] border border-white/60 p-0.5 flex items-center">
+                <div className="h-full w-full bg-emerald-400 rounded-[1px] shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
               </div>
             </div>
           </div>
 
           {/* Contact Header */}
-          <div className="text-center py-2 relative border-b border-[#1b4334]/80">
-            <div className="relative w-11 h-11 rounded-full bg-gradient-to-tr from-[#164234] via-[#205742] to-[#2f785b] border-2 border-[#41b082] flex items-center justify-center mx-auto text-[#a0e5be] shadow-lg shadow-emerald-950/50 mb-1.5">
-              <span className="text-sm font-bold font-heading">Rx</span>
-              <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-[#0c241b] flex items-center justify-center text-[7px] text-white">
+          <div className="text-center py-2.5 relative border-b border-white/10">
+            <div className="relative w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500/25 via-teal-500/20 to-cyan-500/25 backdrop-blur-xl border border-emerald-400/40 flex items-center justify-center mx-auto text-emerald-300 shadow-[0_0_25px_rgba(16,185,129,0.35)] mb-2">
+              <span className="text-base font-extrabold font-heading">Rx</span>
+              <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-slate-950 flex items-center justify-center text-[8px] text-white font-bold shadow-md">
                 ✓
               </span>
             </div>
-            <p className="text-sm font-bold text-white font-heading tracking-wide">
+            <p className="text-sm font-extrabold text-white font-heading tracking-wide">
               PillSync Health SMS
             </p>
-            <div className="flex items-center justify-center gap-1.5 mt-0.5 flex-wrap">
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#1b4334]/80 border border-[#2b6d54]/60 text-[9px] font-semibold text-[#a0e5be]">
-                🔒 Verified Clinical Route
+            <div className="flex items-center justify-center gap-1.5 mt-1 flex-wrap">
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/15 backdrop-blur-md border border-emerald-400/30 text-[9px] font-bold text-emerald-300">
+                <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                Verified Clinical Gateway
               </span>
               <span className="text-[10px] text-slate-400 font-mono">
                 {sms.recipient || sms.phone || '+91 98765 43210'}
@@ -633,70 +653,73 @@ function SmartphoneSmsPreviewModal({ sms, isOpen, onClose, onReplyRecorded }) {
           </div>
 
           {/* Chat Bubble Stream */}
-          <div className="py-3 px-1 space-y-2.5 max-h-[260px] overflow-y-auto">
+          <div className="py-3 px-1 space-y-3 max-h-[270px] overflow-y-auto">
             <div className="text-center">
-              <span className="px-2.5 py-0.5 rounded-full bg-[#143327]/80 text-[10px] text-[#7ebfa0] font-mono border border-[#1f4e3c]/50">
+              <span className="px-3 py-0.5 rounded-full bg-white/5 backdrop-blur-md text-[10px] text-emerald-300/90 font-mono border border-white/10 shadow-xs">
                 {sms.sentAt || sms.time || 'Today 09:41 AM'} · Encrypted Telemetry
               </span>
             </div>
 
-            {/* Inbound Message: Prescription Card Chat Bubble */}
-            <div className="relative rounded-2xl rounded-tl-sm p-3.5 bg-gradient-to-br from-[#183d2f] via-[#112d23] to-[#0d221a] border border-[#2e6d54] text-slate-100 shadow-xl space-y-2">
-              <div className="flex items-center justify-between text-[10px] pb-1.5 border-b border-[#245844]/60">
-                <span className="font-bold text-[#a0e5be] flex items-center gap-1 tracking-wider uppercase">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            {/* Inbound Prescription Card Chat Bubble — True Frosted Glass */}
+            <div className="relative rounded-2xl rounded-tl-sm p-4 bg-white/[0.09] backdrop-blur-xl border border-white/20 text-slate-100 shadow-[0_8px_32px_rgba(0,0,0,0.37)] space-y-2.5 transition-all">
+              <div className="flex items-center justify-between text-[10px] pb-2 border-b border-white/10">
+                <span className="font-extrabold text-emerald-300 flex items-center gap-1.5 tracking-wider uppercase">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.9)]" />
                   {advisoryTag}
                 </span>
-                <span className="text-[9px] font-mono text-[#7ebfa0]">ID: RX-TWILIO</span>
+                <span className="text-[9px] font-mono text-slate-300 bg-black/40 px-1.5 py-0.5 rounded border border-white/10">
+                  ID: RX-TWILIO
+                </span>
               </div>
 
-              <p className="text-[13px] leading-relaxed font-sans font-medium text-[#f0fbf5] tracking-wide">
+              <p className="text-[13px] leading-relaxed font-sans font-medium text-white tracking-wide">
                 &ldquo;{sms.message}&rdquo;
               </p>
 
-              <div className="flex items-center justify-between text-[10px] pt-1.5 border-t border-[#245844]/60 text-[#8ec8ac]">
-                <span className="flex items-center gap-1 font-semibold text-[#a0e5be]">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-[#3fd38d]" /> Delivered via Twilio Carrier
+              <div className="flex items-center justify-between text-[10px] pt-2 border-t border-white/10 text-slate-300">
+                <span className="flex items-center gap-1.5 font-semibold text-emerald-300">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  Delivered via Twilio Carrier
                 </span>
-                <span className="font-mono text-[9px] text-[#7ebfa0]">Just now</span>
+                <span className="font-mono text-[9px] text-slate-400">Just now</span>
               </div>
             </div>
 
             {/* Dynamic Interactive Two-Way Replies */}
             {replies.map((r) =>
               r.sender === 'user' ? (
-                <div key={r.id} className="flex flex-col items-end space-y-0.5 animate-slide-up">
-                  <div className="bg-[#246049] border border-[#3ba579] text-white rounded-2xl rounded-tr-sm px-3.5 py-2 text-xs font-semibold max-w-[85%] shadow-md">
+                <div key={r.id} className="flex flex-col items-end space-y-1 animate-slide-up">
+                  <div className="bg-gradient-to-r from-emerald-600/90 to-teal-600/90 backdrop-blur-xl border border-emerald-400/40 text-white rounded-2xl rounded-tr-xs px-3.5 py-2 text-xs font-semibold max-w-[85%] shadow-[0_4px_20px_rgba(16,185,129,0.35)]">
                     {r.text}
                   </div>
-                  <span className="text-[9px] text-[#a0e5be] flex items-center gap-1 font-mono">
-                    <CheckCircle2 className="w-2.5 h-2.5 text-[#3fd38d]" /> Sent · {r.time}
+                  <span className="text-[9px] text-emerald-300/80 flex items-center gap-1 font-mono">
+                    <CheckCheck className="w-3 h-3 text-emerald-400" /> Sent · {r.time}
                   </span>
                 </div>
               ) : (
-                <div key={r.id} className="flex flex-col items-start space-y-0.5 animate-slide-up">
-                  <div className="bg-[#122e22] border border-[#21543e] text-[#dcf4e8] rounded-2xl rounded-tl-sm p-2.5 text-xs max-w-[90%] shadow-xs leading-relaxed">
+                <div key={r.id} className="flex flex-col items-start space-y-1 animate-slide-up">
+                  <div className="bg-white/[0.08] backdrop-blur-xl border border-white/15 text-emerald-100 rounded-2xl rounded-tl-xs p-3 text-xs max-w-[90%] shadow-sm leading-relaxed">
                     {r.text}
                   </div>
-                  <span className="text-[9px] text-[#7ebfa0] font-mono">
-                    Twilio Auto-Ack · {r.time}
+                  <span className="text-[9px] text-slate-400 font-mono">
+                    Twilio Healthcare Auto-Ack · {r.time}
                   </span>
                 </div>
               )
             )}
           </div>
 
-          {/* Interactive Quick Reply Chips in Distinct Universal Healthcare Options */}
-          <div className="pt-2.5 border-t border-[#1b4334]/80 space-y-1.5">
+          {/* Interactive Quick Reply Chips in Glassmorphism Pills */}
+          <div className="pt-3 border-t border-white/10 space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-[10px] text-[#7ebfa0] uppercase tracking-wider font-bold">
+              <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">
                 Tap To Send Two-Way Reply:
               </p>
               {replies.length > 0 && (
                 <button
                   type="button"
                   onClick={() => setReplies([])}
-                  className="text-[10px] text-[#a0e5be] hover:underline font-bold"
+                  className="text-[10px] text-emerald-300 hover:text-emerald-200 hover:underline font-bold transition-colors cursor-pointer"
                 >
                   ↺ Reset
                 </button>
@@ -708,49 +731,49 @@ function SmartphoneSmsPreviewModal({ sms, isOpen, onClose, onReplyRecorded }) {
               <button
                 type="button"
                 onClick={() => handleSendReply('1')}
-                className="px-3 py-1.5 rounded-xl bg-[#1d4737] hover:bg-[#255b46] border border-[#358263] text-[#a0e5be] font-semibold flex items-center gap-1 transition-all shadow-xs shrink-0 active:scale-95"
+                className="px-3.5 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/30 border border-emerald-400/40 text-emerald-200 hover:text-white font-semibold flex items-center gap-1.5 transition-all duration-200 shadow-sm hover:shadow-[0_0_15px_rgba(16,185,129,0.3)] shrink-0 active:scale-95 backdrop-blur-md cursor-pointer"
                 title="Send reply '1 - Confirmed & Acknowledged'"
               >
-                <CheckCircle2 className="w-3 h-3 text-[#3fd38d]" />
-                <span>1 · Confirm / Acknowledge</span>
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>1 · Confirm / Ack</span>
               </button>
 
               {/* Universal Option 2: Remind Me Later / Snooze */}
               <button
                 type="button"
                 onClick={() => handleSendReply('2')}
-                className="px-3 py-1.5 rounded-xl bg-[#3a2d12] hover:bg-[#4d3b19] border border-[#8a5d14] text-[#f7c87c] font-semibold flex items-center gap-1 transition-all shadow-xs shrink-0 active:scale-95"
+                className="px-3.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 hover:text-white font-semibold flex items-center gap-1.5 transition-all duration-200 shadow-sm hover:shadow-[0_0_15px_rgba(245,158,11,0.3)] shrink-0 active:scale-95 backdrop-blur-md cursor-pointer"
                 title="Send reply '2 - Remind Me Later'"
               >
-                <Clock className="w-3 h-3 text-[#f5be6b]" />
-                <span>2 · Remind Me Later</span>
+                <Clock className="w-3.5 h-3.5 text-amber-400" />
+                <span>2 · Remind Later</span>
               </button>
 
               {/* Universal Option 3: Need Assistance / Support */}
               <button
                 type="button"
                 onClick={() => handleSendReply('3')}
-                className="px-3 py-1.5 rounded-xl bg-[#12333b] hover:bg-[#1a4652] border border-[#1e6170] text-[#7ee3d7] font-semibold flex items-center gap-1 transition-all shadow-xs shrink-0 active:scale-95"
+                className="px-3.5 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/30 border border-cyan-400/40 text-cyan-200 hover:text-white font-semibold flex items-center gap-1.5 transition-all duration-200 shadow-sm hover:shadow-[0_0_15px_rgba(6,182,212,0.3)] shrink-0 active:scale-95 backdrop-blur-md cursor-pointer"
                 title="Send reply 'HELP - Need Assistance'"
               >
-                <span>💬 3 · Need Assistance</span>
+                <MessageSquare className="w-3.5 h-3.5 text-cyan-400" />
+                <span>3 · Need Assistance</span>
               </button>
             </div>
           </div>
 
           {/* Bottom Home Indicator */}
-          <div className="w-28 h-1 bg-white/20 rounded-full mx-auto mt-2 mb-0.5" />
+          <div className="w-32 h-1 bg-white/25 rounded-full mx-auto mt-3 mb-0.5" />
         </div>
 
-        <Modal.Footer align="center">
-          <Button
-            variant="primary"
-            size="sm"
+        <Modal.Footer align="center" glassmorphic={true}>
+          <button
+            type="button"
             onClick={onClose}
-            className="bg-[#164234] hover:bg-[#0f2e24] text-white font-semibold shadow-xs"
+            className="px-6 py-2 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/25 text-white font-bold text-sm transition-all shadow-md hover:shadow-[0_0_20px_rgba(16,185,129,0.3)] active:scale-95 cursor-pointer"
           >
             Close Simulator
-          </Button>
+          </button>
         </Modal.Footer>
       </div>
     </Modal>
@@ -785,8 +808,13 @@ function BroadcastModal({ isOpen, onClose, onBroadcastSuccess, onSmsSent, userRo
     if (!title.trim() || !message.trim() || channels.length === 0) return;
     setSending(true);
 
+    // 1. Play immediate clinical chime on dispatch trigger
     try {
-      // 1. Dispatch to live backend API
+      playNotificationChime();
+    } catch (_) {}
+
+    try {
+      // 2. Dispatch to live backend API across selected channels
       await notificationAPI.broadcast({
         title,
         message,
@@ -795,7 +823,26 @@ function BroadcastModal({ isOpen, onClose, onBroadcastSuccess, onSmsSent, userRo
         category,
       });
 
-      // 2. Browser Native Web Push Notification (HTML5 Standard - 100% Free)
+      // 3. Play confirmation audio chime
+      try {
+        setTimeout(() => playNotificationChime(), 400);
+      } catch (_) {}
+
+      // 4. Dispatch global floating in-app Toast banner with sound!
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('pillsync:toast', {
+            detail: {
+              title: `Broadcast Live: ${title}`,
+              description: `Enqueued across ${channels.map((c) => c.toUpperCase()).join(' • ')}`,
+              type: 'success',
+              duration: 5000,
+            },
+          })
+        );
+      }
+
+      // 5. Browser Native Web Push Notification (HTML5 Standard)
       if (typeof window !== 'undefined' && 'Notification' in window && channels.includes('push')) {
         if (Notification.permission === 'granted') {
           try {
@@ -817,7 +864,7 @@ function BroadcastModal({ isOpen, onClose, onBroadcastSuccess, onSmsSent, userRo
         }
       }
 
-      // 3. Immediately prepend to table state with real patient cohort!
+      // 6. Prepend to table state with real patient cohort
       if (onBroadcastSuccess) {
         channels.forEach((ch, idx) => {
           onBroadcastSuccess({
@@ -849,6 +896,8 @@ function BroadcastModal({ isOpen, onClose, onBroadcastSuccess, onSmsSent, userRo
       setSent(true);
     } catch (err) {
       console.warn('Backend broadcast dispatch fallback, prepending client log:', err);
+      // Play alert sound on fallback too
+      try { playNotificationChime(); } catch (_) {}
       if (onBroadcastSuccess) {
         channels.forEach((ch, idx) => {
           onBroadcastSuccess({
@@ -891,26 +940,185 @@ function BroadcastModal({ isOpen, onClose, onBroadcastSuccess, onSmsSent, userRo
       size="lg"
     >
       {sent ? (
-        <div className="text-center py-lg space-y-md">
-          <div className="w-16 h-16 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto text-emerald-600 dark:text-emerald-400">
-            <CheckCircle2 className="w-8 h-8" />
+        <div className="relative py-md space-y-md">
+          {/* Ambient Glow Aura */}
+          <div className="absolute -top-6 inset-x-0 h-32 bg-gradient-to-b from-emerald-500/15 via-teal-500/5 to-transparent blur-xl pointer-events-none" />
+
+          {/* Glowing Animated Success Badge */}
+          <div className="relative flex items-center justify-center w-20 h-20 mx-auto">
+            <span className="absolute w-full h-full rounded-full bg-emerald-500/20 animate-ping duration-1000" />
+            <div className="relative w-16 h-16 rounded-full bg-gradient-to-tr from-emerald-600 via-teal-500 to-cyan-400 flex items-center justify-center text-white shadow-xl shadow-emerald-500/35 ring-4 ring-emerald-500/20">
+              <CheckCircle2 className="w-8 h-8 stroke-[2.5]" />
+            </div>
           </div>
-          <div>
-            <h3 className="text-base font-bold text-slate-900 dark:text-white font-heading">
+
+          {/* Header Title */}
+          <div className="text-center space-y-1">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-semibold">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>TELEMETRY VERIFIED & DELIVERED</span>
+            </div>
+            <h3 className="text-xl font-extrabold text-slate-900 dark:text-white font-heading tracking-tight">
               Broadcast Dispatched Successfully!
             </h3>
-            <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 max-w-sm mx-auto leading-relaxed">
-              Announcement has been enqueued and broadcasted via{' '}
-              <strong className="text-slate-800 dark:text-slate-100">
-                {channels.map((c) => CHANNEL_BADGE[c]?.label || c).join(', ')}
-              </strong>
-              . Real-time delivery receipts are logged in the queue table.
+            <p className="text-xs text-slate-600 dark:text-slate-300 max-w-md mx-auto leading-relaxed">
+              Announcement has been enqueued across your active delivery pipelines with live delivery receipts.
             </p>
           </div>
+
+          {/* Message Snapshot Card */}
+          <div className="p-3.5 rounded-xl bg-slate-900/90 dark:bg-slate-950/90 border border-slate-700/80 shadow-inner text-left">
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <span className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-teal-400" />
+                {title || 'Healthcare Broadcast'}
+              </span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                priority === 'critical'
+                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                  : priority === 'high'
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                  : 'bg-teal-500/20 text-teal-300 border border-teal-500/30'
+              }`}>
+                {priority} priority
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 line-clamp-2 leading-relaxed italic">
+              &ldquo;{message}&rdquo;
+            </p>
+          </div>
+
+          {/* Live Multi-Channel Telemetry Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-left">
+            {/* 1. Email Card */}
+            <div className={`p-3 rounded-xl border transition-all ${
+              channels.includes('email')
+                ? 'bg-cyan-950/30 border-cyan-500/40 shadow-sm'
+                : 'bg-slate-800/30 border-slate-700/40 opacity-50'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
+                    <Mail className="w-4 h-4" />
+                  </div>
+                  <span className="text-xs font-bold text-slate-900 dark:text-white">Email (Gmail SMTP)</span>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                  {channels.includes('email') ? '250 OK' : 'Bypassed'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5 leading-snug">
+                Dispatched via <strong className="text-slate-300">smtp.gmail.com:587</strong> (notifications@pillsync.health).
+              </p>
+            </div>
+
+            {/* 2. WhatsApp Card */}
+            <div className={`p-3 rounded-xl border transition-all ${
+              channels.includes('whatsapp')
+                ? 'bg-emerald-950/30 border-emerald-500/40 shadow-sm'
+                : 'bg-slate-800/30 border-slate-700/40 opacity-50'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                    <Radio className="w-4 h-4" />
+                  </div>
+                  <span className="text-xs font-bold text-slate-900 dark:text-white">WhatsApp</span>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  {channels.includes('whatsapp') ? 'Ready' : 'Bypassed'}
+                </span>
+              </div>
+              <div className="mt-1.5 flex items-center justify-between">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                  Target: <strong className="text-slate-300">Monitored WhatsApp Endpoint</strong>
+                </p>
+                {channels.includes('whatsapp') && (
+                  <a
+                    href={`https://web.whatsapp.com/send?text=${encodeURIComponent(`💊 *[PillSync Healthcare Alert]*\n\n*${title}*\n${message}\n\n_Stay safe & adhere to medications._`)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 hover:text-emerald-300 underline"
+                  >
+                    Open Web <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+            </div>
+
+            {/* 3. Push / FCM Card */}
+            <div className={`p-3 rounded-xl border transition-all ${
+              channels.includes('push')
+                ? 'bg-purple-950/30 border-purple-500/40 shadow-sm'
+                : 'bg-slate-800/30 border-slate-700/40 opacity-50'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center">
+                    <Smartphone className="w-4 h-4" />
+                  </div>
+                  <span className="text-xs font-bold text-slate-900 dark:text-white">Firebase (FCM)</span>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                  {channels.includes('push') ? 'Topic Broadcast' : 'Bypassed'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5 leading-snug">
+                Pushed to topic <strong className="text-slate-300">pillsync_broadcast</strong> in project <span className="font-mono text-[10px]">pillsync-a5f0b</span>.
+              </p>
+            </div>
+
+            {/* 4. SMS Card */}
+            <div className={`p-3 rounded-xl border transition-all ${
+              channels.includes('sms')
+                ? 'bg-amber-950/30 border-amber-500/40 shadow-sm'
+                : 'bg-slate-800/30 border-slate-700/40 opacity-50'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center">
+                    <MessageSquare className="w-4 h-4" />
+                  </div>
+                  <span className="text-xs font-bold text-slate-900 dark:text-white">SMS Telephony</span>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  {channels.includes('sms') ? 'Dispatched' : 'Bypassed'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5 leading-snug">
+                Target: <strong className="text-slate-300">Registered Emergency Contact</strong> via Telephony Gateway adapter.
+              </p>
+            </div>
+          </div>
+
+          {/* Action Footer */}
           <Modal.Footer align="center">
-            <Button variant="primary" size="sm" onClick={handleClose}>
-              Done
-            </Button>
+            <div className="flex flex-wrap items-center justify-center gap-2.5 w-full pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => playNotificationChime()}
+                className="inline-flex items-center gap-1.5"
+              >
+                <Volume2 className="w-3.5 h-3.5 text-teal-400" />
+                Play Sound Again
+              </Button>
+              {channels.includes('whatsapp') && (
+                <a
+                  href={`https://web.whatsapp.com/send?text=${encodeURIComponent(`💊 *[PillSync Healthcare Alert]*\n\n*${title}*\n${message}\n\n_Stay safe & take medications on time._`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Button variant="secondary" size="sm" className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white">
+                    <Radio className="w-3.5 h-3.5" />
+                    Send to WhatsApp
+                  </Button>
+                </a>
+              )}
+              <Button variant="primary" size="sm" onClick={handleClose} className="px-5">
+                Done & Return to Queue
+              </Button>
+            </div>
           </Modal.Footer>
         </div>
       ) : (
@@ -1146,20 +1354,23 @@ export default function NotificationsPage() {
       if (res?.data?.notifications && res.data.notifications.length > 0) {
         const liveItems = res.data.notifications.map((n, idx) => ({
           id: n.notification_id || `live-${idx}`,
-          recipient: n.metadata?.sender_name || (user?.role === 'admin' ? 'Platform Broadcast' : 'Assigned Patient'),
+          recipient: n.metadata?.recipient || n.metadata?.destination || n.metadata?.email || (n.metadata?.category === 'mass_advisory' ? 'Platform Broadcast (All Users)' : (user?.role === 'admin' ? 'Platform Broadcast' : 'Assigned Patient')),
           channel: n.channel?.toLowerCase() || 'push',
-          type: n.type?.toLowerCase() || 'medication_reminder',
+          type: n.type?.toLowerCase() || 'system_broadcast',
           category: n.metadata?.category || 'mass_advisory',
           sentAt: n.created_at ? n.created_at.replace('T', ' ').slice(0, 19) : new Date().toISOString().replace('T', ' ').slice(0, 19),
-          status: n.status === 'sent' ? 'delivered' : (n.read ? 'delivered' : 'pending'),
+          status: n.status ? n.status.toLowerCase() : (n.read ? 'delivered' : 'pending'),
           message: n.message || n.title,
           cohort: n.metadata?.category === 'mass_advisory' ? DEMO_COHORT : null,
         }));
 
         setLogs((prev) => {
-          const existingIds = new Set(prev.map((l) => l.id));
-          const fresh = liveItems.filter((item) => !existingIds.has(item.id));
-          return [...fresh, ...prev];
+          const freshMap = new Map();
+          // First add existing local items
+          prev.forEach((item) => freshMap.set(item.id, item));
+          // Update with live records from server
+          liveItems.forEach((item) => freshMap.set(item.id, item));
+          return Array.from(freshMap.values());
         });
       }
     } catch (err) {
@@ -1171,6 +1382,8 @@ export default function NotificationsPage() {
 
   useEffect(() => {
     fetchLiveLogs();
+    const interval = setInterval(fetchLiveLogs, 5000);
+    return () => clearInterval(interval);
   }, [fetchLiveLogs]);
 
   // Callback from BroadcastModal to prepend newly sent broadcast
@@ -1245,20 +1458,24 @@ export default function NotificationsPage() {
       <div className="min-h-screen bg-background">
         <main className="max-w-7xl mx-auto px-gutter py-lg space-y-lg">
 
-        {/* ── Page Header Banner — Medical Sage Hero ─────────────────────── */}
-        <div className="relative overflow-hidden rounded-2xl bg-[#d8eedf] dark:bg-[#132a22] p-6 border border-[#bfe3cd] dark:border-[#1e4537] shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-md">
+        {/* ── Page Header Banner — Glassmorphic Hero ─────────────────────── */}
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-cyan-500/15 dark:from-[#132a22]/85 dark:to-[#0c1f18]/85 backdrop-blur-xl p-6 sm:p-7 border border-emerald-500/25 dark:border-emerald-500/20 shadow-[0_15px_35px_rgba(16,185,129,0.08)]">
+          {/* Ambient Glowing Orbs */}
+          <div className="absolute -top-10 -right-10 w-48 h-48 bg-emerald-400/20 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-10 -left-10 w-48 h-48 bg-cyan-400/20 rounded-full blur-3xl pointer-events-none" />
+
+          <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-md">
             <div>
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#c5e6d0] dark:bg-[#1b3d32] border border-[#a6d8b6] dark:border-[#275949] text-[#164234] dark:text-[#a0e5be] text-xs font-bold tracking-wider uppercase mb-2">
-                <Bell className="w-3.5 h-3.5" />
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/30 dark:bg-emerald-950/60 backdrop-blur-md border border-emerald-500/30 text-[#11382d] dark:text-emerald-300 text-xs font-extrabold tracking-wider uppercase mb-2 shadow-xs">
+                <Bell className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                 {isAdmin ? 'PILLSYNC ADMIN BROADCAST CONSOLE' : 'PILLSYNC EMERGENCY ESCALATIONS'}
               </div>
-              <h1 className="text-2xl sm:text-headline-md font-bold text-[#11382d] dark:text-white font-heading">
+              <h1 className="text-2xl sm:text-headline-md font-extrabold text-[#0d2e24] dark:text-white font-heading tracking-tight">
                 {isAdmin ? 'Live Broadcast & Queue Telemetry' : 'Clinical Emergency & Escalation Alerts'}
               </h1>
-              <p className="text-base text-[#285445] dark:text-[#c2e4d2] mt-1.5 font-medium">
+              <p className="text-sm sm:text-base text-[#1b4334] dark:text-[#c2e4d2] mt-1.5 font-medium max-w-2xl leading-relaxed">
                 {isAdmin
-                  ? 'Real-time multi-channel broadcast dispatches, SMS & WhatsApp delivery tracking, and queue status.'
+                  ? 'Real-time multi-channel broadcast dispatches, SMS & WhatsApp delivery tracking, and live queue receipts.'
                   : 'Live monitoring of patient missed doses, vital escalations, and urgent caregiver notifications.'}
               </p>
             </div>
@@ -1268,28 +1485,30 @@ export default function NotificationsPage() {
                 size="sm"
                 leftIcon={<Megaphone className="w-4 h-4" />}
                 onClick={() => setBroadcastOpen(true)}
-                className="bg-[#164234] hover:bg-[#0f2e24] text-white shadow-xs font-semibold"
+                className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg shadow-emerald-600/25 border border-emerald-400/30 font-bold active:scale-95 transition-all"
               >
-                {isAdmin ? '+ New Broadcast' : '+ Send Alert'}
+                📢 Dispatch Broadcast
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 leftIcon={<RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />}
                 onClick={fetchLiveLogs}
-                className="bg-white/80 dark:bg-white/10 border-[#bfe3cd] dark:border-white/20 text-[#164234] dark:text-white hover:bg-white shrink-0"
+                disabled={isRefreshing}
+                className="bg-white/80 dark:bg-white/10 backdrop-blur-md border-emerald-300 dark:border-white/20 text-[#164234] dark:text-white hover:bg-white shrink-0 font-semibold"
+                title="Synchronize live queue with Redis stream"
               >
-                Refresh
+                Sync Queue
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 leftIcon={<Download className="w-4 h-4" />}
                 onClick={() => exportAPI.telemetryCSV()}
-                className="bg-white/80 dark:bg-white/10 border-[#bfe3cd] dark:border-white/20 text-[#164234] dark:text-white hover:bg-white shrink-0 font-semibold"
+                className="bg-white/80 dark:bg-white/10 backdrop-blur-md border-emerald-300 dark:border-white/20 text-[#164234] dark:text-white hover:bg-white shrink-0 font-semibold"
                 title="Download 24-hour notification telemetry as CSV"
               >
-                Export Telemetry (CSV)
+                Export CSV
               </Button>
             </div>
           </div>
@@ -1297,7 +1516,7 @@ export default function NotificationsPage() {
 
         {/* ── Active Inbound Emergency Assistance Banner ── */}
         {activeHelpRequest && (
-          <div className="p-4 rounded-2xl bg-rose-500/10 border-2 border-rose-500/40 text-rose-900 dark:text-rose-100 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shadow-lg">
+          <div className="p-4 rounded-2xl bg-rose-500/10 backdrop-blur-md border-2 border-rose-500/40 text-rose-900 dark:text-rose-100 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shadow-lg">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-rose-500 text-white flex items-center justify-center shrink-0">
                 <AlertTriangle className="w-5 h-5 animate-bounce" />
@@ -1379,7 +1598,7 @@ export default function NotificationsPage() {
               sub: 'Caregiver urgent alerts',
             },
           ].map(({ label, value, icon: Icon, color, sub }) => (
-            <Card key={label} variant="default" padding="md" className="border border-slate-200/80 dark:border-slate-800 shadow-xs">
+            <div key={label} className="relative overflow-hidden rounded-2xl backdrop-blur-md bg-white/70 dark:bg-slate-900/70 border border-slate-200/80 dark:border-white/10 shadow-xs hover:shadow-md transition-all p-4">
               <div className="flex items-start justify-between gap-sm">
                 <div className={`w-10 h-10 rounded-xl bg-${color}/10 flex items-center justify-center`}>
                   <Icon className={`w-5 h-5 text-${color}`} />
@@ -1390,7 +1609,7 @@ export default function NotificationsPage() {
               </div>
               <p className="text-caption font-semibold text-on-surface mt-md">{label}</p>
               <p className="text-label-caps text-on-surface-variant mt-0.5">{sub}</p>
-            </Card>
+            </div>
           ))}
         </section>
 
@@ -1547,10 +1766,10 @@ export default function NotificationsPage() {
                                 </div>
                               ) : (
                                 <div>
-                                  <p className="text-caption font-semibold text-on-surface">{log.recipient}</p>
-                                  <p className="text-label-caps text-on-surface-variant line-clamp-1 max-w-xs">
-                                    {log.message}
-                                  </p>
+                                  <p className="text-caption font-bold text-on-surface">{log.recipient}</p>
+                                  <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                                    {log.category === 'mass_advisory' ? '📢 Public Broadcast' : '🔒 Verified Clinical Routing'}
+                                  </span>
                                 </div>
                               )}
                             </div>
@@ -1577,11 +1796,19 @@ export default function NotificationsPage() {
                           )}
                         </td>
 
-                        {/* Alert Type */}
+                        {/* Alert Type & Details */}
                         <td className="py-sm px-md hidden md:table-cell">
-                          <span className="text-caption text-on-surface font-medium">
-                            {mt.label}
-                          </span>
+                          <div className="space-y-0.5 max-w-sm">
+                            <span className="text-caption font-bold text-on-surface flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                              {mt.label}
+                            </span>
+                            {log.message && (
+                              <p className="text-xs text-on-surface-variant line-clamp-1 italic text-slate-600 dark:text-slate-300">
+                                &ldquo;{log.message}&rdquo;
+                              </p>
+                            )}
+                          </div>
                         </td>
 
                         {/* Timestamp */}

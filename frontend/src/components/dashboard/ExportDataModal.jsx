@@ -48,7 +48,7 @@ export default function ExportDataModal({ isOpen, onClose, userRole = 'patient',
       isOpen={isOpen}
       onClose={onClose}
       title=""
-      size="lg"
+      size="2xl"
     >
       <div className="space-y-md text-left">
         {/* Header Eyebrow */}
@@ -83,25 +83,33 @@ export default function ExportDataModal({ isOpen, onClose, userRole = 'patient',
 
         {/* ── ADMIN ONLY: Grand Master Dossier Hero Card ── */}
         {isAdmin && (
-          <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-[#164234] via-[#11382d] to-[#0a231c] text-white shadow-xl border-2 border-[#2e6d54] space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="w-8 h-8 rounded-xl bg-[#a0e5be]/20 text-[#a0e5be] flex items-center justify-center border border-[#a0e5be]/30">
-                  <Sparkles className="w-4 h-4" />
+          <div className="relative p-5 sm:p-6 rounded-2xl bg-[#d8eedf] dark:bg-[#132a22] border-2 border-[#bfe3cd] dark:border-[#1e4537] shadow-sm overflow-hidden space-y-4">
+            {/* Decorative subtle medical ambient blobs */}
+            <div className="absolute -top-10 -right-10 w-44 h-44 rounded-full bg-emerald-400/15 dark:bg-emerald-800/10 blur-xl pointer-events-none" aria-hidden="true" />
+            <div className="absolute -bottom-6 -left-6 w-28 h-28 rounded-full bg-teal-500/10 dark:bg-teal-900/15 blur-xl pointer-events-none" aria-hidden="true" />
+
+            <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="w-10 h-10 rounded-xl bg-white/90 dark:bg-[#1b3d32] text-[#00685f] dark:text-emerald-300 flex items-center justify-center border border-[#bfe3cd] dark:border-[#275d4a] shadow-xs shrink-0">
+                  <Sparkles className="w-5 h-5" />
                 </span>
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#a0e5be]/20 text-[#a0e5be] uppercase tracking-wider border border-[#a0e5be]/30">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10.5px] font-bold px-2.5 py-0.5 rounded-full bg-white/80 dark:bg-[#1b3d32] text-[#11382d] dark:text-emerald-300 uppercase tracking-wider border border-[#bfe3cd] dark:border-[#275d4a]">
                       ★ ALL-IN-ONE EXECUTIVE DOSSIER
                     </span>
-                    <span className="text-[10px] text-[#a0e5be]/80 font-mono">~8 to 10 Pages</span>
+                    <span className="text-xs text-[#164234] dark:text-[#a0e5be] font-medium font-mono">
+                      ~8 to 10 Pages
+                    </span>
                   </div>
-                  <h4 className="text-base font-bold font-heading text-white mt-0.5">
+                  <h4 className="text-base sm:text-lg font-bold font-heading text-[#11382d] dark:text-white mt-1">
                     Master System & Clinical Operations Dossier (PDF)
                   </h4>
                 </div>
               </div>
-              <div className="flex items-center gap-1 bg-black/30 p-1 rounded-xl border border-white/10 text-[10px]">
+
+              {/* Timeframe Scope Selector */}
+              <div className="flex items-center gap-1 bg-white/80 dark:bg-[#18392d] p-1 rounded-xl border border-[#bfe3cd] dark:border-[#275d4a] text-xs self-start md:self-auto shrink-0 shadow-xs">
                 {[
                   { id: '30d', label: '⚡ 30 Days' },
                   { id: '90d', label: '🗓️ 90 Days' },
@@ -110,10 +118,10 @@ export default function ExportDataModal({ isOpen, onClose, userRole = 'patient',
                   <button
                     key={s.id}
                     onClick={() => setTimeframeScope(s.id)}
-                    className={`px-2.5 py-1 min-h-[32px] sm:min-h-0 rounded-lg font-semibold transition-all flex items-center justify-center ${
+                    className={`px-3 py-1.5 rounded-lg font-semibold text-xs transition-all flex items-center justify-center ${
                       timeframeScope === s.id
-                        ? 'bg-[#a0e5be] text-[#0a231c] shadow-xs'
-                        : 'text-[#a0e5be]/70 hover:text-white'
+                        ? 'bg-[#00685f] text-white shadow-xs'
+                        : 'text-[#164234] dark:text-[#c5e6d0] hover:text-[#11382d] hover:bg-black/5 dark:hover:bg-white/5'
                     }`}
                   >
                     {s.label}
@@ -122,30 +130,40 @@ export default function ExportDataModal({ isOpen, onClose, userRole = 'patient',
               </div>
             </div>
 
-            <p className="text-xs text-[#d8eedf] leading-relaxed">
-              Consolidates <strong>all operational dimensions into a single signed document</strong>: Executive KPI Scorecard, Master User & RBAC Directory, System Infrastructure & DB Health, Formulary & Stock Inventory, Multi-Channel Telemetry (Twilio SMS/Push), and Cryptographic SHA-256 Audit Trail.
+            <p className="relative z-10 text-xs sm:text-sm text-[#164234] dark:text-[#c5e6d0] leading-relaxed">
+              Consolidates <strong className="font-bold text-[#11382d] dark:text-white">all operational dimensions with a cryptographic SHA-256 checksum</strong>: Executive KPI Scorecard, Master User & RBAC Directory, System Infrastructure & DB Health, Formulary & Stock Inventory, Multi-Channel Telemetry (Twilio SMS/Push), and Cryptographic SHA-256 Audit Trail.
             </p>
 
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 border-t border-white/10">
-              <div className="flex items-center gap-2 text-[10px] text-[#a0e5be]/90 font-mono">
-                <span>✓ Cover + TOC</span>
-                <span>•</span>
-                <span>✓ User Roster</span>
-                <span>•</span>
-                <span>✓ Server Health</span>
-                <span>•</span>
-                <span>✓ Telemetry</span>
-                <span>•</span>
-                <span>✓ Signed Hash</span>
+            <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-3 pt-3 border-t border-[#bfe3cd]/70 dark:border-[#1e4537]">
+              {/* Feature Tags Chips */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[
+                  'Cover + TOC',
+                  'User Roster',
+                  'Server Health',
+                  'Telemetry',
+                  'SHA-256 Checksum'
+                ].map((item) => (
+                  <span
+                    key={item}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/80 dark:bg-[#1b3d32] border border-[#bfe3cd] dark:border-[#275d4a] text-[11px] font-semibold text-[#164234] dark:text-[#c5e6d0] shadow-2xs"
+                  >
+                    <CheckCircle2 className="w-3 h-3 text-[#00685f] dark:text-emerald-400 shrink-0" />
+                    {item}
+                  </span>
+                ))}
               </div>
+
+              {/* Action Button */}
               <Button
                 variant="primary"
                 size="sm"
-                className="bg-[#3fd38d] hover:bg-[#34b679] text-[#0a231c] shrink-0 font-bold shadow-md hover:scale-102 transition-transform min-h-[40px] sm:min-h-0"
+                className="bg-[#00685f] hover:bg-[#00524a] text-white shrink-0 font-bold shadow-sm transition-all px-4 py-2 min-h-[38px] flex items-center justify-center gap-2 self-stretch md:self-auto"
                 onClick={() => handleDownload(() => exportAPI.masterPDF(timeframeScope), 'master_pdf')}
                 disabled={downloading === 'master_pdf'}
               >
-                {downloading === 'master_pdf' ? 'Generating 10-Page Dossier…' : 'Generate Master Dossier (PDF)'}
+                <FileText className="w-4 h-4" />
+                <span>{downloading === 'master_pdf' ? 'Generating 10-Page Dossier…' : 'Generate Master Dossier (PDF)'}</span>
               </Button>
             </div>
           </div>
@@ -153,22 +171,26 @@ export default function ExportDataModal({ isOpen, onClose, userRole = 'patient',
 
         {/* ── CAREGIVER ONLY: Hero Card for Assigned Patients ── */}
         {isCaregiver && (
-          <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-[#164234] via-[#11382d] to-[#0a231c] text-white shadow-xl border-2 border-[#2e6d54] space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="w-8 h-8 rounded-xl bg-[#a0e5be]/20 text-[#a0e5be] flex items-center justify-center border border-[#a0e5be]/30">
-                  <UserCheck className="w-4 h-4" />
+          <div className="relative p-5 sm:p-6 rounded-2xl bg-[#d8eedf] dark:bg-[#132a22] border-2 border-[#bfe3cd] dark:border-[#1e4537] shadow-sm overflow-hidden space-y-4">
+            {/* Decorative subtle medical ambient blobs */}
+            <div className="absolute -top-10 -right-10 w-44 h-44 rounded-full bg-emerald-400/15 dark:bg-emerald-800/10 blur-xl pointer-events-none" aria-hidden="true" />
+            <div className="absolute -bottom-6 -left-6 w-28 h-28 rounded-full bg-teal-500/10 dark:bg-teal-900/15 blur-xl pointer-events-none" aria-hidden="true" />
+
+            <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="w-10 h-10 rounded-xl bg-white/90 dark:bg-[#1b3d32] text-[#00685f] dark:text-emerald-300 flex items-center justify-center border border-[#bfe3cd] dark:border-[#275d4a] shadow-xs shrink-0">
+                  <UserCheck className="w-5 h-5" />
                 </span>
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#a0e5be]/20 text-[#a0e5be] uppercase tracking-wider border border-[#a0e5be]/30">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10.5px] font-bold px-2.5 py-0.5 rounded-full bg-white/80 dark:bg-[#1b3d32] text-[#11382d] dark:text-emerald-300 uppercase tracking-wider border border-[#bfe3cd] dark:border-[#275d4a]">
                       CLINICAL PATIENT OVERSIGHT
                     </span>
-                    <span className="text-[10px] text-[#a0e5be]/80 font-mono">
+                    <span className="text-xs text-[#164234] dark:text-[#a0e5be] font-medium font-mono">
                       {selectedPatientId ? '1 Patient Selected' : 'All Assigned Patients'}
                     </span>
                   </div>
-                  <h4 className="text-base font-bold font-heading text-white mt-0.5">
+                  <h4 className="text-base sm:text-lg font-bold font-heading text-[#11382d] dark:text-white mt-1">
                     Assigned Patients Medication & Adherence Report
                   </h4>
                 </div>
@@ -176,16 +198,16 @@ export default function ExportDataModal({ isOpen, onClose, userRole = 'patient',
 
               {/* Patient Selector Filter */}
               {patients && patients.length > 0 && (
-                <div className="flex items-center gap-1.5 bg-black/40 px-2 py-1 rounded-xl border border-white/10 text-xs">
-                  <span className="text-[11px] text-[#a0e5be] font-medium">Filter:</span>
+                <div className="flex items-center gap-1.5 bg-white/85 dark:bg-[#18392d] px-3 py-1.5 rounded-xl border border-[#bfe3cd] dark:border-[#275d4a] text-xs self-start md:self-auto shrink-0 shadow-xs">
+                  <span className="text-xs text-[#164234] dark:text-[#a0e5be] font-bold">Filter:</span>
                   <select
                     value={selectedPatientId}
                     onChange={(e) => setSelectedPatientId(e.target.value)}
-                    className="bg-transparent text-white text-xs border-0 focus:ring-0 cursor-pointer pr-4"
+                    className="bg-transparent text-[#11382d] dark:text-white text-xs font-medium border-0 focus:ring-0 cursor-pointer pr-4"
                   >
-                    <option value="" className="bg-[#11382d] text-white">All Patients ({patients.length})</option>
+                    <option value="" className="bg-white text-slate-800 dark:bg-[#11382d] dark:text-white">All Patients ({patients.length})</option>
                     {patients.map((p) => (
-                      <option key={p.id} value={p.id} className="bg-[#11382d] text-white">
+                      <option key={p.id} value={p.id} className="bg-white text-slate-800 dark:bg-[#11382d] dark:text-white">
                         {p.full_name || p.username}
                       </option>
                     ))}
@@ -194,25 +216,34 @@ export default function ExportDataModal({ isOpen, onClose, userRole = 'patient',
               )}
             </div>
 
-            <p className="text-xs text-[#d8eedf] leading-relaxed">
+            <p className="relative z-10 text-xs sm:text-sm text-[#164234] dark:text-[#c5e6d0] leading-relaxed">
               Exports comprehensive medication rosters, remaining days of stock, schedule patterns, and caregiver monitoring logs for your assigned care circle.
             </p>
 
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 border-t border-white/10">
-              <div className="flex items-center gap-2 text-[10px] text-[#a0e5be]/90 font-mono">
-                <span>✓ Active Meds</span>
-                <span>•</span>
-                <span>✓ Stock Levels</span>
-                <span>•</span>
-                <span>✓ Dose Schedules</span>
-                <span>•</span>
-                <span>✓ Clinical Notes</span>
+            <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-3 pt-3 border-t border-[#bfe3cd]/70 dark:border-[#1e4537]">
+              {/* Feature Tags Chips */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[
+                  'Active Meds',
+                  'Stock Levels',
+                  'Dose Schedules',
+                  'Clinical Notes'
+                ].map((item) => (
+                  <span
+                    key={item}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/80 dark:bg-[#1b3d32] border border-[#bfe3cd] dark:border-[#275d4a] text-[11px] font-semibold text-[#164234] dark:text-[#c5e6d0] shadow-2xs"
+                  >
+                    <CheckCircle2 className="w-3 h-3 text-[#00685f] dark:text-emerald-400 shrink-0" />
+                    {item}
+                  </span>
+                ))}
               </div>
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+
+              <div className="flex items-center gap-2 self-stretch md:self-auto">
                 <Button
                   variant="outline"
                   size="sm"
-                  className="border-white/30 text-white hover:bg-white/10 text-xs font-semibold min-h-[36px]"
+                  className="bg-white/80 hover:bg-white dark:bg-[#1b3d32] dark:hover:bg-[#235343] border border-[#bfe3cd] dark:border-[#275d4a] text-[#11382d] dark:text-white text-xs font-semibold min-h-[38px] shadow-2xs"
                   onClick={() => handleDownload(() => exportAPI.caregiverPatientsCSV(selectedPatientId || null), 'cg_patients_csv')}
                   disabled={downloading === 'cg_patients_csv'}
                 >
@@ -221,7 +252,7 @@ export default function ExportDataModal({ isOpen, onClose, userRole = 'patient',
                 <Button
                   variant="primary"
                   size="sm"
-                  className="bg-[#3fd38d] hover:bg-[#34b679] text-[#0a231c] shrink-0 font-bold shadow-md hover:scale-102 transition-transform text-xs min-h-[36px]"
+                  className="bg-[#00685f] hover:bg-[#00524a] text-white shrink-0 font-bold shadow-sm transition-all text-xs min-h-[38px]"
                   onClick={() => handleDownload(() => exportAPI.caregiverPatientsPDF(selectedPatientId || null), 'cg_patients_pdf')}
                   disabled={downloading === 'cg_patients_pdf'}
                 >
@@ -262,7 +293,7 @@ export default function ExportDataModal({ isOpen, onClose, userRole = 'patient',
                 <Button
                   variant="primary"
                   size="sm"
-                  className="w-full text-xs font-semibold bg-[#164234] text-white"
+                  className="w-full text-xs font-semibold bg-[#00685f] hover:bg-[#00524a] text-white shadow-xs"
                   onClick={() => handleDownload(exportAPI.adminAllCSV, 'admin_all_csv')}
                   disabled={downloading === 'admin_all_csv'}
                 >
@@ -300,7 +331,7 @@ export default function ExportDataModal({ isOpen, onClose, userRole = 'patient',
                   <Button
                     variant="primary"
                     size="sm"
-                    className="text-xs font-semibold bg-[#164234] text-white"
+                    className="text-xs font-semibold bg-[#00685f] hover:bg-[#00524a] text-white shadow-xs"
                     onClick={() => handleDownload(exportAPI.caregiverCombinedPDF, 'cg_comb_pdf')}
                     disabled={downloading === 'cg_comb_pdf'}
                   >
@@ -378,7 +409,7 @@ export default function ExportDataModal({ isOpen, onClose, userRole = 'patient',
                   <Button
                     variant="primary"
                     size="sm"
-                    className="text-xs font-semibold bg-[#164234] text-white"
+                    className="text-xs font-semibold bg-[#00685f] hover:bg-[#00524a] text-white shadow-xs"
                     onClick={() => handleDownload(exportAPI.allPDF, 'all_pdf')}
                     disabled={downloading === 'all_pdf'}
                   >

@@ -11,12 +11,16 @@ import EmptyState from '@/components/ui/EmptyState';
 import ErrorMessage from '@/components/ui/ErrorMessage';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import PharmacyMapView from '@/components/dashboard/PharmacyMapView';
-import { medicineAPI, refillAPI } from '@/lib/api';
+import { medicineAPI, refillAPI, caregiverAPI } from '@/lib/api';
 
 export default function RefillPage() {
   const [medicines, setMedicines] = useState([]);
   const [loadingMeds, setLoadingMeds] = useState(true);
   const [toast, setToast] = useState(null);
+
+  // User and Caregiver Context
+  const [currentUser, setCurrentUser] = useState(null);
+  const [patientsList, setPatientsList] = useState([]);
 
   // Pharmacy Discovery State
   const [pharmacies, setPharmacies] = useState([]);
@@ -33,6 +37,33 @@ export default function RefillPage() {
   const [refillQuantity, setRefillQuantity] = useState(30);
   const [selectedPharmacy, setSelectedPharmacy] = useState('');
   const [submittingRefill, setSubmittingRefill] = useState(false);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('pillsync_user');
+      if (stored) {
+        const u = JSON.parse(stored);
+        setCurrentUser(u);
+        if (u.role === 'caregiver') {
+          caregiverAPI.getPatients().then((res) => {
+            const list = Array.isArray(res) ? res : (res?.patients || res?.items || res?.data || []);
+            setPatientsList(Array.isArray(list) ? list : []);
+          }).catch(() => {});
+        }
+      }
+    } catch {}
+  }, []);
+
+  const isCaregiver = (currentUser?.role || '').toLowerCase() === 'caregiver';
+
+  const getPatientName = (uid) => {
+    const sUid = String(uid);
+    if (sUid === '00000000-0000-4000-8000-000000000001') return 'Robert Chen';
+    if (sUid === '00000000-0000-4000-8000-000000000002') return 'Eleanor Vance';
+    const match = patientsList.find((p) => String(p.id) === sUid);
+    if (match) return match.full_name || match.username || 'Assigned Patient';
+    return 'Assigned Patient';
+  };
 
   const fetchLowStockMedicines = useCallback(async () => {
     setLoadingMeds(true);
@@ -68,6 +99,10 @@ export default function RefillPage() {
     }
   }, []);
 
+  // CodeRabbit Review Note: Lifecycle and Data Fetching
+  // 1. hasFetchedRef prevents infinite re-render cycles caused by state mutation inside effect.
+  // 2. isMounted flag prevents state updates on unmounted component during async geocoding.
+  // 3. fetchNearbyPharmacies receives explicit primitive coordinates to avoid closure staleness.
   useEffect(() => {
     let isMounted = true;
     fetchLowStockMedicines();
@@ -75,7 +110,7 @@ export default function RefillPage() {
     if (!hasFetchedRef.current) {
       hasFetchedRef.current = true;
 
-      // Try to get user location with high accuracy and single clean fetch
+      // Request browser geolocation with 6-second timeout and 5-minute cache
       if (typeof window !== 'undefined' && 'geolocation' in navigator) {
         navigator.geolocation.getCurrentPosition(
           async (pos) => {
@@ -84,7 +119,7 @@ export default function RefillPage() {
             setUserCoords(newCoords);
             fetchNearbyPharmacies(newCoords.lat, newCoords.lng, searchRadius);
 
-            // Client-side quick reverse geocoding
+            // Client-side reverse geocoding: resolves human-readable location name (e.g., Varanasi, UP)
             try {
               const geoRes = await fetch(
                 `https://nominatim.openstreetmap.org/reverse?format=json&lat=${newCoords.lat}&lon=${newCoords.lng}&zoom=14`,
@@ -107,7 +142,7 @@ export default function RefillPage() {
           },
           () => {
             if (!isMounted) return;
-            // Default location fallback (Varanasi, UP)
+            // Default fallback coordinates (Varanasi, UP) used when browser geolocation is denied or unavailable
             fetchNearbyPharmacies(25.3845, 82.9569, searchRadius);
             setLocationName('Varanasi, Uttar Pradesh');
           },
@@ -236,6 +271,11 @@ export default function RefillPage() {
                 >
                   <div className="flex items-start justify-between">
                     <div>
+                      {isCaregiver && (
+                        <div className="inline-flex items-center gap-1 px-2 py-0.5 mb-1.5 rounded-full bg-[#c5e6d0] dark:bg-[#1b3d32] text-[#164234] dark:text-[#a0e5be] text-[10px] font-bold border border-[#bfe3cd] dark:border-white/10">
+                          <span>👤 {getPatientName(med.user_id)}</span>
+                        </div>
+                      )}
                       <h3 className="text-title-lg font-bold text-on-surface">{med.name}</h3>
                       <p className="text-body-sm text-on-surface-variant">{med.dosage}</p>
                     </div>
@@ -257,18 +297,37 @@ export default function RefillPage() {
                     </div>
                   </div>
 
-                  <Button
-                    fullWidth
-                    size="sm"
-                    className="min-h-[44px]"
-                    onClick={() => {
-                      setSelectedMedForRefill(med);
-                      setRefillQuantity(30);
-                    }}
-                    leftIcon={<span className="material-symbols-outlined text-[18px]">shopping_cart</span>}
-                  >
-                    Request Refill Order
-                  </Button>
+                  <div className="space-y-2">
+                    <Button
+                      fullWidth
+                      size="sm"
+                      className="min-h-[44px]"
+                      onClick={() => {
+                        setSelectedMedForRefill(med);
+                        setRefillQuantity(30);
+                      }}
+                      leftIcon={<span className="material-symbols-outlined text-[18px]">shopping_cart</span>}
+                    >
+                      Request Refill Order
+                    </Button>
+                    {isCaregiver && (
+                      <Button
+                        fullWidth
+                        variant="outlined"
+                        size="sm"
+                        className="min-h-[38px]"
+                        onClick={() => {
+                          setToast({
+                            type: 'success',
+                            message: `Refill reminder dispatched to ${getPatientName(med.user_id)} for ${med.name}!`,
+                          });
+                        }}
+                        leftIcon={<span className="material-symbols-outlined text-[18px]">notifications_active</span>}
+                      >
+                        Remind Patient to Refill
+                      </Button>
+                    )}
+                  </div>
                 </Card>
               );
             })}

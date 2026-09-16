@@ -61,6 +61,23 @@ function RegisterFormContent() {
     setForm((prev) => ({ ...prev, role: roleParam }));
   }, [searchParams]);
 
+  // Restore verification status from sessionStorage if destinations match
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const savedEmail = sessionStorage.getItem('pillsync_verified_email');
+      if (savedEmail && form.email && savedEmail.toLowerCase().trim() === form.email.toLowerCase().trim()) {
+        setIsEmailVerified(true);
+      }
+      const savedPhone = sessionStorage.getItem('pillsync_verified_phone');
+      if (savedPhone && form.phone && savedPhone.trim() === form.phone.trim()) {
+        setIsPhoneVerified(true);
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, [form.email, form.phone]);
+
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     let sanitized = type === 'checkbox' ? checked : value;
@@ -71,12 +88,18 @@ function RegisterFormContent() {
       // If phone value changed, reset verification
       if (sanitized !== form.phone && isPhoneVerified) {
         setIsPhoneVerified(false);
+        if (typeof window !== 'undefined') {
+          try { sessionStorage.removeItem('pillsync_verified_phone'); } catch {}
+        }
       }
     }
     if (name === 'email') {
       // If email value changed, reset verification
       if (sanitized !== form.email && isEmailVerified) {
         setIsEmailVerified(false);
+        if (typeof window !== 'undefined') {
+          try { sessionStorage.removeItem('pillsync_verified_email'); } catch {}
+        }
       }
     }
     setForm((prev) => ({ ...prev, [name]: sanitized }));
@@ -165,6 +188,13 @@ function RegisterFormContent() {
       };
 
       await authAPI.register(payload);
+      if (typeof window !== 'undefined') {
+        try {
+          sessionStorage.removeItem('pillsync_verified_email');
+          sessionStorage.removeItem('pillsync_verified_phone');
+          sessionStorage.removeItem('pillsync_selected_role');
+        } catch {}
+      }
       router.push(`/login?registered=1&email=${encodeURIComponent(form.email.trim().toLowerCase())}`);
     } catch (err) {
       setServerError(err.message || 'Registration failed. Please try again.');
@@ -305,11 +335,20 @@ function RegisterFormContent() {
                 required
                 channel="email"
                 isVerified={isEmailVerified}
-                onVerified={() => {
+                onVerified={(channel, val) => {
+                  const clean = (val || form.email).toLowerCase().trim();
                   setIsEmailVerified(true);
+                  if (typeof window !== 'undefined') {
+                    try { sessionStorage.setItem('pillsync_verified_email', clean); } catch {}
+                  }
                   setErrors((prev) => ({ ...prev, email: '' }));
                 }}
-                onResetVerification={() => setIsEmailVerified(false)}
+                onResetVerification={() => {
+                  setIsEmailVerified(false);
+                  if (typeof window !== 'undefined') {
+                    try { sessionStorage.removeItem('pillsync_verified_email'); } catch {}
+                  }
+                }}
                 leftIcon={<span className="material-symbols-outlined text-[20px]">mail</span>}
               />
 
@@ -326,11 +365,20 @@ function RegisterFormContent() {
                 required
                 channel="phone"
                 isVerified={isPhoneVerified}
-                onVerified={() => {
+                onVerified={(channel, val) => {
+                  const clean = (val || form.phone).trim();
                   setIsPhoneVerified(true);
+                  if (typeof window !== 'undefined') {
+                    try { sessionStorage.setItem('pillsync_verified_phone', clean); } catch {}
+                  }
                   setErrors((prev) => ({ ...prev, phone: '' }));
                 }}
-                onResetVerification={() => setIsPhoneVerified(false)}
+                onResetVerification={() => {
+                  setIsPhoneVerified(false);
+                  if (typeof window !== 'undefined') {
+                    try { sessionStorage.removeItem('pillsync_verified_phone'); } catch {}
+                  }
+                }}
                 leftIcon={<span className="material-symbols-outlined text-[20px]">phone</span>}
                 helper="For SMS dose reminders and clinical alerts"
               />

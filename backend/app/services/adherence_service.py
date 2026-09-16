@@ -474,18 +474,18 @@ class AdherenceService:
         snoozed_count = sum(1 for log in logs if log.action in ["Snooze", "Snoozed"])
 
         if total_scheduled == 0:
-            percentage = 100.0
+            percentage = None
+            grade = "No Data"
         else:
             percentage = round((taken_count / total_scheduled) * 100.0, 2)
-
-        if percentage >= 90.0:
-            grade = "Excellent"
-        elif percentage >= 75.0:
-            grade = "Good"
-        elif percentage >= 60.0:
-            grade = "Fair"
-        else:
-            grade = "Poor"
+            if percentage >= 90.0:
+                grade = "Excellent"
+            elif percentage >= 75.0:
+                grade = "Good"
+            elif percentage >= 60.0:
+                grade = "Fair"
+            else:
+                grade = "Poor"
 
         return AdherenceReportResponse(
             patient_id=str(user_id),

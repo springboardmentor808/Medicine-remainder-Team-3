@@ -164,3 +164,53 @@ export const playWebAudioAlarm = () => {
     }
   }
 };
+
+/**
+ * Play a gentle, crisp notification chime for toasts and broadcasts.
+ * Synthesizes a warm harmonic triad (F5 -> A5 -> C6) via Web Audio API.
+ */
+export const playNotificationChime = () => {
+  if (typeof window === 'undefined') return;
+
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+
+    const ctx = new AudioContextClass();
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+
+    const now = ctx.currentTime;
+    const notes = [
+      { freq: 698.46, delay: 0.0, dur: 0.3, gain: 0.2 },   // F5
+      { freq: 880.00, delay: 0.1, dur: 0.35, gain: 0.25 }, // A5
+      { freq: 1046.50, delay: 0.22, dur: 0.55, gain: 0.3 }, // C6
+    ];
+
+    notes.forEach(({ freq, delay, dur, gain: vol }) => {
+      const osc = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + delay);
+
+      gainNode.gain.setValueAtTime(0.0001, now + delay);
+      gainNode.gain.exponentialRampToValueAtTime(vol, now + delay + 0.03);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, now + delay + dur);
+
+      osc.connect(gainNode);
+      gainNode.connect(ctx.destination);
+
+      osc.start(now + delay);
+      osc.stop(now + delay + dur);
+    });
+
+    setTimeout(() => {
+      ctx.close().catch(() => {});
+    }, 1200);
+  } catch (err) {
+    console.warn('[AlarmService] Could not synthesize notification chime:', err);
+  }
+};
+

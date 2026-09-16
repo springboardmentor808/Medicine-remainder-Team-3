@@ -14,6 +14,7 @@ import io
 import os
 import re
 import platform
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -59,15 +60,32 @@ _preprocessor = CV2Preprocessor() if HAS_VISION_MODULES and CV2Preprocessor else
 _segmenter = DocumentSegmenter() if HAS_VISION_MODULES and DocumentSegmenter else None
 _catalog_matcher = FuzzyCatalogMatcher() if HAS_VISION_MODULES and FuzzyCatalogMatcher else None
 
-# Standard Windows Tesseract binary and data paths
-_WINDOWS_EXE_PATHS = [
-    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-]
-_WINDOWS_TESSDATA_PATHS = [
-    r"C:\Program Files\Tesseract-OCR\tessdata",
-    r"C:\Program Files (x86)\Tesseract-OCR\tessdata",
-]
+# Dynamic cross-platform Tesseract resolution candidates
+def _get_candidate_tesseract_paths() -> List[Tuple[str, str]]:
+    """Returns candidate binary and tessdata paths dynamically without workstation hardcoding."""
+    candidates: List[Tuple[str, str]] = []
+
+    # 1. Check explicit environment overrides
+    env_exe = os.getenv("TESSERACT_CMD")
+    env_tessdata = os.getenv("TESSDATA_PREFIX")
+    if env_exe:
+        candidates.append((env_exe, env_tessdata or ""))
+
+    # 2. Check system PATH
+    which_exe = shutil.which("tesseract")
+    if which_exe:
+        candidates.append((which_exe, env_tessdata or ""))
+
+    # 3. Dynamic Windows standard locations
+    if platform.system() == "Windows":
+        prog_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+        prog_files_x86 = os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
+        candidates.extend([
+            (os.path.join(prog_files, "Tesseract-OCR", "tesseract.exe"), os.path.join(prog_files, "Tesseract-OCR", "tessdata")),
+            (os.path.join(prog_files_x86, "Tesseract-OCR", "tesseract.exe"), os.path.join(prog_files_x86, "Tesseract-OCR", "tessdata")),
+        ])
+
+    return candidates
 
 
 class OCRSyncResult(tuple):
@@ -126,19 +144,23 @@ class OCRSyncResult(tuple):
 
 
 def _configure_tesseract() -> bool:
-    """Configures pytesseract binary and tessdata environment safely."""
+    """Configures pytesseract binary and tessdata environment safely and dynamically."""
     if pytesseract is None:
         return False
 
-    if platform.system() == "Windows":
-        for exe_path, data_path in zip(_WINDOWS_EXE_PATHS, _WINDOWS_TESSDATA_PATHS):
-            if os.path.isfile(exe_path):
-                pytesseract.pytesseract.tesseract_cmd = exe_path
-                if os.path.isdir(data_path):
-                    os.environ["TESSDATA_PREFIX"] = data_path
-                return True
-        return False
-    return True
+    candidates = _get_candidate_tesseract_paths()
+    for exe_path, data_path in candidates:
+        if exe_path and os.path.isfile(exe_path):
+            pytesseract.pytesseract.tesseract_cmd = exe_path
+            if data_path and os.path.isdir(data_path):
+                os.environ["TESSDATA_PREFIX"] = data_path
+            return True
+
+    # On POSIX / Linux systems with tesseract in PATH
+    if platform.system() != "Windows" and shutil.which("tesseract"):
+        return True
+
+    return False
 
 
 _TESSERACT_AVAILABLE = _configure_tesseract()
@@ -549,20 +571,29 @@ def _perform_ocr_sync(image_bytes: bytes) -> OCRSyncResult:
 
 async def _extract_with_gemini_vision(contents: bytes, content_type: Optional[str] = None) -> Optional[dict]:
     """
-    Uses Gemini Multimodal Vision API to parse complex handwritten Indian prescriptions.
-    Extracts doctor details, all prescribed medicines, dosages, duration, schedules, and calculated stocks.
+    Uses Gemini Multimodal Vision API (gemini-3.6-flash) to parse complex handwritten Indian prescriptions.
+    
+    Architecture & Processing Details:
+    1. In-memory conversion: Accepts raw upload bytes and converts to RGB PIL Image without disk writes.
+    2. Zero Hallucination Prompting: Prompts Gemini as a clinical pharmacologist to extract exact brand
+       names, active chemical compositions, dosage units, and calculate total tablet counts from duration.
+    3. JSON Sanitization: Strips markdown backticks and parses the structured response.
+    4. Fallback Handling: Returns None on missing API key, network error, or unreadable script,
+       allowing graceful fallthrough to the legacy local OpenCV + Tesseract pipeline.
     """
     try:
         from app.core.config import settings
         import google.generativeai as genai
         import json
 
+        # Fetch API key from configuration settings or environment
         api_key = getattr(settings, "GEMINI_API_KEY", None) or getattr(settings, "GOOGLE_API_KEY", None) or os.getenv("GEMINI_API_KEY")
         if not api_key:
             return None
 
         genai.configure(api_key=api_key)
 
+        # Ensure image is in RGB format for Gemini Vision compatibility
         pil_img = Image.open(io.BytesIO(contents))
         if pil_img.mode != "RGB":
             pil_img = pil_img.convert("RGB")
@@ -611,10 +642,12 @@ async def _extract_with_gemini_vision(contents: bytes, content_type: Optional[st
             "}"
         )
 
+        # Run non-blocking async generation via threadpool
         response = await asyncio.to_thread(model.generate_content, [pil_img, prompt])
         if not response or not response.text:
             return None
 
+        # Clean markdown wrappers if model formats with ```json ... ```
         raw_resp = response.text.strip()
         if raw_resp.startswith("```"):
             raw_resp = re.sub(r"^```(?:json)?\s*", "", raw_resp)
@@ -671,7 +704,8 @@ async def extract_text_from_image(file: UploadFile) -> dict:
                 "generic_salt": None,
             }
 
-        # 1. Primary Engine: Gemini Multimodal Vision for doctor handwriting
+        # 1. Primary Engine: Gemini Multimodal Vision for doctor cursive handwriting
+        # Handles multi-drug prescriptions and accurately extracts dosages and calculated initial quantities.
         gemini_result = await _extract_with_gemini_vision(contents, file.content_type)
         if gemini_result and gemini_result.get("medicines"):
             meds = gemini_result.get("medicines", [])

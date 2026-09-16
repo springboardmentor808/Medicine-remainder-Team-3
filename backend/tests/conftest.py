@@ -40,3 +40,23 @@ def mock_otp_verified(monkeypatch):
     from app.services.otp_service import OTPService
     monkeypatch.setattr(OTPService, "is_destination_verified", AsyncMock(return_value=True))
 
+
+@pytest_asyncio.fixture(autouse=True)
+async def reset_redis_client():
+    from app.core import redis as app_redis
+    app_redis._in_memory_fallback.clear()
+    if app_redis._redis_client and app_redis._redis_client is not app_redis._in_memory_fallback:
+        try:
+            await app_redis._redis_client.aclose()
+        except Exception:
+            pass
+        app_redis._redis_client = None
+    yield
+    app_redis._in_memory_fallback.clear()
+    if app_redis._redis_client and app_redis._redis_client is not app_redis._in_memory_fallback:
+        try:
+            await app_redis._redis_client.aclose()
+        except Exception:
+            pass
+        app_redis._redis_client = None
+

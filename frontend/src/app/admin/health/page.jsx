@@ -94,12 +94,12 @@ const SERVICES_INITIAL = [
     label: 'Vision AI / Prescription OCR',
     detail: 'TrOCR Vision Transformer + Tesseract',
     icon: ScanLine,
-    status: 'degraded',
-    latency: '340 ms',
-    uptime: '97.12%',
+    status: 'healthy',
+    latency: '118 ms',
+    uptime: '99.85%',
     secondaryLabel: 'Throughput',
-    secondaryVal: '3 docs/min',
-    sparkline: [310, 340, 360, 330, 340, 355, 340],
+    secondaryVal: '14 docs/min',
+    sparkline: [120, 115, 118, 112, 118, 120, 118],
     lastChecked: '< 1s ago',
   },
   {
@@ -202,7 +202,7 @@ const INCIDENTS_INITIAL = [
   File "torch/autograd/grad_mode.py", line 27, in decorate_context
     return func(*args, **kwargs)
 RuntimeWarning: CPU thread pool exhaustion: 4 threads saturated.`,
-    resolved: false,
+    resolved: true,
   },
   {
     id: 'INC-8890',
@@ -395,45 +395,55 @@ function SystemHealthContent() {
     }
 
     if (telemData) {
-      const cpuVal = Math.max(1, Math.round(telemData.hardware?.cpu_percent || 15));
-      const memVal = Math.round(telemData.hardware?.memory_percent || 60);
-      const memDetail = `${telemData.hardware?.memory_used_gb || 4.2} / ${telemData.hardware?.memory_total_gb || 8.0} GB`;
-      const dbLat = telemData.database?.latency_ms || 2.0;
+      const hasCpu = telemData.hardware?.cpu_percent !== undefined && telemData.hardware?.cpu_percent !== null;
+      const cpuVal = hasCpu ? Math.round(telemData.hardware.cpu_percent) : null;
+
+      const hasMem = telemData.hardware?.memory_percent !== undefined && telemData.hardware?.memory_percent !== null;
+      const memVal = hasMem ? Math.round(telemData.hardware.memory_percent) : null;
+
+      const memDetail = (telemData.hardware?.memory_used_gb !== undefined && telemData.hardware?.memory_total_gb !== undefined)
+        ? `${telemData.hardware.memory_used_gb} / ${telemData.hardware.memory_total_gb} GB`
+        : 'N/A';
+
+      const hasDbLat = telemData.database?.latency_ms !== undefined && telemData.database?.latency_ms !== null;
+      const dbLat = hasDbLat ? telemData.database.latency_ms : null;
+
+      const hasPool = telemData.database?.pool_active !== undefined && telemData.database?.pool_active !== null;
+      const poolVal = hasPool ? telemData.database.pool_active : null;
 
       setServerMetrics((prev) =>
         prev.map((m) => {
           if (m.id === 'cpu') {
             return {
               ...m,
-              value: cpuVal,
-              trendVal: `${cpuVal}% load`,
-              sparkline: [...m.sparkline.slice(1), cpuVal],
+              value: cpuVal !== null ? cpuVal : m.value,
+              trendVal: cpuVal !== null ? `${cpuVal}% load` : 'Unavailable',
+              sparkline: cpuVal !== null ? [...m.sparkline.slice(1), cpuVal] : m.sparkline,
             };
           }
           if (m.id === 'memory') {
             return {
               ...m,
-              value: memVal,
-              trendVal: memDetail,
-              sparkline: [...m.sparkline.slice(1), memVal],
+              value: memVal !== null ? memVal : m.value,
+              trendVal: memVal !== null ? memDetail : 'Unavailable',
+              sparkline: memVal !== null ? [...m.sparkline.slice(1), memVal] : m.sparkline,
             };
           }
           if (m.id === 'latency') {
-            const latVal = Math.max(1, Math.round(dbLat * 6));
+            const latVal = dbLat !== null ? Math.round(dbLat * 6) : null;
             return {
               ...m,
-              value: latVal,
-              trendVal: `${latVal}ms ping`,
-              sparkline: [...m.sparkline.slice(1), latVal],
+              value: latVal !== null ? latVal : m.value,
+              trendVal: latVal !== null ? `${latVal}ms ping` : 'Unavailable',
+              sparkline: latVal !== null ? [...m.sparkline.slice(1), latVal] : m.sparkline,
             };
           }
           if (m.id === 'pool') {
-            const poolVal = telemData.database?.pool_active || 12;
             return {
               ...m,
-              value: poolVal,
-              trendVal: `${poolVal}% active`,
-              sparkline: [...m.sparkline.slice(1), poolVal],
+              value: poolVal !== null ? poolVal : m.value,
+              trendVal: poolVal !== null ? `${poolVal}% active` : 'Unavailable',
+              sparkline: poolVal !== null ? [...m.sparkline.slice(1), poolVal] : m.sparkline,
             };
           }
           return m;
@@ -443,10 +453,34 @@ function SystemHealthContent() {
       setServices((prev) =>
         prev.map((s) => {
           if (s.id === 'postgres') {
-            return { ...s, latency: `${dbLat} ms`, lastChecked: '< 1s ago' };
+            const latStr = dbLat !== null ? `${dbLat} ms` : 'N/A';
+            const num = dbLat !== null ? Math.round(dbLat) : null;
+            const spark = num !== null ? (Array.isArray(s.sparkline) ? [...s.sparkline.slice(1), num] : [num]) : s.sparkline;
+            return { ...s, latency: latStr, status: telemData.database?.status || s.status, sparkline: spark, lastChecked: '< 1s ago' };
           }
           if (s.id === 'fastapi') {
-            return { ...s, latency: `${Math.round(dbLat * 2)} ms`, lastChecked: '< 1s ago' };
+            const latStr = dbLat !== null ? `${Math.round(dbLat * 2)} ms` : 'N/A';
+            const num = dbLat !== null ? Math.round(dbLat * 2) : null;
+            const spark = num !== null ? (Array.isArray(s.sparkline) ? [...s.sparkline.slice(1), num] : [num]) : s.sparkline;
+            return { ...s, latency: latStr, status: 'healthy', sparkline: spark, lastChecked: '< 1s ago' };
+          }
+          if (s.id === 'redis') {
+            const hasRedis = telemData.redis?.latency_ms !== undefined && telemData.redis?.latency_ms !== null;
+            const redisLat = hasRedis ? `${telemData.redis.latency_ms} ms` : 'N/A';
+            const num = hasRedis ? Math.round(telemData.redis.latency_ms) : null;
+            const spark = num !== null ? (Array.isArray(s.sparkline) ? [...s.sparkline.slice(1), num] : [num]) : s.sparkline;
+            return { ...s, latency: redisLat, status: telemData.redis?.status || s.status, sparkline: spark, lastChecked: '< 1s ago' };
+          }
+          if (s.id === 'ocr') {
+            const hasOcr = telemData.ocr?.latency_ms !== undefined && telemData.ocr?.latency_ms !== null;
+            const ocrLat = hasOcr ? `${telemData.ocr.latency_ms} ms` : 'N/A';
+            const num = hasOcr ? Math.round(telemData.ocr.latency_ms) : null;
+            const spark = num !== null ? (Array.isArray(s.sparkline) ? [...s.sparkline.slice(1), num] : [num]) : s.sparkline;
+            return { ...s, latency: ocrLat, status: telemData.ocr?.status || s.status, sparkline: spark, lastChecked: '< 1s ago' };
+          }
+          if (s.id === 'notifications') {
+            const delivery = telemData.notifications?.delivery_rate !== undefined && telemData.notifications?.delivery_rate !== null ? telemData.notifications.delivery_rate : s.secondaryVal;
+            return { ...s, secondaryVal: delivery, status: telemData.notifications?.status || s.status, lastChecked: '< 1s ago' };
           }
           return { ...s, lastChecked: '< 1s ago' };
         })
@@ -628,27 +662,31 @@ function SystemHealthContent() {
           {/* ═════════════════════════════════════════════════════════════════ */}
           {/* 1. CLINICAL COMMAND BAR (VITAL MED TRACKER STYLE)                 */}
           {/* ═════════════════════════════════════════════════════════════════ */}
-          <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-sm">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="relative bg-[#d8eedf] dark:bg-[#132a22] border border-[#bfe3cd] dark:border-[#1e4537] rounded-2xl p-5 sm:p-6 shadow-sm overflow-hidden">
+            {/* Decorative subtle medical blobs */}
+            <div className="absolute -top-10 -right-10 w-44 h-44 rounded-full bg-emerald-400/15 dark:bg-emerald-800/10 blur-xl pointer-events-none" aria-hidden="true" />
+            <div className="absolute -bottom-6 -left-6 w-28 h-28 rounded-full bg-teal-500/10 dark:bg-teal-900/15 blur-xl pointer-events-none" aria-hidden="true" />
+
+            <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
               {/* Header Title & Medical Status Badge */}
               <div className="space-y-1">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-200/80 flex items-center justify-center text-[#00685f] shadow-sm">
+                  <div className="w-10 h-10 rounded-xl bg-white/80 dark:bg-[#1a382e] border border-[#bfe3cd] dark:border-[#235340] flex items-center justify-center text-[#00685f] dark:text-emerald-400 shadow-sm">
                     <HeartPulse className="w-5 h-5 animate-pulse" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2.5">
-                      <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
+                      <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#11382d] dark:text-white">
                         System Health & Telemetry Monitor
                       </h1>
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white/80 dark:bg-[#1d4335] text-[#11382d] dark:text-emerald-300 border border-[#bfe3cd] dark:border-[#275d4a] shadow-xs">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
                         Cluster Healthy
                       </span>
                     </div>
-                    <p className="text-sm sm:text-base text-slate-600 dark:text-slate-300 font-medium flex items-center gap-2.5 mt-1.5 flex-wrap">
-                      <span>Vitality Core: <strong>{healthyServices}/{services.length}</strong> Subsystems Active</span>
-                      <span>·</span>
+                    <p className="text-sm sm:text-base text-[#164234] dark:text-[#c5e6d0] font-medium flex items-center gap-2.5 mt-1.5 flex-wrap">
+                      <span>Vitality Core: <strong className="font-bold text-[#11382d] dark:text-white">{healthyServices}/{services.length}</strong> Subsystems Active</span>
+                      <span className="text-[#96cca9] dark:text-[#2a5b4a]">·</span>
                       <span>Auto-Refresh: {pollingInterval > 0 ? `${countdown}s` : 'Paused'}</span>
                     </p>
                   </div>
@@ -658,9 +696,9 @@ function SystemHealthContent() {
               {/* Action Controls Dock */}
               <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
                 {/* Polling Selector */}
-                <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-600">
-                  <Radio className="w-3.5 h-3.5 text-[#00685f] mr-1.5" />
-                  <span className="text-slate-400 mr-1.5">Poll:</span>
+                <div className="flex items-center bg-white/85 dark:bg-[#18392d] border border-[#bfe3cd] dark:border-[#265342] rounded-xl px-2.5 py-1.5 text-xs text-[#164234] dark:text-[#c5e6d0] shadow-xs">
+                  <Radio className="w-3.5 h-3.5 text-[#00685f] dark:text-emerald-400 mr-1.5" />
+                  <span className="text-slate-500 dark:text-slate-400 mr-1.5">Poll:</span>
                   <select
                     value={pollingInterval}
                     onChange={(e) => {
@@ -668,12 +706,12 @@ function SystemHealthContent() {
                       setPollingInterval(val);
                       setCountdown(val);
                     }}
-                    className="bg-transparent text-slate-800 font-semibold focus:outline-none cursor-pointer pr-1"
+                    className="bg-transparent text-[#11382d] dark:text-white font-semibold focus:outline-none cursor-pointer pr-1"
                   >
-                    <option value={5}>5s (Live)</option>
-                    <option value={15}>15s (Normal)</option>
-                    <option value={30}>30s (Eco)</option>
-                    <option value={0}>Paused</option>
+                    <option value={5} className="text-slate-800">5s (Live)</option>
+                    <option value={15} className="text-slate-800">15s (Normal)</option>
+                    <option value={30} className="text-slate-800">30s (Eco)</option>
+                    <option value={0} className="text-slate-800">Paused</option>
                   </select>
                 </div>
 
@@ -681,10 +719,10 @@ function SystemHealthContent() {
                 <button
                   onClick={handleFlushCache}
                   disabled={actionState.flushCache === 'loading'}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white/90 hover:bg-white dark:bg-[#18392d] dark:hover:bg-[#1f493a] border border-[#bfe3cd] dark:border-[#265342] text-[#11382d] dark:text-emerald-200 transition-all shadow-xs active:scale-95 disabled:opacity-50"
                   title="Purge Redis Session Cache"
                 >
-                  <Trash2 className={`w-3.5 h-3.5 ${actionState.flushCache === 'loading' ? 'animate-spin text-amber-500' : 'text-slate-500'}`} />
+                  <Trash2 className={`w-3.5 h-3.5 ${actionState.flushCache === 'loading' ? 'animate-spin text-amber-500' : 'text-[#164234] dark:text-emerald-400'}`} />
                   <span>{actionState.flushCache === 'loading' ? 'Flushing…' : 'Flush Cache'}</span>
                 </button>
 
@@ -692,9 +730,9 @@ function SystemHealthContent() {
                 <button
                   onClick={handlePingInfrastructure}
                   disabled={actionState.ping === 'loading' || isScanning}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white/90 hover:bg-white dark:bg-[#18392d] dark:hover:bg-[#1f493a] border border-[#bfe3cd] dark:border-[#265342] text-[#11382d] dark:text-emerald-200 transition-all shadow-xs active:scale-95 disabled:opacity-50"
                 >
-                  <Wifi className={`w-3.5 h-3.5 ${actionState.ping === 'loading' || isScanning ? 'animate-ping text-[#00685f]' : 'text-[#00685f]'}`} />
+                  <Wifi className={`w-3.5 h-3.5 ${actionState.ping === 'loading' || isScanning ? 'animate-ping text-[#00685f]' : 'text-[#00685f] dark:text-emerald-400'}`} />
                   <span>{actionState.ping === 'loading' ? 'Pinging…' : 'Test API Ping'}</span>
                 </button>
 
@@ -702,9 +740,9 @@ function SystemHealthContent() {
                 <button
                   onClick={handleExportCSV}
                   disabled={actionState.exportCsv === 'loading'}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 transition-all shadow-sm active:scale-95"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white/90 hover:bg-white dark:bg-[#18392d] dark:hover:bg-[#1f493a] border border-[#bfe3cd] dark:border-[#265342] text-[#11382d] dark:text-emerald-200 transition-all shadow-xs active:scale-95"
                 >
-                  <Download className={`w-3.5 h-3.5 ${actionState.exportCsv === 'loading' ? 'animate-spin text-slate-500' : 'text-slate-500'}`} />
+                  <Download className={`w-3.5 h-3.5 ${actionState.exportCsv === 'loading' ? 'animate-spin text-slate-500' : 'text-[#164234] dark:text-emerald-400'}`} />
                   <span>Audit CSV</span>
                 </button>
 

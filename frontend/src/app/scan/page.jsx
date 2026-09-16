@@ -302,6 +302,15 @@ function ScanPageInner() {
                     <Badge variant="taken" size="xs">Ready to Save</Badge>
                   </div>
                   <div className="space-y-1.5 text-caption text-on-surface">
+                    {/*
+                      Multi-Medication vs. Single-Item Render Branch:
+                      - Gemini Vision structured extraction returns `medicines: [...]` containing all
+                        identified drugs (e.g. polypharmacy slips with 5-6 concurrent medications).
+                      - If >1 medicines are detected, we render a scrollable preview list showing
+                        brand/generic names, dosages, and dosing intervals for transparency before saving.
+                      - If only 1 medicine is detected (or OCR legacy fallback was used), we render
+                        the concise 3-line summary view.
+                    */}
                     {extractedData.medicines && extractedData.medicines.length > 1 ? (
                       <div className="space-y-1.5">
                         <p className="font-bold text-teal-700 dark:text-teal-300 text-xs">

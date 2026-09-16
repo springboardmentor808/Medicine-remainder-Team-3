@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user, hash_password
-from app.core.rbac import allow_admin, allow_any_authenticated
+from app.core.rbac import allow_admin, allow_caregiver, allow_any_authenticated
 from app.models.user import User, UserRole
 from app.models.caregiver_patient import caregiver_patients
 from app.services.user_service import UserService
@@ -99,30 +99,49 @@ async def update_profile(
     description="Retrieve patients assigned to the authenticated caregiver (or all patients).",
 )
 async def get_caregiver_patients(
-    current_user: User = Depends(allow_any_authenticated),
+    current_user: User = Depends(allow_caregiver),
     db: AsyncSession = Depends(get_db),
 ):
     """Fetch patients connected to this caregiver."""
-    is_caregiver = current_user.role == UserRole.CAREGIVER or current_user.role.lower() == "caregiver"
+    is_caregiver = current_user.role == UserRole.CAREGIVER or str(getattr(current_user.role, "value", current_user.role)).lower() == "caregiver"
     if is_caregiver:
         linked_subquery = select(caregiver_patients.c.patient_id).where(
             caregiver_patients.c.caregiver_id == current_user.id
         )
         result = await db.execute(
-            select(User).where(User.id.in_(linked_subquery))
+            select(User).where(User.id.in_(linked_subquery), User.is_active.is_(True))
         )
         patients = list(result.scalars().all())
         if not patients:
-            res_all = await db.execute(
-                select(User).where(
-                    User.role == UserRole.PATIENT,
-                    User.is_active == True,
-                ).limit(20)
-            )
-            patients = list(res_all.scalars().all())
+            # When newly registered caregiver has zero linked patients yet,
+            # return 2 curated sample demo patients so the dashboard is not blank,
+            # while strictly avoiding data leaks of unassigned real platform users.
+            return [
+                UserResponse(
+                    id=uuid.UUID("00000000-0000-4000-8000-000000000001"),
+                    username="robert_chen_demo",
+                    email="robert.chen.demo@pillsync.health",
+                    full_name="Robert Chen (Sample Patient)",
+                    phone="+1 (555) 019-2834",
+                    role="patient",
+                    is_active=True,
+                    created_at="2026-01-01T08:00:00",
+                ),
+                UserResponse(
+                    id=uuid.UUID("00000000-0000-4000-8000-000000000002"),
+                    username="eleanor_vance_demo",
+                    email="eleanor.vance.demo@pillsync.health",
+                    full_name="Eleanor Vance (Sample Patient)",
+                    phone="+1 (555) 014-9821",
+                    role="patient",
+                    is_active=True,
+                    created_at="2026-01-01T08:00:00",
+                ),
+            ]
     else:
+        # Admin viewing patient list
         result = await db.execute(
-            select(User).where(User.role == UserRole.PATIENT)
+            select(User).where(User.role == UserRole.PATIENT, User.is_active.is_(True))
         )
         patients = list(result.scalars().all())
 

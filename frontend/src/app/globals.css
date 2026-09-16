@@ -1,5 +1,6 @@
 /* ── Google Fonts Import ───────────────────────────────────────────── */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400&family=Public+Sans:wght@300;400;500;600;700;800&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
+@import "leaflet/dist/leaflet.css";
 
 @tailwind base;
 @tailwind components;
@@ -254,5 +255,51 @@
   .touch-target-min {
     min-height: 44px;
     min-width: 44px;
+  }
+
+  /* ── Ultra-Premium Glassmorphism Utilities ───────────────────────── */
+  .glass-card {
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 0 8px 32px 0 rgba(0, 104, 95, 0.06);
+  }
+  .dark .glass-card {
+    background: rgba(17, 28, 45, 0.72);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.35);
+  }
+
+  .glass-panel {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(0, 104, 95, 0.12);
+    box-shadow: 0 12px 40px 0 rgba(0, 104, 95, 0.08);
+  }
+  .dark .glass-panel {
+    background: rgba(15, 23, 42, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.45);
+  }
+
+  .glass-card-elevated {
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    box-shadow: 0 16px 48px -12px rgba(0, 104, 95, 0.12), 0 2px 8px 0 rgba(0, 0, 0, 0.04);
+  }
+  .dark .glass-card-elevated {
+    background: rgba(20, 32, 52, 0.82);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 16px 48px -12px rgba(0, 0, 0, 0.6), 0 2px 8px 0 rgba(0, 0, 0, 0.3);
   }
 }

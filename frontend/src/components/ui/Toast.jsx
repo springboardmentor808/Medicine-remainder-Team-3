@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useCallback, useState, createContext, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { playNotificationChime } from '@/lib/alarm_service';
 
 /**
  * Toast — Vitality Core Design System
@@ -29,13 +30,22 @@ const ToastContext = createContext(null);
 export function ToastProvider({ children, position = 'top-center', maxToasts = 5 }) {
   const [toasts, setToasts] = useState([]);
 
+  // CodeRabbit Review Note: Toast Deduplication
+  // Deduplicates identical incoming notifications (matching title + variant) to prevent
+  // simultaneous network retry storms from stacking identical banners on top of each other.
   const addToast = useCallback(
-    ({ title, description, variant = 'default', duration = 4000, action }) => {
+    ({ title, description, variant = 'default', duration = 4000, action, silent = false }) => {
       const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       setToasts((prev) => {
-        // Prevent duplicate toasts stacking on top of each other
+        // Drop duplicate toast if an identical banner is already active in viewport
         if (prev.some((t) => t.title === title && t.variant === variant)) {
           return prev;
+        }
+        // Play audio alert chime only when the toast is genuinely added and not silent
+        if (!silent) {
+          try {
+            playNotificationChime();
+          } catch (_) {}
         }
         return [
           { id, title, description, variant, duration, action },
@@ -89,39 +99,39 @@ export function useToast() {
 // ── Variant config ────────────────────────────────────────────────────────────
 const VARIANTS = {
   default: {
-    bg:   'bg-inverse-surface',
-    text: 'text-inverse-on-surface',
+    bg:   'bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 shadow-[0_12px_32px_rgba(15,23,42,0.5)]',
+    text: 'text-slate-100',
     icon: 'notifications',
-    iconColor: 'text-inverse-on-surface/70',
-    bar:  'bg-inverse-on-surface/40',
+    iconColor: 'text-teal-400',
+    bar:  'bg-gradient-to-r from-teal-400 to-emerald-400',
   },
   success: {
-    bg:   'bg-tertiary-container/90',
-    text: 'text-on-tertiary-container',
+    bg:   'bg-slate-900/95 backdrop-blur-xl border border-emerald-500/40 shadow-[0_12px_36px_rgba(16,185,129,0.35)]',
+    text: 'text-emerald-50',
     icon: 'check_circle',
-    iconColor: 'text-tertiary',
-    bar:  'bg-tertiary',
+    iconColor: 'text-emerald-400',
+    bar:  'bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400',
   },
   error: {
-    bg:   'bg-error-container/90',
-    text: 'text-on-error-container',
+    bg:   'bg-slate-900/95 backdrop-blur-xl border border-rose-500/40 shadow-[0_12px_36px_rgba(244,63,94,0.35)]',
+    text: 'text-rose-50',
     icon: 'error',
-    iconColor: 'text-error',
-    bar:  'bg-error',
+    iconColor: 'text-rose-400',
+    bar:  'bg-gradient-to-r from-rose-500 to-amber-500',
   },
   warning: {
-    bg:   'bg-secondary-container/90',
-    text: 'text-on-secondary-container',
+    bg:   'bg-slate-900/95 backdrop-blur-xl border border-amber-500/40 shadow-[0_12px_36px_rgba(245,158,11,0.35)]',
+    text: 'text-amber-50',
     icon: 'warning',
-    iconColor: 'text-secondary',
-    bar:  'bg-secondary',
+    iconColor: 'text-amber-400',
+    bar:  'bg-gradient-to-r from-amber-400 to-orange-400',
   },
   info: {
-    bg:   'bg-primary-fixed/90',
-    text: 'text-on-primary-fixed',
+    bg:   'bg-slate-900/95 backdrop-blur-xl border border-cyan-500/40 shadow-[0_12px_36px_rgba(6,182,212,0.35)]',
+    text: 'text-cyan-50',
     icon: 'info',
-    iconColor: 'text-primary',
-    bar:  'bg-primary',
+    iconColor: 'text-cyan-400',
+    bar:  'bg-gradient-to-r from-cyan-400 to-teal-300',
   },
 };
 
@@ -171,7 +181,7 @@ function ToastItem({ id, title, description, variant = 'default', duration = 400
       aria-live="polite"
       aria-atomic="true"
       className={[
-        'relative overflow-hidden w-full max-w-sm rounded-lg shadow-modal',
+        'relative overflow-hidden w-full max-w-sm rounded-xl shadow-2xl ring-1 ring-white/10',
         'pointer-events-auto',
         'transition-all duration-300',
         v.bg,

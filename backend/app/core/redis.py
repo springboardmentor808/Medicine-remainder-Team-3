@@ -10,6 +10,7 @@ Provides an async Redis connection for:
 
 import time
 import json
+import asyncio
 from typing import Any, Optional, Dict, Tuple
 
 try:
@@ -84,6 +85,18 @@ class InMemoryRedisFallback:
             self._store[key] = (val, time.time() + seconds)
             return True
         return False
+
+    async def ttl(self, key: str) -> int:
+        if key not in self._store:
+            return -2
+        _, expires_at = self._store[key]
+        if expires_at is None:
+            return -1
+        rem = int(expires_at - time.time())
+        if rem <= 0:
+            del self._store[key]
+            return -2
+        return rem
 
     async def lpush(self, key: str, value: str):
         if key not in self._lists:
@@ -164,11 +177,18 @@ class InMemoryRedisFallback:
             matched = all_keys
         return 0, list(set(matched))
 
-    async def close(self):
+    def clear(self):
+        """Purge all stored keys, lists, sets, and zsets."""
         self._store.clear()
         self._lists.clear()
         self._zsets.clear()
         self._sets.clear()
+
+    async def aclose(self):
+        self.clear()
+
+    async def close(self):
+        self.clear()
 
 
 _in_memory_fallback = InMemoryRedisFallback()
@@ -216,10 +236,27 @@ async def disconnect_redis() -> None:
 def get_redis() -> Any:
     """
     FastAPI dependency — returns the active Redis client or in-memory fallback.
+    Safeguards against stale/closed event loops during testing or loop recycles.
     """
     global _redis_client
     if _redis_client is None:
         return _in_memory_fallback
+    if _redis_client is _in_memory_fallback:
+        return _in_memory_fallback
+
+    try:
+        current_loop = asyncio.get_running_loop()
+        pool = getattr(_redis_client, "connection_pool", None)
+        if pool is not None:
+            pool_loop = getattr(pool, "_loop", None)
+            if pool_loop is not None and (pool_loop.is_closed() or pool_loop is not current_loop):
+                _redis_client = None
+                return _in_memory_fallback
+    except RuntimeError:
+        pass
+    except Exception:
+        pass
+
     return _redis_client
 
 

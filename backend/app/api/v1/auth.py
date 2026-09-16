@@ -6,6 +6,7 @@ password recovery (OTP + reset link), and logout.
 All passwords are bcrypt-hashed. Tokens are JWT with access + refresh pattern.
 """
 
+import asyncio
 import time
 import random
 import logging
@@ -103,7 +104,7 @@ async def register(
         )
 
     # Enforce email verification
-    is_email_ver = await OTPService.is_destination_verified(clean_email, channel="email")
+    is_email_ver = await OTPService.is_destination_verified(clean_email, channel="email", purpose="REGISTRATION")
     if not is_email_ver:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -112,7 +113,7 @@ async def register(
 
     # Enforce phone verification if phone is provided
     if payload.phone:
-        is_phone_ver = await OTPService.is_destination_verified(payload.phone, channel="phone")
+        is_phone_ver = await OTPService.is_destination_verified(payload.phone, channel="phone", purpose="REGISTRATION")
         if not is_phone_ver:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -695,6 +696,7 @@ async def forgot_password(
 ):
     """Initiate password recovery with single-use reset token and OTP."""
     email_clean = payload.email.strip().lower()
+    masked_email = email_clean[:2] + "****" + email_clean[-4:] if len(email_clean) > 6 else "****"
 
     result = await db.execute(select(User).where(func.lower(User.email) == email_clean))
     user = result.scalar_one_or_none()
@@ -703,15 +705,19 @@ async def forgot_password(
     if user:
         reset_token = await OTPService.create_password_reset_token(user.id, email_clean)
         otp_code = await OTPService.generate_otp(email_clean, channel="email", purpose="PASSWORD_RESET")
-        masked_email = email_clean[:2] + "****" + email_clean[-4:] if len(email_clean) > 6 else "****"
         logger.info(f"[Auth:PasswordReset] Generated reset OTP for {masked_email}")
-        await EmailService.send_password_reset_email(email_clean, reset_token)
-        await EmailService.send_otp_email(email_clean, otp_code, purpose="PASSWORD_RESET")
+        async def _dispatch_reset_emails():
+            try:
+                await EmailService.send_password_reset_email(email_clean, reset_token)
+                await EmailService.send_otp_email(email_clean, otp_code, purpose="PASSWORD_RESET")
+            except Exception as mail_err:
+                logger.error(f"[Auth:PasswordReset] Error dispatching reset emails to {masked_email}: {mail_err}")
 
+        asyncio.create_task(_dispatch_reset_emails())
 
     return MessageResponse(
         message="If an account exists for this email, password recovery instructions have been dispatched.",
-        detail=f"Recovery sent to {email_clean}",
+        detail=f"Recovery sent to {masked_email}",
     )
 
 
@@ -742,12 +748,14 @@ async def verify_otp(
     await OTPService.verify_otp(dest, payload.otp, channel=channel, purpose=payload.purpose)
 
     # In PostgreSQL, check if user exists with this email/phone, mark active/verified
+    # Security Rule: Do NOT authenticate or issue tokens for PASSWORD_RESET verification
+    is_password_reset = (payload.purpose or "").strip().upper() == "PASSWORD_RESET"
     user_response = None
     access_token = None
     refresh_token_str = None
     user_role = None
 
-    if channel == "email":
+    if not is_password_reset and channel == "email":
         clean_email = dest.lower()
         result = await db.execute(select(User).where(func.lower(User.email) == clean_email))
         user = result.scalar_one_or_none()
@@ -773,7 +781,7 @@ async def verify_otp(
 
     return MessageResponse(
         message=f"{channel.capitalize()} verified successfully.",
-        detail=f"{dest} verified",
+        detail="Password reset verification complete. Please submit your new password." if is_password_reset else f"{dest} verified",
         verified=True,
         access_token=access_token,
         refresh_token=refresh_token_str,
@@ -798,10 +806,9 @@ async def resend_otp(payload: ForgotPasswordRequest):
     logger.info(f"[Auth:ResendOTP] Fresh OTP generated for {masked_email}")
     await EmailService.send_otp_email(email_clean, otp_code, purpose="PASSWORD_RESET")
 
-
     return MessageResponse(
         message="A new 6-digit OTP has been sent to your email.",
-        detail=f"OTP resent to {email_clean}",
+        detail=f"OTP resent to {masked_email}",
     )
 
 
@@ -816,16 +823,44 @@ async def reset_password(
     payload: ResetPasswordRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Reset user password using single-use cryptographic token."""
-    user_id_str, email = await OTPService.verify_and_consume_reset_token(payload.token)
+    """Reset user password using single-use cryptographic token or verified OTP."""
+    user = None
+    if payload.token:
+        user_id_str, email = await OTPService.verify_and_consume_reset_token(payload.token)
+        result = await db.execute(select(User).where(User.id == uuid.UUID(user_id_str)))
+        user = result.scalar_one_or_none()
+    elif payload.email:
+        clean_email = payload.email.strip().lower()
+        redis = get_redis()
+        claim_key = f"otp_verified:email:{clean_email}:PASSWORD_RESET"
+        is_claimed = await redis.get(claim_key) if redis else None
 
-    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id_str)))
-    user = result.scalar_one_or_none()
+        if not is_claimed:
+            if payload.otp:
+                await OTPService.verify_otp(clean_email, payload.otp, channel="email", purpose="PASSWORD_RESET")
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Please verify the OTP sent to your email before resetting your password.",
+                )
+
+        result = await db.execute(select(User).where(func.lower(User.email) == clean_email))
+        user = result.scalar_one_or_none()
+
+        # Clean up verified claims in Redis if set
+        if redis:
+            await redis.delete(claim_key)
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Either a reset token or email address is required.",
+        )
+
 
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User account associated with this reset token could not be found.",
+            detail="User account associated with this reset request could not be found.",
         )
 
     user.hashed_password = hash_password(payload.new_password)

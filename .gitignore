@@ -115,6 +115,7 @@ desktop.ini
 *.temp
 *.swp
 *~
+scratch/
 
 # Generated Catalogs & Cache
 backend/app/catalogs/*.json

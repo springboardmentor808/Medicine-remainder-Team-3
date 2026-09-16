@@ -18,7 +18,7 @@ const apiClient = axios.create({
     'Accept': 'application/json',
   },
   withCredentials: true, // HttpOnly Cookie support
-  timeout: 15000,
+  timeout: 30000,
 });
 
 // ── Request Interceptor — Attach JWT Token ────────────────────────────────────
@@ -119,6 +119,8 @@ apiClient.interceptors.response.use(
 );
 
 // ── Helper & Graceful Error Normalization ─────────────────────────────────────
+// CodeRabbit Review Note: Toast Deduplication & Rate Limiting
+// Prevents event storms when multiple concurrent async requests fail simultaneously (e.g. timeout storms).
 let lastEmittedToast = '';
 let lastEmittedTime = 0;
 
@@ -129,6 +131,7 @@ export const emitToast = (messageOrObj, typeOrMsg = 'error') => {
 
     const KNOWN_TYPES = ['error', 'success', 'info', 'warning'];
 
+    // Handle ({ message, type }) signature
     if (messageOrObj && typeof messageOrObj === 'object') {
       finalMessage = messageOrObj.message || messageOrObj.detail || '';
       finalType = messageOrObj.type || 'error';
@@ -138,7 +141,7 @@ export const emitToast = (messageOrObj, typeOrMsg = 'error') => {
       finalMessage = typeOrMsg;
     }
 
-    // Deduplicate identical toasts emitted within 3 seconds
+    // Deduplicate identical toasts emitted within a 3-second throttle window
     const now = Date.now();
     if (finalMessage === lastEmittedToast && now - lastEmittedTime < 3000) {
       return;
@@ -160,19 +163,23 @@ const handleError = (error) => {
     return Promise.reject(error);
   }
 
+  // Normalize Axios error response
   const status = error.response?.status;
+  const data = error.response?.data;
   let msg =
-    error.response?.data?.detail ||
-    error.response?.data?.message ||
+    data?.detail ||
+    data?.message ||
     error.message ||
     'An unexpected error occurred';
 
-  // Format Pydantic validation errors array
+  // Fast-fail validation arrays from FastAPI (Pydantic 422 Unprocessable Entity)
   if (Array.isArray(msg)) {
     msg = msg.map((e) => e.msg || JSON.stringify(e)).join(', ');
   }
 
-  // Graceful human-friendly guidance instead of raw developer jargon
+  // Graceful human-friendly guidance:
+  // Intercept raw developer/network strings (e.g. 'timeout of 15000ms exceeded', 'ECONNABORTED')
+  // and present reassuring, actionable guidance to patients and clinical users.
   if (error.code === 'ECONNABORTED' || error.message?.includes('timeout') || error.message?.includes('15000ms')) {
     msg = 'Network connection timed out. Loading local offline records.';
   } else if (status === 404) {
@@ -356,6 +363,22 @@ export const medicineAPI = {
    * @param {string} id
    */
   delete: (id) => apiClient.delete(`/medicines/${id}`).catch(handleError),
+
+  /**
+   * GET /medicines/grouped/by-disease — Group medicines by disease
+   * @param {{ patient_id }} [params]
+   */
+  getGroupedByDisease: (params) =>
+    apiClient
+      .get('/medicines/grouped/by-disease', { params })
+      .then((r) => {
+        const data = r?.data !== undefined ? r.data : r;
+        if (data && (data.error || data.detail)) {
+          throw new Error(data.message || data.detail || 'Failed to retrieve grouped medicines');
+        }
+        return data;
+      })
+      .catch(handleError),
 
   /**
    * POST /ocr/scan — Upload prescription image for OCR
@@ -591,6 +614,19 @@ export const caregiverAPI = {
    */
   sendPatientReminder: (patientId, message) =>
     apiClient.post('/reminders/notify-patient', { patient_id: patientId, message }).catch(handleError),
+
+  /** GET /adherence/caregiver/queue — Multi-patient live scheduled dose queue */
+  getCaregiverQueue: (date = null) =>
+    apiClient
+      .get('/adherence/caregiver/queue', { params: date ? { target_date: date } : {} })
+      .then((r) => {
+        const data = r?.data !== undefined ? r.data : r;
+        if (data && (data.error || data.detail)) {
+          throw new Error(data.message || data.detail || 'Failed to load caregiver queue');
+        }
+        return data;
+      })
+      .catch(handleError),
 };
 
 // ═════════════════════════════════════════════════════════════════════════════

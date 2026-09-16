@@ -7,8 +7,11 @@ immediately releases the async database session back to the pool, and then
 performs CPU-bound CSV and PDF/HTML document rendering in pure Python space.
 """
 
+import base64
 import csv
+import hashlib
 import io
+import json
 from datetime import datetime
 from typing import List, Dict, Any
 
@@ -596,7 +599,7 @@ async def export_audit_csv(
     current_user: User = Depends(allow_admin),
 ):
     """Admin-only audit export using fast release pattern."""
-    result = await db.execute(select(User).order_by(User.created_at.desc()))
+    result = await db.execute(select(User).order_by(User.created_at.desc(), User.id.asc()))
     users = result.scalars().all()
 
     user_rows = [
@@ -639,7 +642,7 @@ async def export_audit_pdf(
     current_user: User = Depends(allow_admin),
 ):
     """Admin-only audit PDF export using fast release pattern."""
-    result = await db.execute(select(User).order_by(User.created_at.desc()))
+    result = await db.execute(select(User).order_by(User.created_at.desc(), User.id.asc()))
     users = result.scalars().all()
 
     user_rows = [
@@ -1037,14 +1040,15 @@ async def export_master_pdf(
     import time
 
     # 1. Fetch Early
-    users_result = await db.execute(select(User).order_by(User.created_at.desc()))
+    users_result = await db.execute(select(User).order_by(User.created_at.desc(), User.id.asc()))
     all_users = users_result.scalars().all()
 
-    meds_result = await db.execute(select(Medicine).order_by(Medicine.name))
+    meds_result = await db.execute(select(Medicine).order_by(Medicine.name.asc(), Medicine.id.asc()))
     all_meds = meds_result.scalars().all()
 
-    sch_result = await db.execute(select(Schedule))
+    sch_result = await db.execute(select(Schedule).order_by(Schedule.id.asc()))
     all_sch = sch_result.scalars().all()
+    all_schedules = all_sch
 
     # Ping DB latency
     t0 = time.perf_counter()
@@ -1313,19 +1317,25 @@ async def export_master_pdf(
     story.append(sec_table)
     story.append(Spacer(1, 16))
 
-    # Cryptographic Checksum & Sign-Off Box
-    dummy_payload = f"PILLSYNC_MASTER_{total_users}_{total_meds}_{datetime.now().isoformat()}"
-    checksum = hashlib.sha256(dummy_payload.encode('utf-8')).hexdigest()
+    # Cryptographic Checksum of the canonical Export Dataset Artifact
+    canonical_artifact = json.dumps({
+        "document": "MASTER_SYSTEM_DOSSIER",
+        "generated_by": current_user.email or current_user.username,
+        "users": sorted([f"{u.id}:{u.username}:{getattr(u, 'role', 'unknown')}" for u in all_users]),
+        "medicines": sorted([f"{m.id}:{m.name}:{m.current_stock}" for m in all_meds]),
+        "schedules": sorted([f"{s.id}:{s.scheduled_time}" for s in all_schedules]),
+    }, sort_keys=True).encode("utf-8")
+    data_checksum = hashlib.sha256(canonical_artifact).hexdigest()
 
     sign_data = [
         [
             Paragraph(
-                f"<b>DOCUMENT INTEGRITY CHECKSUM (SHA-256):</b><br/>"
-                f"<font size=7 color='#00685f' fontName='Courier'><code>{checksum}</code></font><br/><br/>"
+                f"<b>EXPORT ARTIFACT CHECKSUM (SHA-256):</b><br/>"
+                f"<font size=7 color='#00685f' fontName='Courier'><code>{data_checksum}</code></font><br/><br/>"
                 f"<b>LEGAL COMPLIANCE STATEMENT:</b><br/>"
-                f"<font size=7 color='#64748b'>This Master Executive Dossier has been compiled and cryptographically "
-                f"signed by authorized PillSync administrative personnel. Data contained herein is governed by HIPAA, "
-                f"GDPR, and DISHA healthcare data retention standards. Unauthorized alteration voids verification.</font>",
+                f"<font size=7 color='#64748b'>This Master Executive Dossier has been compiled with cryptographic "
+                f"SHA-256 checksums generated directly from the underlying exported data artifact. Data contained herein is governed by HIPAA, "
+                f"GDPR, and DISHA healthcare data retention standards. Unauthorized alteration voids checksum verification.</font>",
                 normal
             ),
             Paragraph(
@@ -1349,13 +1359,18 @@ async def export_master_pdf(
 
     doc.build(story)
     pdf_bytes = buffer.getvalue()
+    pdf_checksum = hashlib.sha256(pdf_bytes).hexdigest()
+    pdf_digest_b64 = base64.b64encode(hashlib.sha256(pdf_bytes).digest()).decode("ascii")
     filename = f"pillsync_master_system_dossier_{datetime.now().strftime('%Y%m%d')}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
-            "Access-Control-Expose-Headers": "Content-Disposition",
+            "Access-Control-Expose-Headers": "Content-Disposition, X-Checksum-SHA256, Content-Digest, Digest",
+            "X-Checksum-SHA256": pdf_checksum,
+            "Content-Digest": f"sha-256=:{pdf_digest_b64}:",
+            "Digest": f"SHA-256={pdf_digest_b64}",
         },
     )
 
@@ -1619,7 +1634,7 @@ async def _fetch_caregiver_patients_dataset(
     patient_id_filter: Optional[uuid.UUID] = None,
 ) -> List[Dict[str, Any]]:
     """Fetch assigned patients, their medicines, and their schedules."""
-    is_caregiver = caregiver.role == UserRole.CAREGIVER or str(caregiver.role).lower() == "caregiver"
+    is_caregiver = caregiver.role == UserRole.CAREGIVER or caregiver.role.lower() == "caregiver"
 
     if is_caregiver:
         linked_subquery = select(caregiver_patients.c.patient_id).where(
@@ -1636,15 +1651,91 @@ async def _fetch_caregiver_patients_dataset(
         result = await db.execute(patient_query)
         patients = list(result.scalars().all())
 
-        # Fallback to active patients if newly created demo caregiver has no assignments
+        # Fallback to curated sample demo dataset if newly registered caregiver has zero assignments
         if not patients and not patient_id_filter:
-            res_all = await db.execute(
-                select(User).where(
-                    User.role == UserRole.PATIENT,
-                    User.is_active == True,
-                ).limit(10)
-            )
-            patients = list(res_all.scalars().all())
+            return [
+                {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "username": "robert_chen_demo",
+                    "full_name": "Robert Chen (Sample Patient)",
+                    "email": "robert.chen.demo@pillsync.health",
+                    "medicines": [
+                        {
+                            "name": "Metformin",
+                            "category": "Diabetes",
+                            "dosage": "500mg",
+                            "current_stock": 45,
+                            "initial_quantity": 60,
+                            "daily_frequency": 2,
+                            "days_left": 22.5,
+                            "notes": "Take with meals",
+                            "created_at": "2026-01-01 08:00",
+                        },
+                        {
+                            "name": "Lisinopril",
+                            "category": "Blood Pressure",
+                            "dosage": "10mg",
+                            "current_stock": 28,
+                            "initial_quantity": 30,
+                            "daily_frequency": 1,
+                            "days_left": 28.0,
+                            "notes": "Take morning with water",
+                            "created_at": "2026-01-01 08:00",
+                        },
+                    ],
+                    "schedules": [
+                        {
+                            "medicine_name": "Metformin",
+                            "dose_label": "Morning",
+                            "time": "08:00:00",
+                            "day_of_week": "Daily",
+                            "is_active": True,
+                        },
+                        {
+                            "medicine_name": "Lisinopril",
+                            "dose_label": "Morning",
+                            "time": "09:00:00",
+                            "day_of_week": "Daily",
+                            "is_active": True,
+                        },
+                        {
+                            "medicine_name": "Metformin",
+                            "dose_label": "Evening",
+                            "time": "20:00:00",
+                            "day_of_week": "Daily",
+                            "is_active": True,
+                        },
+                    ],
+                },
+                {
+                    "id": "00000000-0000-4000-8000-000000000002",
+                    "username": "eleanor_vance_demo",
+                    "full_name": "Eleanor Vance (Sample Patient)",
+                    "email": "eleanor.vance.demo@pillsync.health",
+                    "medicines": [
+                        {
+                            "name": "Atorvastatin",
+                            "category": "Heart Medications",
+                            "dosage": "20mg",
+                            "current_stock": 14,
+                            "initial_quantity": 30,
+                            "daily_frequency": 1,
+                            "days_left": 14.0,
+                            "notes": "Evening bedtime dose",
+                            "created_at": "2026-01-01 08:00",
+                        },
+                    ],
+                    "schedules": [
+                        {
+                            "medicine_name": "Atorvastatin",
+                            "dose_label": "Night",
+                            "time": "21:00:00",
+                            "day_of_week": "Daily",
+                            "is_active": True,
+                        },
+                    ],
+                },
+            ]
     else:
         # Admin viewing caregiver export
         if patient_id_filter:
@@ -1971,15 +2062,18 @@ async def export_admin_all_csv(
     current_user: User = Depends(allow_admin),
 ):
     """Admin-only comprehensive platform export across all entities."""
+    import hashlib
+    import base64
+
     # 1. Fetch Early
-    u_res = await db.execute(select(User).order_by(User.role, User.created_at.desc()))
+    u_res = await db.execute(select(User).order_by(User.role.asc(), User.created_at.desc(), User.id.asc()))
     all_users = list(u_res.scalars().all())
 
-    m_res = await db.execute(select(Medicine).options(selectinload(Medicine.user)).order_by(Medicine.name))
+    m_res = await db.execute(select(Medicine).options(selectinload(Medicine.user)).order_by(Medicine.name.asc(), Medicine.id.asc()))
     all_meds = list(m_res.scalars().all())
 
     s_res = await db.execute(
-        select(Schedule).options(selectinload(Schedule.user), selectinload(Schedule.medicine)).order_by(Schedule.created_at.desc())
+        select(Schedule).options(selectinload(Schedule.user), selectinload(Schedule.medicine)).order_by(Schedule.created_at.desc(), Schedule.id.asc())
     )
     all_schedules = list(s_res.scalars().all())
 
@@ -2044,13 +2138,19 @@ async def export_admin_all_csv(
         ])
 
     csv_content = output.getvalue()
+    csv_bytes = csv_content.encode('utf-8')
+    csv_checksum = hashlib.sha256(csv_bytes).hexdigest()
+    csv_digest_b64 = base64.b64encode(hashlib.sha256(csv_bytes).digest()).decode("ascii")
     filename = f"pillsync_admin_master_database_{datetime.now().strftime('%Y%m%d')}.csv"
     return Response(
         content=csv_content,
         media_type="text/csv",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
-            "Access-Control-Expose-Headers": "Content-Disposition",
+            "Access-Control-Expose-Headers": "Content-Disposition, X-Checksum-SHA256, Content-Digest, Digest",
+            "X-Checksum-SHA256": csv_checksum,
+            "Content-Digest": f"sha-256=:{csv_digest_b64}:",
+            "Digest": f"SHA-256={csv_digest_b64}",
         },
     )
 

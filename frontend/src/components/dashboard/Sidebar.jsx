@@ -36,7 +36,7 @@ const NAV_ITEMS = {
   patient: [
     { href: '/dashboard/patient', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/medicines', label: 'My Medicines', icon: Pill },
-    { href: '/dashboard/patient#timeline', label: 'Schedule & Alarms', icon: Bell },
+    { href: '/schedules', label: 'Schedule & Alarms', icon: Bell },
     { href: '/adherence', label: 'Adherence', icon: BarChart3 },
     { href: '/refill', label: 'Refill Tracker', icon: Package },
     { href: '/interactions', label: 'AI Drug Safety', icon: Shield },
@@ -45,7 +45,7 @@ const NAV_ITEMS = {
   caregiver: [
     { href: '/dashboard/caregiver', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/medicines', label: 'Patient Medicines', icon: Pill },
-    { href: '/dashboard/caregiver', label: 'Schedules & Alarms', icon: Bell },
+    { href: '/schedules', label: 'Schedules & Alarms', icon: Bell },
     { href: '/adherence', label: 'Adherence Reports', icon: BarChart3 },
     { href: '/refill', label: 'Refill Tracker', icon: Package },
     { href: '/interactions', label: 'AI Drug Safety', icon: Shield },
@@ -67,13 +67,20 @@ export default function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [user, setUser] = useState(null);
+  const [currentHash, setCurrentHash] = useState('');
 
   useEffect(() => {
     try {
       const stored = localStorage.getItem('pillsync_user');
       if (stored) setUser(JSON.parse(stored));
     } catch {}
-  }, []);
+    if (typeof window !== 'undefined') {
+      setCurrentHash(window.location.hash);
+      const handleHash = () => setCurrentHash(window.location.hash);
+      window.addEventListener('hashchange', handleHash);
+      return () => window.removeEventListener('hashchange', handleHash);
+    }
+  }, [pathname]);
 
   // Determine effective role from stored user role or current path
   const userRole = (user?.role || '').toLowerCase();
@@ -95,7 +102,14 @@ export default function Sidebar() {
     .slice(0, 2);
 
   const isActive = (href) => {
+    if (href.includes('#')) {
+      const [baseHref, hash] = href.split('#');
+      return pathname === baseHref && currentHash === `#${hash}`;
+    }
     if (href === '/dashboard/patient' || href === '/dashboard/caregiver' || href === '/dashboard/admin') {
+      if (currentHash && pathname === href) {
+        return false;
+      }
       return pathname === href;
     }
     return pathname?.startsWith(href);
@@ -138,10 +152,23 @@ export default function Sidebar() {
         </div>
         {!collapsed && (
           <div className="min-w-0 flex-1">
-            <p className="text-caption font-semibold text-on-surface truncate">
-              {user?.full_name || user?.name || (effectiveRole === 'admin' ? 'Admin User' : 'User')}
-            </p>
-            <p className="text-[11px] text-on-surface-variant truncate">{user?.email || ''}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-caption font-semibold text-on-surface truncate">
+                {user?.full_name || user?.name || (effectiveRole === 'admin' ? 'Admin User' : 'Caregiver')}
+              </p>
+              {effectiveRole === 'caregiver' && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-secondary/15 text-secondary border border-secondary/25">
+                  Pro
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-on-surface-variant truncate">{user?.email || 'Active Session'}</p>
+            {effectiveRole === 'caregiver' && (
+              <div className="flex items-center gap-1.5 mt-1 text-[10px] text-emerald-600 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>Monitoring: Active Ward</span>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -157,8 +184,8 @@ export default function Sidebar() {
               onClick={() => setMobileOpen(false)}
               className={`flex items-center min-h-[44px] ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
                 ${active
-                  ? 'bg-primary/12 text-primary shadow-sm'
-                  : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
+                  ? 'bg-primary/15 text-primary shadow-sm border border-primary/20 backdrop-blur-sm font-semibold'
+                  : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface border border-transparent'
                 }`}
               title={collapsed ? label : undefined}
             >

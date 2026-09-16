@@ -103,6 +103,8 @@ const PatientRosterCard = React.memo(function PatientRosterCard({
     lastDoseStatus = 'pending',
     image,
     nextMedication,
+    phone,
+    is_demo,
   } = patient ?? {};
 
   // Memoized computations
@@ -176,16 +178,28 @@ const PatientRosterCard = React.memo(function PatientRosterCard({
 
         {/* Name + Tag */}
         <div className="flex-1 min-w-0">
-          <h3 className="text-body-sm font-semibold text-on-surface truncate leading-tight">
-            {name}
-          </h3>
-          {tagText && (
-            <div className="flex items-center gap-xs mt-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <h3 className="text-body-sm font-semibold text-on-surface truncate leading-tight">
+              {name}
+            </h3>
+            {is_demo && (
+              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                Sample
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-xs mt-1 flex-wrap">
+            {tagText && (
               <Badge variant="default" size="sm">
                 {tagText}
               </Badge>
-            </div>
-          )}
+            )}
+            {phone && (
+              <span className="text-[11px] text-on-surface-variant font-mono">
+                {phone}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Compact Adherence Ring */}

@@ -128,6 +128,125 @@ class TestDrugDrugInteractions:
         )
         assert len(warnings) == 0
 
+    def test_lovastatin_and_simvastatin_specific_rules_and_pair_identity(self):
+        """Verify dedicated Lovastatin (Rule 6b) and Simvastatin (Rule 6a) critical warnings and dynamic pair identity."""
+        # 1. Lovastatin + Clarithromycin -> CRITICAL with pair identity
+        w1 = DrugInteractionService.check_interactions("Lovastatin 20mg", ["Clarithromycin 500mg"])
+        assert len(w1) >= 1
+        assert w1[0]["severity"] == "CRITICAL"
+        assert "Lovastatin 20mg + Clarithromycin 500mg" in w1[0]["title"]
+        assert "Azithromycin" in w1[0]["action"]
+
+        # 2. Lovastatin + Itraconazole -> CRITICAL, preserves pair identity, does NOT recommend Azithromycin for fungal azoles
+        w2 = DrugInteractionService.check_interactions("Lovastatin 40mg", ["Itraconazole 100mg"])
+        assert len(w2) >= 1
+        assert w2[0]["severity"] == "CRITICAL"
+        assert "Lovastatin 40mg + Itraconazole 100mg" in w2[0]["title"]
+        assert "azole" in w2[0]["action"].lower() and "suspend" in w2[0]["action"].lower()
+        assert "azithromycin" not in w2[0]["action"].lower()
+
+        # 3. Simvastatin + Ketoconazole -> CRITICAL, preserves pair identity, does NOT recommend Azithromycin for fungal azoles
+        w3 = DrugInteractionService.check_interactions("Simvastatin 20mg", ["Ketoconazole 200mg"])
+        assert len(w3) >= 1
+        assert w3[0]["severity"] == "CRITICAL"
+        assert "Simvastatin 20mg + Ketoconazole 200mg" in w3[0]["title"]
+        assert "azole" in w3[0]["action"].lower() and "suspend" in w3[0]["action"].lower()
+        assert "azithromycin" not in w3[0]["action"].lower()
+
+
+        # 4. Atorvastatin + Itraconazole -> MAJOR
+        w4 = DrugInteractionService.check_interactions("Atorvastatin 20mg", ["Itraconazole 100mg"])
+        assert len(w4) >= 1
+        assert w4[0]["severity"] == "MAJOR"
+        assert "Atorvastatin 20mg + Itraconazole 100mg" in w4[0]["title"]
+
+        # 5. Safe non-CYP3A4 statins (Rosuvastatin, Pravastatin)
+        w5 = DrugInteractionService.check_interactions("Rosuvastatin 10mg", ["Clarithromycin 500mg"])
+        assert len(w5) == 0
+        w6 = DrugInteractionService.check_interactions("Pravastatin 20mg", ["Itraconazole 100mg"])
+        assert len(w6) == 0
+
+        # 6. Posaconazole across all three statin rules
+        # 6a. Simvastatin + Posaconazole -> CRITICAL
+        w_posa_sim = DrugInteractionService.check_interactions("Simvastatin 20mg", ["Posaconazole 100mg"])
+        assert len(w_posa_sim) >= 1
+        assert w_posa_sim[0]["severity"] == "CRITICAL"
+        assert "Simvastatin 20mg + Posaconazole 100mg" in w_posa_sim[0]["title"]
+        assert "azole" in w_posa_sim[0]["action"].lower()
+
+        # 6b. Lovastatin + Posaconazole -> CRITICAL
+        w_posa_lova = DrugInteractionService.check_interactions("Lovastatin 40mg", ["Posaconazole 100mg"])
+        assert len(w_posa_lova) >= 1
+        assert w_posa_lova[0]["severity"] == "CRITICAL"
+        assert "Lovastatin 40mg + Posaconazole 100mg" in w_posa_lova[0]["title"]
+        assert "azole" in w_posa_lova[0]["action"].lower()
+
+        # 6c. Atorvastatin + Posaconazole / Noxafil / Posatral -> CRITICAL (not a dose-cap interaction)
+        w_posa_atorva = DrugInteractionService.check_interactions("Atorvastatin 20mg", ["Posaconazole 100mg"])
+        assert len(w_posa_atorva) >= 1
+        assert w_posa_atorva[0]["severity"] == "CRITICAL"
+        assert "Atorvastatin 20mg + Posaconazole 100mg" in w_posa_atorva[0]["title"]
+        assert "suspend" in w_posa_atorva[0]["action"].lower()
+        assert "cap dosage" not in w_posa_atorva[0]["action"].lower()
+
+        # Atorvastatin + Noxafil -> CRITICAL
+        w_noxa_atorva = DrugInteractionService.check_interactions("Atorvastatin 20mg", ["Noxafil 100mg"])
+        assert len(w_noxa_atorva) >= 1
+        assert w_noxa_atorva[0]["severity"] == "CRITICAL"
+        assert "cap dosage" not in w_noxa_atorva[0]["action"].lower()
+
+        # Atorvastatin + Posatral -> CRITICAL
+        w_posatral_atorva = DrugInteractionService.check_interactions("Atorvastatin 20mg", ["Posatral 100mg"])
+        assert len(w_posatral_atorva) >= 1
+        assert w_posatral_atorva[0]["severity"] == "CRITICAL"
+        assert "cap dosage" not in w_posatral_atorva[0]["action"].lower()
+
+        # Atorva brand alias resolution -> MAJOR with Clarithromycin, CRITICAL with Posaconazole
+        w_atorva_clar = DrugInteractionService.check_interactions("Atorva 20mg", ["Clarithromycin 500mg"])
+        assert len(w_atorva_clar) >= 1
+        assert w_atorva_clar[0]["severity"] == "MAJOR"
+
+        w_atorva_posa = DrugInteractionService.check_interactions("Atorva 20mg", ["Posaconazole 100mg"])
+        assert len(w_atorva_posa) >= 1
+        assert w_atorva_posa[0]["severity"] == "CRITICAL"
+
+        # 7. Brand alias resolution in clinical matching (Noxafil -> Posaconazole, Claribid -> Clarithromycin)
+        w_brand_statin = DrugInteractionService.check_interactions("Simvastatin 20mg", ["Noxafil 100mg"])
+        assert len(w_brand_statin) >= 1
+        assert w_brand_statin[0]["severity"] == "CRITICAL"
+
+        # 8. Tramadol + CYP3A4 Inhibitors (monitored-interaction guidance without absolute contraindication claim)
+        w_tram_clar = DrugInteractionService.check_interactions("Tramadol 50mg", ["Clarithromycin 500mg"])
+        assert len(w_tram_clar) >= 1
+        assert w_tram_clar[0]["severity"] == "CRITICAL"
+        assert "absolute contraindication" not in w_tram_clar[0]["action"].lower()
+        assert "monitor" in w_tram_clar[0]["action"].lower()
+        assert "seizure" in w_tram_clar[0]["action"].lower()
+        assert "serotonin" in w_tram_clar[0]["action"].lower()
+        assert "clearance" in w_tram_clar[0]["description"].lower()
+
+        w_tram_posa = DrugInteractionService.check_interactions("Tramadol 50mg", ["Posaconazole 100mg"])
+        assert len(w_tram_posa) >= 1
+        assert w_tram_posa[0]["severity"] == "CRITICAL"
+        assert "absolute contraindication" not in w_tram_posa[0]["action"].lower()
+        assert "monitor" in w_tram_posa[0]["action"].lower()
+        assert "seizure" in w_tram_posa[0]["action"].lower()
+        assert "serotonin" in w_tram_posa[0]["action"].lower()
+
+        w_tram_brand = DrugInteractionService.check_interactions("Tramadol 50mg", ["Noxafil 100mg"])
+        assert len(w_tram_brand) >= 1
+        assert w_tram_brand[0]["severity"] == "CRITICAL"
+        assert "absolute contraindication" not in w_tram_brand[0]["action"].lower()
+        assert "monitor" in w_tram_brand[0]["action"].lower()
+        assert "seizure" in w_tram_brand[0]["action"].lower()
+        assert "serotonin" in w_tram_brand[0]["action"].lower()
+
+        # Tramadol + SSRI (Rule 5) seizure & serotonin monitoring
+        w_tram_ssri = DrugInteractionService.check_interactions("Tramadol 50mg", ["Fluoxetine 20mg"])
+        assert len(w_tram_ssri) >= 1
+        assert "seizure" in w_tram_ssri[0]["action"].lower()
+        assert "serotonin" in w_tram_ssri[0]["action"].lower()
+
 
 class TestClinicalNLPParser:
     """Test NLP parser clinical exclusion and brand extraction."""

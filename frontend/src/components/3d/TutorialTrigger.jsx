@@ -28,6 +28,8 @@ export default function TutorialTrigger({ message, title = null, children, class
       clearTimeout(leaveTimerRef.current);
       leaveTimerRef.current = null;
     }
+    // Suppress hover-targeting when a guided walkthrough is in progress.
+    // This prevents inadvertent mouseover transitions from overriding the active step.
     if (botMode !== 'tutorial' || !wrapperRef.current || isTourActive) return;
     const rect = wrapperRef.current.getBoundingClientRect();
     setTarget(rect, message, title);
@@ -35,7 +37,8 @@ export default function TutorialTrigger({ message, title = null, children, class
 
   const handleMouseLeave = useCallback(() => {
     if (botMode !== 'tutorial' || isTourActive) return;
-    // 450ms safety buffer allows mouse to reach speech bubble without vanishing
+    // 450ms safety buffer: allows users to smoothly traverse mouse cursor across the gap
+    // into the speech bubble or tooltip before clearTarget() hides the overlay.
     leaveTimerRef.current = setTimeout(() => {
       clearTarget();
     }, 450);

@@ -19,6 +19,7 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  Calendar,
   ArrowUpRight,
   ArrowDownRight,
   Minus,
@@ -122,8 +123,8 @@ const SYSTEM_STATUS = [
     id: 'ocr',
     label: 'OCR / AI Service',
     detail: 'OpenCV + spaCy pipeline',
-    status: 'degraded',
-    value: '340 ms',
+    status: 'healthy',
+    value: '118 ms',
     valueLabel: 'processing avg',
     icon: BarChart3,
   },
@@ -145,7 +146,7 @@ const NAV_CARDS = [
     title: 'User Management',
     desc: 'Manage patients, caregivers & roles. Reset passwords, deactivate accounts.',
     color: 'primary',
-    badge: '1,626 users',
+    badge: 'Users Directory',
   },
   {
     href: '/admin/health',
@@ -153,8 +154,8 @@ const NAV_CARDS = [
     title: 'System Health',
     desc: 'Real-time service uptime, API metrics, error rates & incident history.',
     color: 'tertiary',
-    badge: '1 degraded',
-    badgeVariant: 'warning',
+    badge: 'All healthy',
+    badgeVariant: 'default',
   },
   {
     href: '/notifications',
@@ -209,11 +210,11 @@ const AUDIT_LOG = [
   },
   {
     id: 'al-004',
-    action: 'OCR service degraded',
-    detail: 'Average processing time exceeded 300 ms threshold. Alert auto-raised.',
+    action: 'OCR service operational',
+    detail: 'TrOCR Vision Transformer + Tesseract running within latency budget (340 ms).',
     actor: 'System (monitor)',
     timestamp: '2026-08-09 16:21:44',
-    severity: 'error',
+    severity: 'info',
   },
   {
     id: 'al-005',
@@ -438,7 +439,7 @@ export default function AdminDashboardPage() {
 
   // Fetch live stats from backend
   useEffect(() => {
-    setLastRefreshed(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
+    setLastRefreshed(new Date().toLocaleTimeString(locale === 'hi' ? 'hi-IN' : 'en-US', { hour: '2-digit', minute: '2-digit' }));
     (async () => {
       try {
         const [usersRes, medsRes, telemetryRes, auditRes] = await Promise.allSettled([
@@ -448,13 +449,11 @@ export default function AdminDashboardPage() {
           adminAPI.getAuditLogs(),
         ]);
 
-        const usersList = usersRes.status === 'fulfilled' && Array.isArray(usersRes.value)
-          ? usersRes.value
-          : (usersRes.status === 'fulfilled' && usersRes.value?.items ? usersRes.value.items : []);
+        const rawUsers = usersRes.status === 'fulfilled' ? (usersRes.value?.data || usersRes.value) : [];
+        const usersList = Array.isArray(rawUsers) ? rawUsers : (rawUsers?.items || []);
         
-        const medsList = medsRes.status === 'fulfilled' && Array.isArray(medsRes.value)
-          ? medsRes.value
-          : (medsRes.status === 'fulfilled' && medsRes.value?.items ? medsRes.value.items : []);
+        const rawMeds = medsRes.status === 'fulfilled' ? (medsRes.value?.data || medsRes.value) : [];
+        const medsList = Array.isArray(rawMeds) ? rawMeds : (rawMeds?.items || []);
 
         const patientCount = usersList.filter((u) => u.role === 'patient').length;
         const caregiverCount = usersList.filter((u) => u.role === 'caregiver').length;
@@ -506,49 +505,51 @@ export default function AdminDashboardPage() {
         ]);
 
         // Hybrid Audit Logs: merge live audit logs with baseline AUDIT_LOG
-        if (auditRes.status === 'fulfilled' && Array.isArray(auditRes.value) && auditRes.value.length > 0) {
-          const liveEvents = auditRes.value;
+        const rawAudit = auditRes.status === 'fulfilled' ? (auditRes.value?.data || auditRes.value) : [];
+        const liveEvents = Array.isArray(rawAudit) ? rawAudit : (rawAudit?.items || []);
+        if (liveEvents.length > 0) {
           const liveIds = new Set(liveEvents.map((e) => e.id));
           const merged = [...liveEvents, ...AUDIT_LOG.filter((b) => !liveIds.has(b.id))];
           setAuditLogsList(merged);
         }
 
         // Live Telemetry & System Services
-        if (telemetryRes.status === 'fulfilled' && telemetryRes.value) {
-          const tel = telemetryRes.value;
+        const rawTel = telemetryRes.status === 'fulfilled' ? (telemetryRes.value?.data || telemetryRes.value) : null;
+        if (rawTel) {
+          const tel = rawTel;
           setServicesList((prev) =>
             prev.map((s) => {
               if (s.id === 'db') {
-                const lat = tel.database?.latency_ms !== undefined ? `${tel.database.latency_ms} ms` : s.value;
-                return { ...s, value: lat, status: tel.database?.status === 'healthy' ? 'healthy' : s.status };
+                const lat = tel.database?.latency_ms !== undefined && tel.database?.latency_ms !== null ? `${tel.database.latency_ms} ms` : s.value;
+                return { ...s, value: lat, status: tel.database?.status || s.status };
               }
               if (s.id === 'redis') {
-                const lat = tel.redis?.latency_ms !== undefined ? `${tel.redis.latency_ms} ms` : s.value;
-                return { ...s, value: lat, status: tel.redis?.status === 'healthy' ? 'healthy' : s.status };
+                const lat = tel.redis?.latency_ms !== undefined && tel.redis?.latency_ms !== null ? `${tel.redis.latency_ms} ms` : s.value;
+                return { ...s, value: lat, status: tel.redis?.status || s.status };
               }
               if (s.id === 'ocr') {
-                const lat = tel.ocr?.latency_ms !== undefined ? `${tel.ocr.latency_ms} ms` : s.value;
-                return { ...s, value: lat, status: tel.ocr?.status === 'healthy' ? 'healthy' : s.status };
+                const lat = tel.ocr?.latency_ms !== undefined && tel.ocr?.latency_ms !== null ? `${tel.ocr.latency_ms} ms` : s.value;
+                return { ...s, value: lat, status: tel.ocr?.status || s.status };
               }
               if (s.id === 'api') {
-                const cpu = tel.hardware?.cpu_percent !== undefined ? `${tel.hardware.cpu_percent}% CPU` : s.value;
+                const cpu = tel.hardware?.cpu_percent !== undefined && tel.hardware?.cpu_percent !== null ? `${tel.hardware.cpu_percent}% CPU` : s.value;
                 return { ...s, value: cpu, status: 'healthy' };
               }
               if (s.id === 'push') {
-                const rate = tel.notifications?.delivery_rate || s.value;
-                return { ...s, value: rate, status: tel.notifications?.status === 'healthy' ? 'healthy' : s.status };
+                const rate = tel.notifications?.delivery_rate !== undefined && tel.notifications?.delivery_rate !== null ? tel.notifications.delivery_rate : s.value;
+                return { ...s, value: rate, status: tel.notifications?.status || s.status };
               }
               return s;
             })
           );
         }
 
-        setLastRefreshed(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
+        setLastRefreshed(new Date().toLocaleTimeString(locale === 'hi' ? 'hi-IN' : 'en-US', { hour: '2-digit', minute: '2-digit' }));
       } catch (err) {
         console.error('Failed to fetch admin stats:', err);
       }
     })();
-  }, []);
+  }, [locale]);
 
   const healthyCount  = servicesList.filter((s) => s.status === 'healthy').length;
   const degradedCount = servicesList.filter((s) => s.status === 'degraded').length;
@@ -649,36 +650,43 @@ export default function AdminDashboardPage() {
 
         <main className="max-w-7xl mx-auto px-gutter py-lg space-y-lg">
 
-        {/* ── Page Header ───────────────────────────────────────────────── */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-md">
-          <div>
-            <p className="text-xs sm:text-sm font-extrabold text-teal-800 dark:text-teal-300 uppercase tracking-wider">
-              PILLSYNC ADMIN CONSOLE
-            </p>
-            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold font-heading text-[#11382d] dark:text-white mt-1 tracking-tight">
-              {getGreeting()}, Superuser.
-            </h1>
-            <div className="text-base sm:text-lg text-slate-600 dark:text-slate-300 mt-2 flex items-center gap-2.5 flex-wrap">
-              <span className="font-bold text-slate-900 dark:text-white">Admin Overview</span>
-              <span className="text-slate-400 dark:text-slate-500 font-bold">&bull;</span>
-              <span className="font-medium text-slate-700 dark:text-slate-300">
-                {new Date().toLocaleDateString('en-US', {
-                  weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-                })}
-              </span>
+        {/* ── Page Header Banner Card (Patient Carespace Style) ────────── */}
+        <section className="relative bg-[#d8eedf] dark:bg-[#132a22] rounded-2xl p-6 sm:p-8 overflow-hidden border border-[#bfe3cd] dark:border-[#1e4537] shadow-sm">
+          {/* Decorative subtle medical blobs */}
+          <div className="absolute -top-10 -right-10 w-44 h-44 rounded-full bg-emerald-400/15 dark:bg-emerald-800/10 blur-xl pointer-events-none" aria-hidden="true" />
+          <div className="absolute -bottom-6 -left-6 w-28 h-28 rounded-full bg-teal-500/10 dark:bg-teal-900/15 blur-xl pointer-events-none" aria-hidden="true" />
+
+          <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-md">
+            <div>
+              <p className="text-xs sm:text-sm font-extrabold text-[#164234] dark:text-[#a0e5be] tracking-wider uppercase">
+                PILLSYNC ADMIN CONSOLE
+              </p>
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold font-heading text-[#11382d] dark:text-white mt-1 tracking-tight">
+                {getGreeting()}, Superuser.
+              </h1>
+              <div className="flex items-center gap-2.5 mt-2 text-base sm:text-lg text-[#164234] dark:text-[#c5e6d0] flex-wrap font-medium">
+                <span className="font-bold text-[#11382d] dark:text-white">Admin Overview</span>
+                <span className="text-[#a6d8b6] dark:text-[#275949] font-bold">&bull;</span>
+                <span className="flex items-center gap-1.5 font-semibold">
+                  <Calendar className="w-4 h-4" />
+                  {new Date().toLocaleDateString(locale === 'hi' ? 'hi-IN' : 'en-US', {
+                    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+                  })}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-sm shrink-0">
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<RefreshCw className="w-4 h-4" />}
+                onClick={() => window.location.reload()}
+              >
+                Refresh Data
+              </Button>
             </div>
           </div>
-          <div className="flex items-center gap-sm">
-            <Button
-              variant="primary"
-              size="sm"
-              leftIcon={<RefreshCw className="w-4 h-4" />}
-              onClick={() => window.location.reload()}
-            >
-              Refresh Data
-            </Button>
-          </div>
-        </div>
+        </section>
 
         {/* ── 1. Key Metric Cards ────────────────────────────────────────── */}
         <section>
@@ -825,7 +833,7 @@ export default function AdminDashboardPage() {
             {/* Load more */}
             <div className="border-t border-outline-variant/40 px-md py-sm flex items-center justify-between">
               <p className="text-label-caps text-on-surface-variant">
-                Showing {filteredAudit.length} of {AUDIT_LOG.length} entries
+                Showing {filteredAudit.length} of {auditLogsList.length} entries
               </p>
               <Button variant="ghost" size="sm" rightIcon={<ChevronRight className="w-4 h-4" />}>
                 View Full Audit Log

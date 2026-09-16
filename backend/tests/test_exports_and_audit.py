@@ -137,6 +137,23 @@ async def test_role_scoped_exports_and_audit_logs():
         assert "text/csv" in adm_csv.headers["content-type"]
         assert "MASTER USER REGISTRY" in adm_csv.text
         assert "User ID,Username,Email" in adm_csv.text
+        assert "x-checksum-sha256" in adm_csv.headers
+        assert "content-digest" in adm_csv.headers
+        assert adm_csv.headers["content-digest"].startswith("sha-256=:")
+        assert "digest" in adm_csv.headers
+
+        # 4b. Admin master PDF with canonicalized checksum
+        adm_pdf = await client.get(
+            "/api/v1/export/master/pdf",
+            headers={"Authorization": f"Bearer {adm_token}"},
+        )
+        assert adm_pdf.status_code == 200
+        assert "application/pdf" in adm_pdf.headers["content-type"]
+        assert "x-checksum-sha256" in adm_pdf.headers
+        assert "content-digest" in adm_pdf.headers
+        assert adm_pdf.headers["content-digest"].startswith("sha-256=:")
+        assert "digest" in adm_pdf.headers
+
 
         # 5. Live Admin Audit Logs
         audit_res = await client.get(

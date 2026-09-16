@@ -47,12 +47,19 @@ async def save_ocr_result(
     db = get_mongo_db()
     collection = db[COLLECTION_OCR_RESULTS]
 
+    # Sanitize and strictly type parsed_data to avoid MongoDB schema drift
+    sanitized_parsed_data = {}
+    if parsed_data and isinstance(parsed_data, dict):
+        for k, v in parsed_data.items():
+            if isinstance(v, (str, int, float, bool, list, dict)) or v is None:
+                sanitized_parsed_data[str(k)] = v
+
     document = {
         "user_id": str(user_id),
-        "filename": filename,
-        "raw_text": raw_text,
-        "confidence_score": confidence_score,
-        "parsed_data": parsed_data or {},
+        "filename": str(filename or "unnamed_scan"),
+        "raw_text": str(raw_text or ""),
+        "confidence_score": float(confidence_score or 0.0),
+        "parsed_data": sanitized_parsed_data,
         "created_at": datetime.now(timezone.utc),
     }
 

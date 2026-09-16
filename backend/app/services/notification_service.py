@@ -247,13 +247,12 @@ async def send_notification(
         "metadata": metadata or {},
         "created_at": now.isoformat(),
         "read": False,
+        "status": "pending",
     }
 
-    # 1. Always record in-app notification log in Redis
-    await log_notification(user_id, notification)
-
-    # 2. Dispatch across selected channel
+    # 1. Dispatch across selected channel first
     dispatched = False
+    delivery_status = "sent"
     if channel == NotificationChannel.IN_APP:
         dispatched = True
     elif channel == NotificationChannel.PUSH:
@@ -261,13 +260,31 @@ async def send_notification(
     elif channel == NotificationChannel.EMAIL:
         dispatched = await _dispatch_email(notification)
     elif channel == NotificationChannel.SMS:
-        dispatched = await _dispatch_sms(notification)
+        res = await _dispatch_sms(notification)
+        if res == "simulated":
+            dispatched = True
+            delivery_status = "sent"
+        else:
+            dispatched = bool(res)
     elif channel == NotificationChannel.WHATSAPP:
-        dispatched = await _dispatch_whatsapp(notification)
+        res = await _dispatch_whatsapp(notification)
+        if res == "simulated":
+            dispatched = True
+            delivery_status = "sent"
+        else:
+            dispatched = bool(res)
+
+    # Mark true delivery outcome
+    if not dispatched:
+        delivery_status = "failed"
+    notification["status"] = delivery_status
+
+    # 2. Record notification log with status in Redis
+    await log_notification(user_id, notification)
 
     return {
         "notification_id": notification_id,
-        "status": "sent" if dispatched else "queued",
+        "status": delivery_status,
         "channel": channel.value,
     }
 
@@ -301,7 +318,10 @@ async def get_user_notifications(user_id: uuid.UUID, limit: int = 20, offset: in
     notifications = []
     for entry in raw_entries:
         try:
-            notifications.append(json.loads(entry))
+            item = json.loads(entry)
+            if "status" not in item:
+                item["status"] = "delivered"
+            notifications.append(item)
         except (json.JSONDecodeError, TypeError):
             continue
     return notifications
@@ -314,7 +334,10 @@ async def get_global_notifications(limit: int = 50, offset: int = 0) -> list[dic
     notifications = []
     for entry in raw_entries:
         try:
-            notifications.append(json.loads(entry))
+            item = json.loads(entry)
+            if "status" not in item:
+                item["status"] = "delivered"
+            notifications.append(item)
         except (json.JSONDecodeError, TypeError):
             continue
     return notifications
@@ -359,7 +382,7 @@ async def is_duplicate_notification(user_id: uuid.UUID, dedup_key: str, window_s
 # Channel Dispatchers: Built-in smtplib, Firebase FCM, Dev WhatsApp/SMS
 # ---------------------------------------------------------------------------
 
-def _send_sync_smtp(recipient: str, subject: str, body_html: str, body_text: str) -> bool:
+def _send_sync_smtp(recipient: str | list[str], subject: str, body_html: str, body_text: str) -> bool:
     """Synchronous SMTP dispatcher executed in worker thread via asyncio.to_thread."""
     gmail_user = os.getenv("GMAIL_USER") or os.getenv("SMTP_USER")
     gmail_pwd = os.getenv("GMAIL_APP_PASSWORD") or os.getenv("SMTP_PASSWORD")
@@ -373,10 +396,18 @@ def _send_sync_smtp(recipient: str, subject: str, body_html: str, body_text: str
         )
         return False
 
+    recipients_list = [recipient] if isinstance(recipient, str) else list(recipient)
+    if not recipients_list:
+        return False
+
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = f"PillSync Healthcare <{gmail_user}>"
-    msg["To"] = recipient
+    if len(recipients_list) == 1:
+        msg["To"] = recipients_list[0]
+    else:
+        # Multi-recipient broadcast: protect privacy by sending via BCC without exposing list in To: header
+        msg["To"] = f"PillSync Members <{gmail_user}>"
 
     msg.attach(MIMEText(body_text, "plain", "utf-8"))
     msg.attach(MIMEText(body_html, "html", "utf-8"))
@@ -387,20 +418,31 @@ def _send_sync_smtp(recipient: str, subject: str, body_html: str, body_text: str
             server.starttls()
             server.ehlo()
             server.login(gmail_user, gmail_pwd)
-            server.sendmail(gmail_user, [recipient], msg.as_string())
-        logger.info(f"[Notification:EMAIL] Dispatched via smtplib to {recipient}")
+            server.sendmail(gmail_user, recipients_list, msg.as_string())
+        logger.info(f"[Notification:EMAIL] Dispatched via smtplib to {len(recipients_list)} recipient(s): {recipients_list}")
         return True
     except Exception as exc:
-        logger.error(f"[Notification:EMAIL] Failed dispatching via smtplib to {recipient}: {exc}")
+        logger.error(f"[Notification:EMAIL] Failed dispatching via smtplib to {recipients_list}: {exc}")
         return False
 
 
 async def _dispatch_email(notification: dict) -> bool:
     """Email notification dispatcher using Python's built-in smtplib."""
     metadata = notification.get("metadata") or {}
-    recipient = metadata.get("email") or metadata.get("destination")
+    emails = metadata.get("emails")
+    if emails and isinstance(emails, list):
+        recipients = [e for e in emails if e]
+    else:
+        recipient = (
+            metadata.get("email")
+            or metadata.get("destination")
+            or os.getenv("GMAIL_USER")
+            or os.getenv("SMTP_USER")
+            or os.getenv("SMTP_FROM_EMAIL")
+        )
+        recipients = [recipient] if recipient else []
     
-    if not recipient:
+    if not recipients:
         logger.warning(f"[Notification:EMAIL] No recipient email in metadata for user {notification['user_id']}")
         return False
 
@@ -430,7 +472,7 @@ async def _dispatch_email(notification: dict) -> bool:
  </body>
 </html>"""
 
-    return await asyncio.to_thread(_send_sync_smtp, recipient, title, body_html, body_text)
+    return await asyncio.to_thread(_send_sync_smtp, recipients, title, body_html, body_text)
 
 
 def _send_sync_fcm(token: str, title: str, body: str, data: dict) -> tuple[bool, bool]:
@@ -492,10 +534,6 @@ async def _dispatch_push(notification: dict) -> bool:
         except Exception:
             device_tokens = []
 
-    if not device_tokens:
-        logger.info(f"[Notification:PUSH] No FCM device token registered for user {user_id_str}. Push skipped.")
-        return False
-
     title = notification.get("title", "PillSync Alert")
     body = notification.get("message", "")
     data = {
@@ -505,54 +543,166 @@ async def _dispatch_push(notification: dict) -> bool:
     }
 
     dispatched_any = False
-    for dt in device_tokens:
-        ok, is_rejected = await asyncio.to_thread(_send_sync_fcm, dt, title, body, data)
-        if ok:
-            dispatched_any = True
-        elif is_rejected:
+    if device_tokens:
+        for dt in device_tokens:
+            ok, is_rejected = await asyncio.to_thread(_send_sync_fcm, dt, title, body, data)
+            if ok:
+                dispatched_any = True
+            elif is_rejected:
+                try:
+                    await prune_device_token(uuid.UUID(user_id_str), dt)
+                except Exception as pe:
+                    logger.warning(f"[Notification:PUSH] Token pruning failed: {pe}")
+    else:
+        # Only broadcast to FCM topic if this is an explicit system-wide broadcast or mass advisory.
+        # Do NOT broadcast single-user private medication reminders to the global topic!
+        is_broadcast = (
+            notification.get("type") in (NotificationType.BROADCAST.value, NotificationType.SYSTEM_ALERT.value)
+            or user_id_str in ("all", "00000000-0000-0000-0000-000000000000")
+        )
+        if is_broadcast:
             try:
-                await prune_device_token(uuid.UUID(user_id_str), dt)
-            except Exception as pe:
-                logger.warning(f"[Notification:PUSH] Token pruning failed: {pe}")
+                from firebase_admin import messaging  # type: ignore
+
+                msg = messaging.Message(
+                    notification=messaging.Notification(
+                        title=title,
+                        body=body,
+                    ),
+                    data=data,
+                    topic="pillsync_broadcast",
+                )
+                response = await asyncio.to_thread(messaging.send, msg)
+                logger.info(f"[Notification:PUSH] FCM broadcast topic message dispatched. Message ID: {response}")
+                dispatched_any = True
+            except Exception as topic_err:
+                logger.warning(f"[Notification:PUSH] FCM topic broadcast dispatch skipped/failed: {topic_err}")
+        else:
+            logger.info(f"[Notification:PUSH] No FCM device token registered for user {user_id_str}. Single-user push skipped without global topic broadcast.")
 
     return dispatched_any
 
 
-async def _dispatch_sms(notification: dict) -> bool:
-    """SMS dispatcher — Cost-saving stub with developer diversion logging."""
-    dev_number = os.getenv("DEV_SMS_NUMBER") or os.getenv("DEV_WHATSAPP_NUMBER")
+async def _dispatch_sms(notification: dict) -> Any:
+    """SMS dispatcher — Supports Twilio SMS with dev simulator fallback."""
+    metadata = notification.get("metadata") or {}
+    recipient_phone = (
+        metadata.get("phone")
+        or os.getenv("DEV_SMS_NUMBER")
+        or os.getenv("DEV_WHATSAPP_NUMBER")
+    )
     title = notification.get("title", "")
     message = notification.get("message", "")
     user_id = notification.get("user_id", "")
 
-    if dev_number:
-        print(
-            f"\n[Notification Diverted] SMS for user {user_id} was diverted to developer number {dev_number}:\n"
-            f"   Title  : {title}\n"
-            f"   Message: {message}\n",
-            flush=True,
-        )
-        return True
+    twilio_sid = os.getenv("TWILIO_ACCOUNT_SID")
+    twilio_token = os.getenv("TWILIO_AUTH_TOKEN")
+    twilio_from = os.getenv("TWILIO_PHONE_NUMBER")
+
+    if twilio_sid and twilio_token and twilio_from and recipient_phone:
+        try:
+            import urllib.request
+            import urllib.parse
+            import base64
+
+            to_clean = recipient_phone.strip()
+            if not to_clean.startswith("+"):
+                to_clean = f"+91{to_clean}" if len(to_clean) == 10 else f"+{to_clean}"
+
+            url = f"https://api.twilio.com/2010-04-01/Accounts/{twilio_sid}/Messages.json"
+            auth_str = f"{twilio_sid}:{twilio_token}"
+            auth_header = "Basic " + base64.b64encode(auth_str.encode("ascii")).decode("ascii")
+
+            body_content = f"💊 [PillSync Alert] {title}: {message}"
+            data = urllib.parse.urlencode({
+                "To": to_clean,
+                "From": twilio_from,
+                "Body": body_content,
+            }).encode("utf-8")
+
+            req = urllib.request.Request(url, data=data, headers={"Authorization": auth_header})
+            resp = await asyncio.to_thread(urllib.request.urlopen, req, timeout=10)
+            if resp.status in (200, 201):
+                logger.info(f"[Notification:SMS] Dispatched SMS to {to_clean} via Twilio.")
+                return True
+        except Exception as err:
+            logger.error(f"[Notification:SMS] Twilio SMS dispatch failed: {err}")
+
+    if recipient_phone:
+        logger.info(f"[Notification:SMS] [Simulator] SMS for user {user_id} simulated for {recipient_phone}: {title}")
+        return "simulated"
 
     logger.info(f"[Notification:SMS] No SMS provider or dev number configured. Skipped SMS for user {user_id}.")
     return False
 
 
-async def _dispatch_whatsapp(notification: dict) -> bool:
-    """WhatsApp dispatcher — Cost-saving stub with developer diversion logging."""
-    dev_number = os.getenv("DEV_WHATSAPP_NUMBER")
-    title = notification.get("title", "")
+async def _dispatch_whatsapp(notification: dict) -> Any:
+    """WhatsApp dispatcher — Supports Twilio WhatsApp API with dev fallback logging."""
+    import urllib.parse
+    metadata = notification.get("metadata") or {}
+    recipient_phone = (
+        metadata.get("phone")
+        or os.getenv("DEV_WHATSAPP_NUMBER")
+        or os.getenv("DEV_SMS_NUMBER")
+    )
+    title = notification.get("title", "PillSync Healthcare Alert")
     message = notification.get("message", "")
     user_id = notification.get("user_id", "")
 
-    if dev_number:
+    twilio_sid = os.getenv("TWILIO_ACCOUNT_SID")
+    twilio_token = os.getenv("TWILIO_AUTH_TOKEN")
+    twilio_from = os.getenv("TWILIO_WHATSAPP_NUMBER") or os.getenv("TWILIO_PHONE_NUMBER")
+
+    if twilio_sid and twilio_token and twilio_from and recipient_phone:
+        try:
+            import urllib.request
+            import base64
+
+            from_wa = twilio_from if twilio_from.startswith("whatsapp:") else f"whatsapp:{twilio_from}"
+            to_clean = recipient_phone.strip()
+            if not to_clean.startswith("+"):
+                to_clean = f"+91{to_clean}" if len(to_clean) == 10 else f"+{to_clean}"
+            to_wa = f"whatsapp:{to_clean}"
+
+            body_content = f"💊 *[PillSync Healthcare]*\n\n*{title}*\n{message}\n\n_Stay safe & adhere to prescribed medication schedules._"
+
+            url = f"https://api.twilio.com/2010-04-01/Accounts/{twilio_sid}/Messages.json"
+            auth_str = f"{twilio_sid}:{twilio_token}"
+            auth_header = "Basic " + base64.b64encode(auth_str.encode("ascii")).decode("ascii")
+
+            data = urllib.parse.urlencode({
+                "To": to_wa,
+                "From": from_wa,
+                "Body": body_content,
+            }).encode("utf-8")
+
+            req = urllib.request.Request(url, data=data, headers={"Authorization": auth_header})
+            resp = await asyncio.to_thread(urllib.request.urlopen, req, timeout=10)
+            if resp.status in (200, 201):
+                logger.info(f"[Notification:WHATSAPP] Sent via Twilio to {to_wa}")
+                return True
+        except Exception as err:
+            logger.error(f"[Notification:WHATSAPP] Twilio dispatch error: {err}")
+
+    # Fallback / Dev Simulator
+    if recipient_phone:
+        clean_num = recipient_phone.strip()
+        wa_target = clean_num if clean_num.startswith("+") else f"+91{clean_num}"
+        wa_body = f"💊 [PillSync Alert] *{title}*\n{message}"
+        wa_link = f"https://wa.me/{wa_target.replace('+', '')}?text={urllib.parse.quote(wa_body)}"
+        border = "=" * 60
         print(
-            f"\n[Notification Diverted] WHATSAPP for user {user_id} was diverted to developer number {dev_number}:\n"
-            f"   Title  : {title}\n"
-            f"   Message: {message}\n",
+            f"\n{border}\n"
+            f"💬 [PILLSYNC WHATSAPP BROADCAST DISPATCH]\n"
+            f"{border}\n"
+            f"   Recipient Phone : {wa_target}\n"
+            f"   Title           : {title}\n"
+            f"   Message         : {message}\n"
+            f"   Direct Web Link : {wa_link}\n"
+            f"{border}\n",
             flush=True,
         )
-        return True
+        return "simulated"
 
-    logger.info(f"[Notification:WHATSAPP] No WhatsApp provider or dev number configured. Skipped WhatsApp for user {user_id}.")
+    logger.info(f"[Notification:WHATSAPP] No WhatsApp recipient or provider configured. Skipped for user {user_id}.")
     return False

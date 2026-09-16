@@ -77,10 +77,14 @@ async def find_nearby_pharmacies(
     pharmacies: list[PharmacyResponse] = []
 
     try:
+        # Fast 3.5s HTTP client timeout: The public Overpass API (overpass-api.de) can experience
+        # upstream server saturation. Setting a 3.5s client timeout helps mitigate prolonged
+        # UI delays by failing fast and falling back to synthesized local entries when the external service lags.
         async with httpx.AsyncClient(timeout=3.5) as client:
             response = await client.post(
                 OVERPASS_API_URL,
                 data={"data": overpass_query},
+                headers={"User-Agent": "PillSync/1.0 (https://pillsync.health; contact@pillsync.health)"},
             )
             if response.status_code != 200:
                 print(f"[OSM Pharmacy] Overpass API returned {response.status_code}")
@@ -140,7 +144,11 @@ async def find_nearby_pharmacies(
 def _get_fallback_pharmacies(
     lat: float, lon: float
 ) -> list[PharmacyResponse]:
-    """Fallback verified local pharmacies if OpenStreetMap service is unreachable or rate-limited."""
+    """
+    Returns synthesized fallback pharmacy records modeled after common national chains,
+    anchored around the provided GPS coordinates using relative offsets.
+    Provides offline UI resilience when upstream OpenStreetMap is rate-limited or unreachable.
+    """
     return [
         PharmacyResponse(
             name="Apollo Pharmacy (24/7)",

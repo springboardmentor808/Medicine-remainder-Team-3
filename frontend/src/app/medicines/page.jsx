@@ -12,7 +12,7 @@ import ErrorMessage from '@/components/ui/ErrorMessage';
 import AddMedicineModal from '@/components/forms/AddMedicineModal';
 import EditMedicineModal from '@/components/forms/EditMedicineModal';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
-import { medicineAPI, exportAPI, patientAPI } from '@/lib/api';
+import { medicineAPI, exportAPI, patientAPI, caregiverAPI } from '@/lib/api';
 
 const CATEGORIES = [
   'All',
@@ -32,6 +32,11 @@ function MedicinesPageInner() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [toast, setToast] = useState(null);
+
+  // Caregiver and Patient Context
+  const [currentUser, setCurrentUser] = useState(null);
+  const [patientsList, setPatientsList] = useState([]);
+  const [selectedPatientId, setSelectedPatientId] = useState('all');
 
   // Filters & Views
   const [search, setSearch] = useState('');
@@ -55,11 +60,35 @@ function MedicinesPageInner() {
 
   const [isDemoData, setIsDemoData] = useState(false);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('pillsync_user');
+        if (stored) {
+          const u = JSON.parse(stored);
+          setCurrentUser(u);
+          if (u.role === 'caregiver') {
+            caregiverAPI.getPatients().then((res) => {
+              const list = Array.isArray(res) ? res : (res?.patients || res?.items || res?.data || []);
+              setPatientsList(Array.isArray(list) ? list : []);
+            }).catch(() => {});
+          }
+        }
+      } catch {}
+    }
+  }, []);
+
+  const isCaregiver = (currentUser?.role || '').toLowerCase() === 'caregiver';
+
   const fetchMedicines = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await medicineAPI.list();
+      const params = {};
+      if (selectedPatientId && selectedPatientId !== 'all') {
+        params.patient_id = selectedPatientId;
+      }
+      const res = await medicineAPI.list(params);
       // Backend returns array directly or wrapped in .medicines / .items / .data
       const items = Array.isArray(res) ? res : (res?.medicines || res?.items || res?.data || []);
       setMedicines(Array.isArray(items) ? items : []);
@@ -78,11 +107,20 @@ function MedicinesPageInner() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedPatientId]);
 
   useEffect(() => {
     fetchMedicines();
   }, [fetchMedicines]);
+
+  const getPatientName = (uid) => {
+    const sUid = String(uid);
+    if (sUid === '00000000-0000-4000-8000-000000000001') return 'Robert Chen';
+    if (sUid === '00000000-0000-4000-8000-000000000002') return 'Eleanor Vance';
+    const match = patientsList.find((p) => String(p.id) === sUid);
+    if (match) return match.full_name || match.username || 'Assigned Patient';
+    return 'Assigned Patient';
+  };
 
   // Auto-trigger scan when navigated with ?scan=1 (e.g. from dashboard "Scan Now")
   const searchParams = useSearchParams();
@@ -247,10 +285,14 @@ function MedicinesPageInner() {
               <span className="material-symbols-outlined text-[28px] text-[#164234] dark:text-[#a0e5be]" style={{ fontVariationSettings: "'FILL' 1" }}>
                 pill
               </span>
-              <h1 className="text-2xl sm:text-headline-md font-bold text-[#11382d] dark:text-white font-heading">Medication Cabinet</h1>
+              <h1 className="text-2xl sm:text-headline-md font-bold text-[#11382d] dark:text-white font-heading">
+                {isCaregiver ? 'Patient Medication Cabinet' : 'Medication Cabinet'}
+              </h1>
             </div>
             <p className="text-base text-[#285445] dark:text-[#c2e4d2] mt-2 font-medium">
-              Manage your prescriptions, dosage schedules, disease groupings, and inventory stock.
+              {isCaregiver
+                ? 'Monitor, audit, and manage prescription regimens across all assigned ward patients.'
+                : 'Manage your prescriptions, dosage schedules, disease groupings, and inventory stock.'}
             </p>
           </div>
 
@@ -334,6 +376,45 @@ function MedicinesPageInner() {
           </div>
         </Card>
       </section>
+
+      {/* Caregiver Patient Selector Bar */}
+      {isCaregiver && (
+        <section className="bg-surface-container-lowest p-3.5 rounded-xl border border-outline-variant/30 flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-on-surface pr-2">
+            <span className="material-symbols-outlined text-[18px] text-[#164234] dark:text-[#a0e5be]">groups</span>
+            <span>Filter by Patient:</span>
+          </div>
+          <button
+            onClick={() => setSelectedPatientId('all')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+              selectedPatientId === 'all'
+                ? 'bg-[#164234] text-white shadow-xs'
+                : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
+            }`}
+          >
+            All Ward Patients ({medList.length})
+          </button>
+          {patientsList.map((p) => {
+            const isSelected = String(selectedPatientId) === String(p.id);
+            return (
+              <button
+                key={p.id}
+                onClick={() => setSelectedPatientId(p.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                  isSelected
+                    ? 'bg-[#164234] text-white shadow-xs'
+                    : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
+                }`}
+              >
+                <span>👤 {p.full_name || p.username}</span>
+                {String(p.id).startsWith('00000000-0000-4000-8000-00000000000') && (
+                  <span className="px-1.5 py-0.2 rounded text-[9px] bg-white/20 uppercase font-bold">Sample</span>
+                )}
+              </button>
+            );
+          })}
+        </section>
+      )}
 
       {/* Search, Filter Bar & View Toggle */}
       <section className="bg-surface-container-lowest p-4 rounded-xl border border-outline-variant/30 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
@@ -423,6 +504,12 @@ function MedicinesPageInner() {
               <div className="space-y-2">
                 <div className="flex items-start justify-between gap-2">
                   <div>
+                    {isCaregiver && (
+                      <div className="inline-flex items-center gap-1 px-2 py-0.5 mb-1.5 rounded-full bg-[#c5e6d0] dark:bg-[#1b3d32] text-[#164234] dark:text-[#a0e5be] text-[11px] font-bold border border-[#bfe3cd] dark:border-white/10">
+                        <span className="material-symbols-outlined text-[13px]">person</span>
+                        <span>{getPatientName(med.user_id)}</span>
+                      </div>
+                    )}
                     <h3 className="text-title-lg font-bold text-on-surface">{med.name}</h3>
                     <p className="text-body-sm text-primary font-medium">{med.dosage}</p>
                   </div>
@@ -523,6 +610,11 @@ function MedicinesPageInner() {
                 <div>
                   <div className="flex items-center gap-2">
                     <h4 className="text-title-md font-bold text-on-surface">{med.name}</h4>
+                    {isCaregiver && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#c5e6d0] dark:bg-[#1b3d32] text-[#164234] dark:text-[#a0e5be] text-[10px] font-bold border border-[#bfe3cd] dark:border-white/10">
+                        👤 {getPatientName(med.user_id)}
+                      </span>
+                    )}
                     <Badge variant={med.current_stock <= 5 ? 'error' : 'success'}>
                       {med.current_stock} left
                     </Badge>
@@ -575,6 +667,11 @@ function MedicinesPageInner() {
                   <Card key={med.id} variant="filled" className="p-4 space-y-3">
                     <div className="flex items-start justify-between">
                       <div>
+                        {isCaregiver && (
+                          <div className="inline-flex items-center gap-1 px-2 py-0.5 mb-1 rounded-full bg-[#c5e6d0] dark:bg-[#1b3d32] text-[#164234] dark:text-[#a0e5be] text-[10px] font-bold border border-[#bfe3cd] dark:border-white/10">
+                            👤 {getPatientName(med.user_id)}
+                          </div>
+                        )}
                         <h4 className="text-title-md font-bold text-on-surface">{med.name}</h4>
                         <p className="text-caption text-primary font-medium">{med.dosage}</p>
                       </div>

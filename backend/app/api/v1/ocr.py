@@ -114,7 +114,10 @@ async def scan_prescription(
                 scan_id=None,
             )
 
-        # --- Structured Parsing / NLP ---
+        # --- Structured Parsing / NLP Engine Dispatch ---
+        # If Gemini Multimodal Vision succeeded, it populates high-fidelity parsed_data with accurate
+        # duration, frequency, dosage, and calculated initial quantities.
+        # Otherwise, the system gracefully falls back to deterministic NLP parsing on raw Tesseract text.
         medicines_list = ocr_result.get("medicines", [])
         if medicines_list and ocr_result.get("parsed_data"):
             primary_data = ocr_result.get("parsed_data", {})
@@ -141,6 +144,7 @@ async def scan_prescription(
                     else f"{final_instructions} | Generic: {generic_salt}"
                 )
         else:
+            # Fallback path: parse raw OCR text with regex/NLP heuristics
             parsed = parse_prescription_text(raw_text)
             verified_match = ocr_result.get("verified", False)
             matched_med = ocr_result.get("matched_medicine")

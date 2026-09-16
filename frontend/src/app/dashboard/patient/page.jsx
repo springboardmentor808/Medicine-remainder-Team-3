@@ -380,8 +380,8 @@ function PatientDashboardInner() {
 
         // 1. Process Schedule
         if (scheduleRes.status === 'fulfilled') {
-          const data = scheduleRes.value;
-          const list = Array.isArray(data) ? data : (data?.schedules || []);
+          const rawData = scheduleRes.value?.data !== undefined ? scheduleRes.value.data : scheduleRes.value;
+          const list = Array.isArray(rawData) ? rawData : (rawData?.schedules || rawData?.items || []);
           const slotCycle = ['morning', 'afternoon', 'evening'];
           const colorCycle = ['primary', 'tertiary', 'secondary'];
           const mapped = list.map((s, idx) => ({
@@ -439,8 +439,8 @@ function PatientDashboardInner() {
 
         // 2. Process Inventory
         if (inventoryRes.status === 'fulfilled') {
-          const res = inventoryRes.value;
-          const items = Array.isArray(res) ? res : (res?.items || res?.data || []);
+          const rawInv = inventoryRes.value?.data !== undefined ? inventoryRes.value.data : inventoryRes.value;
+          const items = Array.isArray(rawInv) ? rawInv : (rawInv?.items || rawInv?.medicines || []);
           if (Array.isArray(items) && items.length > 0) {
             const mapped = items.map((m, idx) => ({
               id: m.id || `inv-${idx}`,
@@ -459,7 +459,8 @@ function PatientDashboardInner() {
 
         // 3. Process Trends
         if (trendsRes.status === 'fulfilled') {
-          const trends = trendsRes.value;
+          const rawTrends = trendsRes.value?.data !== undefined ? trendsRes.value.data : trendsRes.value;
+          const trends = Array.isArray(rawTrends) ? rawTrends : (rawTrends?.trends || rawTrends?.items || []);
           if (Array.isArray(trends) && trends.length > 0) {
             const todayIso = new Date().toISOString().split('T')[0];
             const mapped = trends.map((t) => {
@@ -1021,6 +1022,9 @@ function PatientDashboardInner() {
             </section>
 
             {/* 3. AI Clinical Health & Drug Safety Hub (Transforming Left Column Empty Space) */}
+            {/* CodeRabbit Review Note: Layout Balance & Proactive Safety */}
+            {/* 1. Balances vertical height of the left column against the right sidebar when few prescriptions are scheduled. */}
+            {/* 2. Acts as tour Step 4 anchor (data-tour="drug-safety-hub") for the 3D Flying Bot guided walkthrough. */}
             <section data-tour="drug-safety-hub" className="p-5 rounded-2xl bg-gradient-to-br from-emerald-500/10 via-teal-500/5 to-transparent border border-emerald-500/30 shadow-sm space-y-4">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2">

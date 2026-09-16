@@ -61,18 +61,19 @@ async def get_adherence_summary(
     missed = sum(1 for l in logs if l.action == "Missed")
     snoozed = sum(1 for l in logs if l.action in ["Snooze", "Snoozed"])
 
-    pct = round((taken / total * 100.0), 2) if total > 0 else 0.0
-
-    if pct >= 90.0:
-        grade = "Excellent"
-    elif pct >= 75.0:
-        grade = "Good"
-    elif pct >= 60.0:
-        grade = "Fair"
-    elif total == 0:
+    if total == 0:
+        pct = None
         grade = "No Data"
     else:
-        grade = "Poor"
+        pct = round((taken / total * 100.0), 2)
+        if pct >= 90.0:
+            grade = "Excellent"
+        elif pct >= 75.0:
+            grade = "Good"
+        elif pct >= 60.0:
+            grade = "Fair"
+        else:
+            grade = "Poor"
 
     # Calculate consecutive streak (days where taken >= all scheduled doses for that day)
     streak_days = await _calculate_streak(db, user_id, account_date)

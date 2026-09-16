@@ -118,7 +118,7 @@ function ForgotPasswordContent() {
     setLoading(true);
     setServerError('');
     try {
-      await authAPI.verifyOtp({ email, otp: code });
+      await authAPI.verifyOtp({ email, otp: code, purpose: 'PASSWORD_RESET' });
       setStep(STEPS.RESET);
     } catch (err) {
       setServerError(err.message || 'Invalid OTP. Please try again.');

@@ -250,8 +250,10 @@ class ForgotPasswordRequest(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
-    """POST /api/v1/auth/reset-password — Complete password reset with single-use token."""
-    token: str = Field(..., min_length=20, description="Cryptographic single-use reset token")
+    """POST /api/v1/auth/reset-password — Complete password reset with single-use token or verified OTP."""
+    token: Optional[str] = Field(None, description="Cryptographic single-use reset token from email link")
+    email: Optional[EmailStr] = Field(None, description="User email address")
+    otp: Optional[str] = Field(None, description="6-digit verification code")
     new_password: str = Field(..., min_length=8, description="New password meeting entropy rules")
 
     @field_validator("new_password")

@@ -38,35 +38,82 @@ import {
   Globe2,
   X,
   ChevronDown,
+  AlertCircle,
 } from "lucide-react";
 
-// Clinically validated multi-institution pharmacological interaction database
+// Clinically validated multi-institution pharmacological interaction database with full variant matching
+// Aligned 1:1 with backend DDI_RULES and DRUG_CLASS_MAP
 const COMPREHENSIVE_INTERACTIONS = [
   {
     id: "ddi-1",
-    pair: ["Warfarin", "Aspirin"],
+    pair: ["Warfarin", "NSAIDs / Aspirin"],
+    groupA: ["warfarin", "coumadin", "anticoagulant"],
+    groupB: ["aspirin", "ibuprofen", "diclofenac", "aceclofenac", "naproxen", "combiflam", "brufen", "voveran", "ecosprin", "nsaid"],
     severity: "critical",
     title: "Severe Hemorrhage & Gastrointestinal Bleeding Risk",
-    mechanism: "Synergistic anticoagulant & antiplatelet effect. Aspirin inhibits platelet aggregation and erodes gastric mucosa while Warfarin suppresses vitamin K clotting factors.",
+    mechanism: "Synergistic anticoagulant & antiplatelet effect. NSAIDs inhibit platelet aggregation and erode gastric mucosa while Warfarin suppresses vitamin K clotting factors.",
     symptoms: "Unexplained bruising, melena (black tarry stools), hematuria, spontaneous nosebleeds, coffee-ground emesis.",
     recommendation: "Avoid concurrent use unless strictly mandated post-PCI under cardiologist supervision. Conduct frequent INR monitoring.",
     evidence: "FDA Black Box Warning · ACC/AHA Clinical Guidelines",
     category: "Hematology / Anticoagulation",
   },
   {
-    id: "ddi-2",
-    pair: ["Atorvastatin", "Clarithromycin"],
+    id: "ddi-2a",
+    pair: ["Simvastatin", "CYP3A4 Inhibitor"],
+    groupA: ["simvastatin", "zocor"],
+    groupB: ["clarithromycin", "erythromycin", "itraconazole", "ketoconazole", "posaconazole", "noxafil", "posatral", "claribid"],
     severity: "critical",
-    title: "Severe Rhabdomyolysis & Acute Renal Failure",
-    mechanism: "Clarithromycin is a potent intestinal and hepatic CYP3A4 inhibitor, escalating systemic Atorvastatin bioavailability up to 400% and triggering muscle tissue lysis.",
-    symptoms: "Severe diffuse myalgia, dark tea/cola-colored urine, profound fatigue, elevated serum creatine kinase (CK > 5x ULN).",
-    recommendation: "Temporarily suspend Atorvastatin during antibiotic regimen, or substitute antibiotic with Azithromycin (minimal CYP3A4 inhibition).",
-    evidence: "FDA MedWatch Alert · British National Formulary (BNF)",
+    title: "Fatal Rhabdomyolysis & Acute Renal Failure (Simvastatin + Strong CYP3A4 Inhibitor)",
+    mechanism: "Simvastatin relies almost entirely on CYP3A4 for clearance. Strong CYP3A4 inhibition elevates simvastatin exposure by up to 10-20 fold, precipitating massive acute skeletal muscle breakdown and myoglobinuric acute renal tubular necrosis.",
+    symptoms: "Severe diffuse myalgia, dark tea/cola-colored urine, profound fatigue, elevated serum creatine kinase (CK > 10x ULN).",
+    recommendation: "ABSOLUTE CONTRAINDICATION (FDA Contraindication). Avoid combination. For macrolide bacterial therapy, substitute with Azithromycin. For azole antifungal therapy, suspend Simvastatin for the duration of therapy or switch to a non-CYP3A4 statin (Rosuvastatin, Pravastatin).",
+    evidence: "FDA MedWatch Alert · British National Formulary (BNF) · ACC/AHA Cholesterol Guidelines",
+    category: "Cardiology / Antimicrobial",
+  },
+  {
+    id: "ddi-2-lovastatin",
+    pair: ["Lovastatin", "CYP3A4 Inhibitor"],
+    groupA: ["lovastatin", "mevacor", "altoprev"],
+    groupB: ["clarithromycin", "erythromycin", "itraconazole", "ketoconazole", "posaconazole", "noxafil", "posatral", "claribid"],
+    severity: "critical",
+    title: "Fatal Rhabdomyolysis & Acute Renal Failure (Lovastatin + Strong CYP3A4 Inhibitor)",
+    mechanism: "Lovastatin is a lactone prodrug extensively bioactivated and cleared via CYP3A4. Strong CYP3A4 inhibition elevates active lovastatin acid exposure up to 15-20 fold, causing acute skeletal muscle lysis, severe myalgia, and acute renal tubular necrosis.",
+    symptoms: "Severe diffuse muscle pain, muscle weakness, brown or dark cola urine, acute oliguria, marked CPK elevation.",
+    recommendation: "ABSOLUTE CONTRAINDICATION (FDA Contraindication). Avoid combination. For macrolide bacterial therapy, substitute with Azithromycin. For azole antifungal therapy, suspend Lovastatin or switch to a non-CYP3A4 statin (Rosuvastatin, Pravastatin).",
+    evidence: "FDA Drug Safety Communication · BNF · ACC/AHA Guidelines",
+    category: "Cardiology / Antimicrobial",
+  },
+  {
+    id: "ddi-2b",
+    pair: ["Atorvastatin", "CYP3A4 Inhibitor"],
+    groupA: ["atorvastatin", "atorva", "lipicure", "lipitor"],
+    groupB: ["clarithromycin", "erythromycin", "itraconazole", "ketoconazole", "claribid"],
+    severity: "major",
+    title: "Elevated Statin Exposure & Myopathy Risk (Atorvastatin + CYP3A4 Inhibitor)",
+    mechanism: "Atorvastatin undergoes significant CYP3A4 metabolism. Concomitant strong CYP3A4 inhibitors elevate Atorvastatin plasma concentrations by up to 400%, markedly elevating the incidence of severe myopathy, CPK elevation, and acute rhabdomyolysis.",
+    symptoms: "Muscle stiffness, localized tenderness, generalized muscle weakness, elevated serum CPK.",
+    recommendation: "Avoid combination where possible. Temporarily suspend Atorvastatin during antimicrobial therapy, or cap dosage at a maximum of 20mg daily under close supervision. If treating bacterial infection, consider Azithromycin; for fungal azole therapy, suspend Atorvastatin or switch to Rosuvastatin/Pravastatin.",
+    evidence: "FDA Drug Safety Communication · European Heart Journal",
+    category: "Cardiology / Antimicrobial",
+  },
+  {
+    id: "ddi-2c",
+    pair: ["Atorvastatin", "Posaconazole (Noxafil / Posatral)"],
+    groupA: ["atorvastatin", "atorva", "lipicure", "lipitor"],
+    groupB: ["posaconazole", "noxafil", "posatral"],
+    severity: "critical",
+    title: "Severe Statin Toxicity & Rhabdomyolysis Risk (Atorvastatin + Posaconazole / Noxafil / Posatral)",
+    mechanism: "Posaconazole (Noxafil, Posatral) potent CYP3A4 inhibition causes profound elevation of Atorvastatin plasma concentrations, drastically elevating the incidence of severe rhabdomyolysis and renal injury. This is a critical interaction and is not managed by dose capping.",
+    symptoms: "Severe diffuse muscle pain, muscle weakness, dark cola-colored urine, acute oliguria, marked CPK elevation.",
+    recommendation: "CRITICAL INTERACTION. Avoid combination. Temporarily suspend Atorvastatin for the duration of Posaconazole (Noxafil / Posatral) therapy, or switch to a non-CYP3A4 statin (Rosuvastatin, Pravastatin). Do not classify or manage as a dose-cap interaction.",
+    evidence: "FDA Prescribing Information · Clinical Pharmacology Guidelines",
     category: "Cardiology / Antimicrobial",
   },
   {
     id: "ddi-3",
     pair: ["Sildenafil", "Nitroglycerin"],
+    groupA: ["sildenafil", "tadalafil", "viagra", "cialis", "pde5"],
+    groupB: ["nitroglycerin", "nitrates", "isosorbide dinitrate", "isosorbide mononitrate", "sorbitrate", "monit"],
     severity: "critical",
     title: "Refractory Life-Threatening Hypotension & Circulatory Collapse",
     mechanism: "Co-administration causes exponential cyclic GMP accumulation via dual nitric oxide synthase potentiation, leading to profound systemic vasodilation.",
@@ -78,17 +125,21 @@ const COMPREHENSIVE_INTERACTIONS = [
   {
     id: "ddi-4",
     pair: ["Tramadol", "Fluoxetine"],
-    severity: "critical",
+    groupA: ["tramadol", "tramazac", "ultram"],
+    groupB: ["fluoxetine", "sertraline", "escitalopram", "paroxetine", "duloxetine", "ssri", "snri", "prozac", "zoloft", "cipralex"],
+    severity: "major",
     title: "Serotonin Syndrome & Seizure Threshold Reduction",
     mechanism: "Tramadol inhibits serotonin/norepinephrine reuptake; combined with SSRIs/SNRIs, it triggers toxic CNS serotonin overstimulation while lowering seizure thresholds.",
     symptoms: "Hyperreflexia, clonus, tremors, shivering, agitation, tachycardia, diaphoresis, hyperthermia (>38.5°C).",
-    recommendation: "Avoid concomitant use. If analgesia is required, use non-serotonergic agents like Paracetamol or carefully titrated opioids under neurological monitoring.",
+    recommendation: "Avoid concomitant use. If combination cannot be avoided, implement seizure and serotonin-syndrome monitoring (observe for tremors, hyperreflexia, clonus, and hyperthermia), reduce tramadol dosage, or switch to non-serotonergic analgesia.",
     evidence: "WHO Pharmacovigilance Advisory · DSM-5 Diagnostic Criteria",
     category: "Neurology / Pain Management",
   },
   {
     id: "ddi-5",
     pair: ["Metformin", "Contrast Dye"],
+    groupA: ["metformin", "glycomet", "cetapin", "glucophage"],
+    groupB: ["contrast dye", "iodinated contrast", "contrast media", "radiocontrast"],
     severity: "major",
     title: "Severe Lactic Acidosis Secondary to Renal Dysfunction",
     mechanism: "Iodinated radiocontrast can precipitate acute contrast-induced nephropathy, causing dramatic Metformin accumulation and fatal metabolic acidosis.",
@@ -100,31 +151,37 @@ const COMPREHENSIVE_INTERACTIONS = [
   {
     id: "ddi-6",
     pair: ["Lisinopril", "Potassium"],
+    groupA: ["lisinopril", "enalapril", "ramipril", "telmisartan", "losartan", "telma", "ace_inhibitor", "arb"],
+    groupB: ["potassium", "potassium chloride", "spironolactone", "aldactone"],
     severity: "major",
     title: "Dangerous Hyperkalemia & Cardiac Conduction Blocks",
-    mechanism: "ACE inhibitors suppress aldosterone, impairing renal potassium excretion. Supplemental potassium leads to rapid serum potassium elevation.",
+    mechanism: "ACE inhibitors and ARBs suppress aldosterone, impairing renal potassium excretion. Supplemental potassium or potassium-sparing diuretics cause rapid serum potassium elevation.",
     symptoms: "Cardiac palpitations, tall peaked T-waves on ECG, muscle parasthesia, ascending muscular weakness.",
-    recommendation: "Avoid potassium supplements or high-potassium salt substitutes without weekly electrolyte serum lab panels.",
+    recommendation: "Avoid potassium supplements or potassium-sparing diuretics without regular electrolyte serum lab panels.",
     evidence: "KDIGO Clinical Practice Guideline for Hypertension & Kidney",
     category: "Nephrology / Cardiology",
   },
   {
     id: "ddi-7",
     pair: ["Omeprazole", "Clopidogrel"],
+    groupA: ["omeprazole", "esomeprazole", "omez", "nexpro"],
+    groupB: ["clopidogrel", "plavix", "clopilet"],
     severity: "major",
     title: "Attenuated Antiplatelet Efficacy & Stent Thrombosis Risk",
-    mechanism: "Omeprazole competitively inhibits hepatic CYP2C19, preventing the metabolic bioactivation of Clopidogrel into its active thiol metabolite.",
+    mechanism: "Omeprazole and esomeprazole competitively inhibit hepatic CYP2C19, preventing the metabolic bioactivation of Clopidogrel into its active antiplatelet metabolite.",
     symptoms: "Subtherapeutic platelet inhibition, increased risk of ischemic stroke, myocardial re-infarction, or coronary stent clotting.",
-    recommendation: "Switch PPI from Omeprazole to Pantoprazole or Rabeprazole, which exhibit negligible CYP2C19 binding affinity.",
+    recommendation: "Switch PPI from Omeprazole/Esomeprazole to Pantoprazole or Rabeprazole, which exhibit negligible CYP2C19 binding affinity.",
     evidence: "FDA Drug Safety Communication · European Society of Cardiology",
     category: "Gastroenterology / Cardiology",
   },
   {
     id: "ddi-8",
     pair: ["Levothyroxine", "Calcium"],
+    groupA: ["levothyroxine", "thyronorm", "eltroxin", "thyroid"],
+    groupB: ["calcium", "shelcal", "calcium carbonate", "calcium citrate", "iron", "ferrous"],
     severity: "moderate",
     title: "Impaired Thyroid Hormone Bioavailability & GI Chelation",
-    mechanism: "Calcium carbonate binds directly to T4 thyroxine molecules in the acidic gastric environment, forming insoluble complexes and reducing absorption by ~30%.",
+    mechanism: "Calcium carbonate and polyvalent mineral supplements bind directly to T4 thyroxine in the acidic gastric lumen, forming insoluble complexes that reduce absorption.",
     symptoms: "Persistent hypothyroidism symptoms, unexplained weight gain, lethargy, elevated serum TSH levels despite compliant dosing.",
     recommendation: "Separate administration times by at least 4 hours (e.g. Levothyroxine upon waking, Calcium with lunch or dinner).",
     evidence: "American Thyroid Association (ATA) Guidelines",
@@ -133,20 +190,24 @@ const COMPREHENSIVE_INTERACTIONS = [
   {
     id: "ddi-9",
     pair: ["Ciprofloxacin", "Calcium"],
+    groupA: ["ciprofloxacin", "levofloxacin", "norfloxacin", "ofloxacin", "ciptox"],
+    groupB: ["calcium", "shelcal", "magnesium", "aluminum", "antacid"],
     severity: "moderate",
     title: "Fluoroquinolone Inactivation via Polyvalent Cation Chelation",
-    mechanism: "Divalent and trivalent cations (Calcium, Magnesium, Aluminum, Iron) chelate Ciprofloxacin in the gut lumen, rendering the antibiotic unabsorbable.",
+    mechanism: "Divalent and trivalent cations (Calcium, Magnesium, Aluminum, Iron) chelate fluoroquinolones in the gut lumen, rendering the antibiotic unabsorbable.",
     symptoms: "Failure of antibiotic therapy, persistent bacterial infection, development of antimicrobial resistance.",
-    recommendation: "Take Ciprofloxacin at least 2 hours before or 6 hours after dairy products, antacids, or mineral supplements.",
+    recommendation: "Take fluoroquinolone at least 2 hours before or 6 hours after dairy products, antacids, or mineral supplements.",
     evidence: "Clinical Pharmacokinetics Journal · IDSA Antimicrobial Protocols",
     category: "Infectious Disease / Nutrition",
   },
   {
     id: "ddi-10",
     pair: ["Metformin", "Glimepiride"],
+    groupA: ["metformin", "glycomet", "cetapin"],
+    groupB: ["glimepiride", "gliclazide", "glipizide", "amaryl", "sulfonylurea"],
     severity: "moderate",
     title: "Potentiated Hypoglycemic Response",
-    mechanism: "Dual insulin-sensitizing and secretagogue activity dramatically accelerates glucose uptake, precipitating acute blood glucose drops.",
+    mechanism: "Dual insulin-sensitizing and secretagogue activity accelerates glucose uptake, precipitating acute blood glucose drops.",
     symptoms: "Diaphoresis, tremors, cognitive clouding, tachycardia, hunger pangs, blood glucose < 70 mg/dL.",
     recommendation: "Educate patient on hypoglycemic signs. Maintain fast-acting oral glucose / juice readily accessible. Log daily fasting readings.",
     evidence: "ADA Standards of Medical Care in Diabetes",
@@ -155,6 +216,8 @@ const COMPREHENSIVE_INTERACTIONS = [
   {
     id: "ddi-11",
     pair: ["Methotrexate", "Ibuprofen"],
+    groupA: ["methotrexate"],
+    groupB: ["ibuprofen", "aspirin", "diclofenac", "naproxen", "nsaid"],
     severity: "critical",
     title: "Methotrexate Toxicity & Severe Bone Marrow Suppression",
     mechanism: "NSAIDs diminish renal blood flow via prostaglandin inhibition and competitively block renal tubular secretion of Methotrexate, precipitating pancytopenia.",
@@ -166,6 +229,8 @@ const COMPREHENSIVE_INTERACTIONS = [
   {
     id: "ddi-12",
     pair: ["Amlodipine", "Simvastatin"],
+    groupA: ["amlodipine", "stamlo", "amlopres"],
+    groupB: ["simvastatin", "zocor"],
     severity: "moderate",
     title: "Elevated Statin Plasma Exposure via CYP3A4 Competition",
     mechanism: "Amlodipine inhibits CYP3A4 metabolism of Simvastatin, increasing statin AUC by 1.5-fold and elevating myopathy risk.",
@@ -177,56 +242,57 @@ const COMPREHENSIVE_INTERACTIONS = [
   {
     id: "ddi-13",
     pair: ["Nitroglycerin", "Lisinopril"],
-    severity: "critical",
-    title: "Severe Hypotensive Collapse & Cerebral Hypoperfusion",
-    mechanism: "Dual systemic arterial & venous vasodilation. Nitroglycerin promotes cGMP-mediated venous pooling while Lisinopril blocks angiotensin-II vasoconstriction. Concurrent use precipitates precipitous blood pressure drops, reflex syncope, and hypoperfusion.",
-    symptoms: "Profound orthostatic dizziness, systolic BP < 85 mmHg, vertigo, syncope (fainting), blurred vision, cold extremities.",
-    recommendation: "Titrate doses with extreme caution under cardiology oversight. Advise patient to sit or recline when administering sublingual nitrates. Never stand up abruptly.",
-    evidence: "AHA/ACC Heart Failure & Angina Clinical Guidelines",
+    groupA: ["nitroglycerin", "nitrates", "isosorbide dinitrate", "isosorbide mononitrate", "sorbitrate", "monit"],
+    groupB: ["lisinopril", "enalapril", "ramipril", "telmisartan", "losartan", "telma", "ace_inhibitor", "arb"],
+    severity: "moderate",
+    title: "Additive Hypotension Risk (Nitrate + ACE Inhibitor)",
+    mechanism: "Concurrent administration of nitrates and ACE inhibitors can produce additive systemic vasodilation, resulting in postural hypotension or dizziness, particularly when initiating therapy or titrating doses. Concomitant use is common in ischemic heart disease and heart failure but requires routine blood pressure monitoring and slow postural transitions.",
+    symptoms: "Lightheadedness, orthostatic dizziness upon standing, mild systolic blood pressure drop.",
+    recommendation: "Monitor resting and standing blood pressure during dose adjustments. Counsel patient on gradual position changes to avoid orthostatic symptoms.",
+    evidence: "ACC/AHA Heart Failure Guidelines · BNF Cardiovascular Interactions",
     category: "Cardiovascular / Vasodilators & ACEi",
   },
   {
     id: "ddi-14",
-    pair: ["Clarithromycin", "Tramadol"],
+    pair: ["CYP3A4 Inhibitor", "Tramadol"],
+    groupA: ["clarithromycin", "erythromycin", "ketoconazole", "itraconazole", "posaconazole", "noxafil", "posatral", "claribid"],
+    groupB: ["tramadol", "tramazac", "ultram"],
     severity: "critical",
-    title: "Severe Tramadol Toxicity, CNS Depression & Respiratory Arrest",
-    mechanism: "Clarithromycin is a potent intestinal and hepatic CYP3A4 inhibitor. Inhibiting Tramadol's CYP3A4 elimination pathway leads to massive accumulation of active Tramadol in systemic circulation, precipitating life-threatening central nervous system depression and respiratory failure.",
+    title: "Severe Tramadol Toxicity & Respiratory Depression Risk",
+    mechanism: "Potent CYP3A4 inhibition severely impairs Tramadol hepatic clearance and metabolic elimination, causing dangerous systemic accumulation of active opioid compounds, profound central nervous system depression, and risk of life-threatening respiratory depression.",
     symptoms: "Shallow, labored breathing (<10 breaths/min), severe somnolence, stupor, pinpoint pupils, cold/clammy skin, seizure activity.",
-    recommendation: "ABSOLUTE CONTRAINDICATION. Avoid concurrent administration. If antibiotic is required, substitute with Azithromycin (minimal CYP3A4 inhibition). If analgesia required, switch to non-opioid.",
+    recommendation: "Monitored Interaction: Not an absolute contraindication. Closely monitor patient for signs of respiratory depression, excessive sedation, seizure activity, and serotonin syndrome (tremors, hyperreflexia, agitation) at frequent intervals. Consider reducing tramadol dosage and ensure opioid reversal agents (naloxone) are readily accessible if co-administration is necessary.",
     evidence: "FDA MedWatch Drug Safety Alert · CPIC Opioid Pharmacogenomics Guidelines",
     category: "Pain Management / Antimicrobial & Opioids",
   },
   {
     id: "ddi-15",
-    pair: ["Clarithromycin", "Nitroglycerin"],
+    pair: ["Azithromycin", "Ciprofloxacin"],
+    groupA: ["azithromycin", "zithromax", "azee"],
+    groupB: ["ciprofloxacin", "levofloxacin", "amiodarone", "domperidone", "ciptox", "levoquine"],
     severity: "major",
-    title: "Hemodynamic Instability & Cardiac Conduction Mismatch",
-    mechanism: "Macrolide antibiotics alter autonomic cardiovascular tone and hepatic CYP3A4 clearance dynamics, destabilizing nitrate-mediated vascular smooth muscle relaxation and inducing erratic hemodynamic swings.",
-    symptoms: "Facial flushing, severe throbbing headache, palpitations, sudden dizziness, fluctuating systolic pressures.",
-    recommendation: "Monitor blood pressure and pulse rate closely during concurrent therapy. Administer nitrate only in a seated position.",
-    evidence: "European Heart Journal · Clinical Pharmacokinetics Database",
-    category: "Cardiovascular / Antimicrobial",
-  },
-  {
-    id: "ddi-16",
-    pair: ["Calcium", "Lisinopril"],
-    severity: "moderate",
-    title: "Reduced ACE Inhibitor Absorption & Blood Pressure Rebound",
-    mechanism: "High doses of oral polyvalent calcium salts alter gastric pH and form insoluble chelates, reducing gastrointestinal bioavailability of Lisinopril by up to 25%.",
-    symptoms: "Suboptimal blood pressure control, persistent borderline hypertension despite compliance.",
-    recommendation: "Separate administration times by at least 2 hours (e.g. take Lisinopril in morning, Calcium supplement with lunch or dinner).",
-    evidence: "British Journal of Clinical Pharmacology · ESC Hypertension Guidelines",
-    category: "Hypertension / Mineral Supplements",
+    title: "Additive QT Prolongation & Torsades de Pointes",
+    mechanism: "Co-administration of multiple QT-prolonging agents exponentially increases the risk of delayed cardiac repolarization, ventricular arrhythmias, and sudden cardiac death.",
+    symptoms: "Palpitations, presyncope, dizziness, syncope, QT prolongation on 12-lead ECG.",
+    recommendation: "Avoid combination in patients with baseline prolonged QTc or structural heart disease. Monitor ECG if co-administration is unavoidable.",
+    evidence: "AHA/ACC Scientific Statement · CredibleMeds QT Registry",
+    category: "Cardiology / Antimicrobials",
   },
 ];
 
 // Curated Popular Clinical Presets & Quick Test Presets
 const CLINICAL_PRESETS = [
   {
-    label: "🚨 6-Drug High Risk",
-    description: "Nitroglycerin + Lisinopril + Tramadol + Clarithromycin + Calcium + Paracetamol",
-    drugs: ["Nitroglycerin", "Calcium", "Lisinopril", "Paracetamol", "Tramadol", "Clarithromycin"],
-    type: "danger",
+    label: "👤 Robert Chen (Monitored)",
+    description: "Metformin + Lisinopril + Atorvastatin (Ward Regimen)",
+    drugs: ["Metformin", "Lisinopril", "Atorvastatin"],
+    type: "info",
+  },
+  {
+    label: "👤 Eleanor Vance (Monitored)",
+    description: "Donepezil + Memantine + Vitamin D3 (Ward Regimen)",
+    drugs: ["Donepezil", "Memantine", "Vitamin D3"],
+    type: "info",
   },
   {
     label: "⚡ High-Risk Bleeding",
@@ -247,7 +313,7 @@ const CLINICAL_PRESETS = [
     type: "danger",
   },
   {
-    label: "🛡️ Safe / Harmonized",
+    label: "🛡️ Harmonized (Low Risk)",
     description: "Paracetamol + Cetirizine + Vitamin C",
     drugs: ["Paracetamol", "Cetirizine", "Vitamin C"],
     type: "success",
@@ -269,6 +335,7 @@ const POPULAR_DRUG_CHIPS = [
   { name: "Paracetamol", dosage: "650mg", cat: "Analgesic" },
   { name: "Calcium", dosage: "500mg", cat: "Supplement" },
   { name: "Levothyroxine", dosage: "50mcg", cat: "Thyroid" },
+  { name: "Posaconazole", dosage: "100mg", cat: "Antifungal (CYP3A4 Inhibitor)" },
 ];
 
 // Indian brand mapping to active pharmacological salts for layman accessibility
@@ -286,8 +353,13 @@ const INDIAN_BRAND_ALIASES = [
   { brand: "Telma", generic: "Lisinopril", dosage: "10mg", cat: "Blood Pressure" },
   { brand: "Thyronorm", generic: "Levothyroxine", dosage: "50mcg", cat: "Thyroid" },
   { brand: "Shelcal", generic: "Calcium", dosage: "500mg", cat: "Calcium & Vitamin D" },
-  { brand: "Augmentin", generic: "Clarithromycin", dosage: "500mg", cat: "Antibiotic" },
+  { brand: "Augmentin", generic: "Amoxicillin + Clavulanic Acid", dosage: "625mg", cat: "Antibiotic (Beta-Lactam / Beta-Lactamase Inhibitor)" },
+  { brand: "Claribid", generic: "Clarithromycin", dosage: "500mg", cat: "Antibiotic (Macrolide)" },
+  { brand: "Mevacor", generic: "Lovastatin", dosage: "20mg", cat: "Cholesterol / Statin" },
+  { brand: "Zocor", generic: "Simvastatin", dosage: "20mg", cat: "Cholesterol / Statin" },
   { brand: "Tramazac", generic: "Tramadol", dosage: "50mg", cat: "Pain Relief" },
+  { brand: "Noxafil", generic: "Posaconazole", dosage: "100mg", cat: "Antifungal (CYP3A4 Inhibitor)" },
+  { brand: "Posatral", generic: "Posaconazole", dosage: "100mg", cat: "Antifungal (CYP3A4 Inhibitor)" },
 ];
 
 const FORMULARY_CATEGORIES = [
@@ -347,7 +419,7 @@ function getSoundex(str) {
 const FOOD_INTERACTIONS = [
   {
     medicine: "Atorvastatin / Simvastatin (Statins)",
-    matchSalts: ["atorvastatin", "simvastatin", "rosuvastatin", "statin", "atorva", "lipicure"],
+    matchSalts: ["atorvastatin", "simvastatin", "rosuvastatin", "lovastatin", "pravastatin", "pitavastatin", "fluvastatin", "statin", "atorva", "lipicure", "mevacor", "zocor", "lipitor", "crestor", "altoprev", "livalo", "lescol"],
     food: "Grapefruit & Fresh Grapefruit Juice",
     severity: "critical",
     risk: "Toxic Statin Plasma Accumulation",
@@ -411,6 +483,60 @@ const FOOD_INTERACTIONS = [
     safeWindow: "Strictly avoid during active treatment cycles",
     icon: "🍷",
   },
+];
+
+/**
+ * Medication Boundary Matcher:
+ * Matches a target clinical term or drug variant against medication text using
+ * strict non-alphanumeric token/word boundaries.
+ * Prevents false-positive substring collisions (e.g., 'arb' matching 'carbamazepine',
+ * 'iron' matching unrelated strings, or short abbreviations matching within unrelated brand names).
+ */
+const matchesMedicationBoundary = (medName, term) => {
+  if (!medName || !term) return false;
+  const cleanName = medName.toLowerCase().trim();
+  const cleanTerm = term.toLowerCase().trim();
+  if (!cleanName || !cleanTerm) return false;
+
+  const escaped = cleanTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`, "i");
+  return regex.test(cleanName);
+};
+
+// Short-acting statins that REQUIRE evening/bedtime dosing due to short elimination half-lives (1-4 hours)
+// and nocturnal peak of hepatic HMG-CoA reductase (midnight to 5:00 AM).
+// CodeRabbit Fix: Limit bedtime guidance to statins that require evening dosing.
+const SHORT_ACTING_STATINS = [
+  "simvastatin",
+  "lovastatin",
+  "pravastatin",
+  "fluvastatin",
+  "zocor",
+  "mevacor",
+  "altoprev",
+  "pravachol",
+  "lescol",
+];
+
+// Long-acting statins with extended elimination half-lives (14-24 hours) providing continuous 24-hour
+// HMG-CoA reductase inhibition. FDA prescribing guidelines permit administration at any consistent time of day.
+const LONG_ACTING_STATINS = [
+  "atorvastatin",
+  "rosuvastatin",
+  "pitavastatin",
+  "lipicure",
+  "lipitor",
+  "crestor",
+  "atorva",
+  "rosuvas",
+  "livalo",
+];
+
+// Composite list of all statin variants for biomarker/lab monitoring
+const STATIN_VARIANTS = [
+  ...SHORT_ACTING_STATINS,
+  ...LONG_ACTING_STATINS,
+  "statin",
 ];
 
 export default function InteractionsPage() {
@@ -514,15 +640,18 @@ export default function InteractionsPage() {
   // Dynamically filter food contraindications matching active queued medications in real time
   const activeFoodWarnings = useMemo(() => {
     if (selectedMeds.length === 0) return [];
-    const lowerMeds = selectedMeds.map((m) => m.toLowerCase());
     return FOOD_INTERACTIONS.filter((f) => {
       return f.matchSalts.some((salt) =>
-        lowerMeds.some((med) => med.includes(salt) || salt.includes(med))
+        selectedMeds.some((med) => matchesMedicationBoundary(med, salt))
       );
     });
   }, [selectedMeds]);
 
   // Dynamically schedule active medications into circadian slots in real time
+  // CodeRabbit Fix:
+  // 1. Do not assign amoxicillin to a once-daily evening slot (multi-dose BID/TID interval dosing).
+  // 2. Do not apply the statin bedtime instruction to SSRIs (SSRIs morning dosing for alertness).
+  // 3. Statins exclusively receive bedtime HMG-CoA reductase regulation instruction.
   const dynamicChronotherapy = useMemo(() => {
     const schedule = {
       morning: [],
@@ -532,15 +661,112 @@ export default function InteractionsPage() {
     };
 
     selectedMeds.forEach((med) => {
-      const m = med.toLowerCase();
-      if (m.includes("levothyroxine") || m.includes("thyronorm") || m.includes("omeprazole") || m.includes("pantocid") || m.includes("pan-40") || m.includes("lisinopril") || m.includes("telma")) {
+      // 1. Oral beta-lactam antibiotics (Amoxicillin, Augmentin, Moxikind, Clavum, Cefuroxime):
+      // Regimens are dosed at evenly spaced intervals (every 8 to 12 hours) with meals to maintain time-dependent
+      // bactericidal levels above MIC. Flexible schedule covers both twice-daily (BID) and 3-times-daily (TID) regimens
+      // without hardcoding fixed ordinal dose numbers.
+      // CodeRabbit Fix: Do not hard-code all beta-lactam regimens as two daily doses.
+      if (
+        matchesMedicationBoundary(med, "amoxicillin") ||
+        matchesMedicationBoundary(med, "augmentin") ||
+        matchesMedicationBoundary(med, "moxikind") ||
+        matchesMedicationBoundary(med, "clavum") ||
+        matchesMedicationBoundary(med, "cefuroxime")
+      ) {
+        schedule.morning.push({
+          name: med,
+          tip: "Take morning dose with breakfast as part of evenly spaced interval dosing (every 8–12 hrs with meals)",
+        });
+        const isTID = /\b(3\s*times|tid|tds|thrice|every\s*8\s*h(ours)?|3x)\b/i.test(med);
+        if (isTID) {
+          schedule.lunch.push({
+            name: med,
+            tip: "Take midday dose with lunch if prescribed on a 3-times-daily (every 8 hours) regimen",
+          });
+        }
+        schedule.evening.push({
+          name: med,
+          tip: "Take evening dose with dinner (spaced 8–12 hrs apart; complete entire prescribed course)",
+        });
+      // 2. Thyroid hormones, PPIs, and RAAS inhibitors (Morning fasting or baseline dosing):
+      } else if (
+        matchesMedicationBoundary(med, "levothyroxine") ||
+        matchesMedicationBoundary(med, "thyronorm") ||
+        matchesMedicationBoundary(med, "eltroxin") ||
+        matchesMedicationBoundary(med, "omeprazole") ||
+        matchesMedicationBoundary(med, "pantoprazole") ||
+        matchesMedicationBoundary(med, "pantocid") ||
+        matchesMedicationBoundary(med, "pan-40") ||
+        matchesMedicationBoundary(med, "rabeprazole") ||
+        matchesMedicationBoundary(med, "esomeprazole") ||
+        matchesMedicationBoundary(med, "nexpro") ||
+        matchesMedicationBoundary(med, "lisinopril") ||
+        matchesMedicationBoundary(med, "enalapril") ||
+        matchesMedicationBoundary(med, "ramipril") ||
+        matchesMedicationBoundary(med, "telmisartan") ||
+        matchesMedicationBoundary(med, "telma") ||
+        matchesMedicationBoundary(med, "losartan")
+      ) {
         schedule.morning.push({ name: med, tip: "Take with plain water on empty stomach (30-60 mins pre-meal)" });
-      } else if (m.includes("metformin") || m.includes("glycomet") || m.includes("calcium") || m.includes("shelcal") || m.includes("paracetamol") || m.includes("dolo") || m.includes("crocin")) {
+      // 3. SSRIs & SNRIs: Take in the morning with food to prevent insomnia and sleep disruption (NOT at bedtime with statin tip!)
+      } else if (
+        matchesMedicationBoundary(med, "fluoxetine") ||
+        matchesMedicationBoundary(med, "sertraline") ||
+        matchesMedicationBoundary(med, "citalopram") ||
+        matchesMedicationBoundary(med, "escitalopram") ||
+        matchesMedicationBoundary(med, "duloxetine")
+      ) {
+        schedule.morning.push({
+          name: med,
+          tip: "Take in the morning with breakfast to support daytime alertness and prevent sleep disturbances",
+        });
+      // 4. Post-meal GI protection (Metformin, Calcium, Paracetamol):
+      } else if (
+        matchesMedicationBoundary(med, "metformin") ||
+        matchesMedicationBoundary(med, "glycomet") ||
+        matchesMedicationBoundary(med, "cetapin") ||
+        matchesMedicationBoundary(med, "calcium") ||
+        matchesMedicationBoundary(med, "shelcal") ||
+        matchesMedicationBoundary(med, "paracetamol") ||
+        matchesMedicationBoundary(med, "dolo") ||
+        matchesMedicationBoundary(med, "crocin") ||
+        matchesMedicationBoundary(med, "calpol")
+      ) {
         schedule.lunch.push({ name: med, tip: "Take post-meal with water to eliminate gastric irritation" });
-      } else if (m.includes("warfarin") || m.includes("aspirin") || m.includes("ecosprin") || m.includes("clarithromycin") || m.includes("augmentin")) {
-        schedule.evening.push({ name: med, tip: "Fixed evening timing daily to maintain therapeutic plasma curve" });
-      } else if (m.includes("atorvastatin") || m.includes("statin") || m.includes("lipicure") || m.includes("tramadol") || m.includes("fluoxetine")) {
-        schedule.night.push({ name: med, tip: "Take at bedtime for peak nocturnal hepatic HMG-CoA regulation" });
+      // 5. Anticoagulants, Antiplatelets, and Evening Antibiotics:
+      } else if (
+        matchesMedicationBoundary(med, "warfarin") ||
+        matchesMedicationBoundary(med, "coumadin") ||
+        matchesMedicationBoundary(med, "aspirin") ||
+        matchesMedicationBoundary(med, "ecosprin") ||
+        matchesMedicationBoundary(med, "clopidogrel") ||
+        matchesMedicationBoundary(med, "plavix") ||
+        matchesMedicationBoundary(med, "clarithromycin")
+      ) {
+        schedule.evening.push({ name: med, tip: "Consistent evening administration to maintain stable therapeutic plasma exposure" });
+      // 6a. Short-acting statins (Require bedtime administration):
+      // Simvastatin, Lovastatin, Pravastatin, Fluvastatin have short elimination half-lives (1-4 hours).
+      // Bedtime dosing is necessary to match the peak nocturnal activity of hepatic HMG-CoA reductase (midnight-5 AM).
+      // CodeRabbit Fix: Limit bedtime guidance to statins that require evening dosing.
+      } else if (SHORT_ACTING_STATINS.some((statin) => matchesMedicationBoundary(med, statin))) {
+        schedule.night.push({
+          name: med,
+          tip: "Take at bedtime for peak nocturnal hepatic HMG-CoA reductase regulation (short half-life requires evening administration)",
+        });
+      // 6b. Long-acting statins (Flexible once-daily morning or any consistent time):
+      // Atorvastatin, Rosuvastatin, Pitavastatin have long elimination half-lives (14-24 hours) and provide
+      // continuous 24-hour HMG-CoA reductase inhibition. FDA labeling allows administration at any consistent time of day.
+      } else if (LONG_ACTING_STATINS.some((statin) => matchesMedicationBoundary(med, statin))) {
+        schedule.morning.push({
+          name: med,
+          tip: "Take once daily at any consistent time (long 14–24h elimination half-life provides sustained 24-hour cholesterol control)",
+        });
+      // 7. Opioids & Central Analgesics: Bedtime/evening administration for nocturnal pain and sedation management
+      } else if (
+        matchesMedicationBoundary(med, "tramadol") ||
+        matchesMedicationBoundary(med, "ultram")
+      ) {
+        schedule.night.push({ name: med, tip: "Take as prescribed; bedtime dosing helps manage nocturnal pain and sedation" });
       } else {
         schedule.morning.push({ name: med, tip: "Take as directed by your prescribing physician" });
       }
@@ -550,21 +776,101 @@ export default function InteractionsPage() {
   }, [selectedMeds]);
 
   // Dynamically determine required clinical lab panels based on queued drugs
+  // CodeRabbit Fix: Make statin laboratory guidance conditional per ACC/AHA and FDA standards
   const dynamicBiomarkers = useMemo(() => {
     const panels = [];
-    const lowerMeds = selectedMeds.map((m) => m.toLowerCase());
 
-    if (lowerMeds.some((m) => m.includes("warfarin"))) {
+    if (
+      selectedMeds.some(
+        (m) =>
+          matchesMedicationBoundary(m, "warfarin") ||
+          matchesMedicationBoundary(m, "coumadin") ||
+          matchesMedicationBoundary(m, "jantoven")
+      )
+    ) {
       panels.push({ name: "Prothrombin Time / INR Panel", freq: "Bi-weekly / Monthly", note: "Maintain target INR 2.0 - 3.0" });
     }
-    if (lowerMeds.some((m) => m.includes("statin") || m.includes("atorvastatin"))) {
-      panels.push({ name: "Hepatic LFT & CPK Panel", freq: "Quarterly", note: "Monitor AST/ALT and muscle enzyme integrity" });
+
+    // Statin Laboratory Guidance:
+    // ACC/AHA and FDA statin safety consensus does NOT recommend routine, unprompted quarterly CPK testing in asymptomatic patients.
+    // Baseline ALT is recommended prior to initiation; serum CPK is indicated conditionally if patient develops unexplained muscle symptoms
+    // or when co-administered with potent interacting inhibitors.
+    const hasStatin = selectedMeds.some((m) =>
+      STATIN_VARIANTS.some((statin) => matchesMedicationBoundary(m, statin))
+    );
+    const hasInteractingInhibitor = selectedMeds.some(
+      (m) =>
+        matchesMedicationBoundary(m, "clarithromycin") ||
+        matchesMedicationBoundary(m, "claribid") ||
+        matchesMedicationBoundary(m, "erythromycin") ||
+        matchesMedicationBoundary(m, "itraconazole") ||
+        matchesMedicationBoundary(m, "ketoconazole") ||
+        matchesMedicationBoundary(m, "posaconazole") ||
+        matchesMedicationBoundary(m, "noxafil") ||
+        matchesMedicationBoundary(m, "posatral") ||
+        matchesMedicationBoundary(m, "amiodarone") ||
+        matchesMedicationBoundary(m, "gemfibrozil")
+    );
+
+    if (hasStatin) {
+      if (hasInteractingInhibitor) {
+        panels.push({
+          name: "Prompt Hepatic ALT & Serum CPK Panel",
+          freq: "Immediate / Co-Administration Onset",
+          note: "Elevated myopathy risk due to interacting CYP3A4 inhibitor: check baseline ALT and prompt serum CPK if muscle soreness occurs",
+        });
+      } else {
+        panels.push({
+          name: "Baseline Hepatic ALT & Symptom-Prompted CPK",
+          freq: "Baseline & Clinically Indicated",
+          note: "Baseline ALT prior to initiation; serum CPK measurement is indicated conditionally if unexplained muscle pain, tenderness, or weakness develops",
+        });
+      }
     }
-    if (lowerMeds.some((m) => m.includes("lisinopril") || m.includes("telma") || m.includes("losartan"))) {
+
+    if (
+      selectedMeds.some(
+        (m) =>
+          matchesMedicationBoundary(m, "lisinopril") ||
+          matchesMedicationBoundary(m, "enalapril") ||
+          matchesMedicationBoundary(m, "ramipril") ||
+          matchesMedicationBoundary(m, "telmisartan") ||
+          matchesMedicationBoundary(m, "telma") ||
+          matchesMedicationBoundary(m, "losartan")
+      )
+    ) {
       panels.push({ name: "Serum Electrolytes & Creatinine", freq: "Every 3-6 Months", note: "Screen for Hyperkalemia & eGFR retention" });
     }
-    if (lowerMeds.some((m) => m.includes("metformin") || m.includes("glycomet"))) {
+    if (
+      selectedMeds.some(
+        (m) =>
+          matchesMedicationBoundary(m, "metformin") ||
+          matchesMedicationBoundary(m, "glycomet") ||
+          matchesMedicationBoundary(m, "cetapin")
+      )
+    ) {
       panels.push({ name: "HbA1c & Renal eGFR Clearance", freq: "Quarterly", note: "Monitor glycemic index and prevent lactic accumulation" });
+    }
+
+    const hasTramadol = selectedMeds.some((m) =>
+      matchesMedicationBoundary(m, "tramadol") ||
+      matchesMedicationBoundary(m, "tramazac") ||
+      matchesMedicationBoundary(m, "ultram")
+    );
+    const hasSerotonergicOrInhibitor = selectedMeds.some((m) =>
+      matchesMedicationBoundary(m, "fluoxetine") ||
+      matchesMedicationBoundary(m, "sertraline") ||
+      matchesMedicationBoundary(m, "escitalopram") ||
+      matchesMedicationBoundary(m, "paroxetine") ||
+      matchesMedicationBoundary(m, "duloxetine") ||
+      hasInteractingInhibitor
+    );
+    if (hasTramadol && hasSerotonergicOrInhibitor) {
+      panels.push({
+        name: "Seizure & Serotonin-Syndrome Monitoring",
+        freq: "Continuous / Active Co-Administration",
+        note: "Evaluate for clonus, hyperreflexia, tremors, agitation, altered mental state, and lowered seizure threshold",
+      });
     }
 
     if (panels.length === 0) {
@@ -654,25 +960,52 @@ export default function InteractionsPage() {
   };
 
   // Cross-medication contraindication matching algorithm
+  // CodeRabbit Fix: Require medication-boundary matching across all variants
   const detectedInteractions = useMemo(() => {
     const list = [];
+    const seenPairs = new Set();
+
+    const matchesGroup = (medName, group) => {
+      if (!medName || !group) return false;
+      // Direct boundary match
+      if (group.some((term) => matchesMedicationBoundary(medName, term))) return true;
+      // Brand alias resolution into generic clinical salt
+      const brandEntry = INDIAN_BRAND_ALIASES.find((b) =>
+        matchesMedicationBoundary(medName, b.brand)
+      );
+      if (brandEntry) {
+        return group.some((term) =>
+          matchesMedicationBoundary(brandEntry.generic, term) ||
+          matchesMedicationBoundary(brandEntry.brand, term)
+        );
+      }
+      return false;
+    };
+
     for (let i = 0; i < selectedMeds.length; i++) {
       for (let j = i + 1; j < selectedMeds.length; j++) {
-        const m1 = selectedMeds[i].toLowerCase().trim();
-        const m2 = selectedMeds[j].toLowerCase().trim();
+        const m1 = selectedMeds[i];
+        const m2 = selectedMeds[j];
 
         for (const item of COMPREHENSIVE_INTERACTIONS) {
-          const p1 = item.pair[0].toLowerCase().trim();
-          const p2 = item.pair[1].toLowerCase().trim();
-
-          const matchFwd = (m1.includes(p1) || p1.includes(m1)) && (m2.includes(p2) || p2.includes(m2));
-          const matchRev = (m1.includes(p2) || p2.includes(m1)) && (m2.includes(p1) || p1.includes(m2));
+          const matchFwd = matchesGroup(m1, item.groupA) && matchesGroup(m2, item.groupB);
+          const matchRev = matchesGroup(m1, item.groupB) && matchesGroup(m2, item.groupA);
 
           if (matchFwd || matchRev) {
-            list.push({
-              ...item,
-              involved: [selectedMeds[i], selectedMeds[j]],
-            });
+            const pairKey = `${item.id}-${[m1.toLowerCase().trim(), m2.toLowerCase().trim()].sort().join("::")}`;
+            if (!seenPairs.has(pairKey)) {
+              seenPairs.add(pairKey);
+              // CodeRabbit Fix: Preserve statin-inhibitor and candidate-active drug pair identity
+              const drugA = matchFwd ? m1 : m2;
+              const drugB = matchFwd ? m2 : m1;
+              const baseTitle = item.title.includes(" (") ? item.title.split(" (")[0] : item.title;
+              list.push({
+                ...item,
+                pair: [drugA, drugB],
+                involved: [drugA, drugB],
+                title: `${baseTitle} (${drugA} + ${drugB})`,
+              });
+            }
           }
         }
       }
@@ -685,32 +1018,76 @@ export default function InteractionsPage() {
   const majorCount = detectedInteractions.filter((d) => d.severity === "major").length;
   const moderateCount = detectedInteractions.filter((d) => d.severity === "moderate").length;
 
-  const totalConflicts = criticalCount + majorCount + moderateCount;
-  const harmonizedCount = Math.max(0, selectedMeds.length - totalConflicts);
+  // CodeRabbit Fix: Calculate harmonized medicines by participation.
+  // A medicine is considered harmonized if it does NOT participate in any detected interaction.
+  const interactingMedNames = useMemo(() => {
+    const set = new Set();
+    detectedInteractions.forEach((interaction) => {
+      interaction.involved?.forEach((med) => set.add(med.toLowerCase().trim()));
+    });
+    return set;
+  }, [detectedInteractions]);
 
+  const harmonizedCount = useMemo(() => {
+    return selectedMeds.filter(
+      (med) => !interactingMedNames.has(med.toLowerCase().trim())
+    ).length;
+  }, [selectedMeds, interactingMedNames]);
+
+  // CYP450 metabolic pathway inhibition state
+  const isCYPInhibited = useMemo(() => {
+    return selectedMeds.some((m) =>
+      matchesMedicationBoundary(m, "clarithromycin") ||
+      matchesMedicationBoundary(m, "claribid") ||
+      matchesMedicationBoundary(m, "erythromycin") ||
+      matchesMedicationBoundary(m, "itraconazole") ||
+      matchesMedicationBoundary(m, "ketoconazole") ||
+      matchesMedicationBoundary(m, "posaconazole") ||
+      matchesMedicationBoundary(m, "noxafil") ||
+      matchesMedicationBoundary(m, "posatral") ||
+      matchesMedicationBoundary(m, "fluoxetine") ||
+      matchesMedicationBoundary(m, "omeprazole")
+    );
+  }, [selectedMeds]);
+
+  // CodeRabbit Review Note: Deterministic Polypharmacy Safety Scoring
+  // Penalty weights: Critical = -35%, Major = -20%, Moderate = -10%
+  // A floor of 15% is enforced so high-risk regimens retain an alarming non-zero visual reading.
   const safetyScore = useMemo(() => {
     if (selectedMeds.length < 2) return 100;
-    const penalty = criticalCount * 35 + majorCount * 22 + moderateCount * 10;
+    const penalty = criticalCount * 35 + majorCount * 20 + moderateCount * 10;
     return Math.max(15, 100 - penalty);
   }, [selectedMeds.length, criticalCount, majorCount, moderateCount]);
 
-  // Dynamic active risk tier based on safety score & detected conflicts
+  // Dynamic active risk tier:
+  // CodeRabbit Fix: Keep the displayed risk tier consistent with interaction severity.
+  // The displayed risk tier is strictly determined by the highest severity among detected interactions:
+  // 1. If any critical interaction exists -> "critical"
+  // 2. Else if any major interaction exists -> "major"
+  // 3. Else if any moderate interaction exists -> "moderate"
+  // 4. Otherwise (no interactions detected) -> "harmonized"
+  // Decoupled from arbitrary score penalties so displayed tier NEVER escalates
+  // beyond actual detected clinical interaction severity (e.g. 0 critical conflicts will NEVER display "Critical").
   const activeRiskTier = useMemo(() => {
-    if (criticalCount > 0 || safetyScore < 50) return "critical";
-    if (majorCount > 0 || safetyScore < 80) return "major";
+    if (criticalCount > 0) return "critical";
+    if (majorCount > 0) return "major";
+    if (moderateCount > 0) return "moderate";
     return "harmonized";
-  }, [criticalCount, majorCount, safetyScore]);
+  }, [criticalCount, majorCount, moderateCount]);
 
-  // Automatically update severity filter when detected conflict profile changes
+  // Automatically synchronize severity filter to the highest detected risk level
+  // so dangerous contraindications are immediately surfaced to the clinical viewer.
   useEffect(() => {
     if (criticalCount > 0) {
       setSeverityFilter("critical");
     } else if (majorCount > 0) {
       setSeverityFilter("major");
+    } else if (moderateCount > 0) {
+      setSeverityFilter("moderate");
     } else {
       setSeverityFilter("all");
     }
-  }, [criticalCount, majorCount, selectedMeds.length]);
+  }, [criticalCount, majorCount, moderateCount, selectedMeds.length]);
 
   // Filtered interaction list based on user filter
   const filteredInteractions = useMemo(() => {
@@ -1308,10 +1685,24 @@ export default function InteractionsPage() {
                   </p>
                 </div>
                 <Badge
-                  variant={activeRiskTier === "harmonized" ? "success" : activeRiskTier === "major" ? "warning" : "danger"}
+                  variant={
+                    activeRiskTier === "harmonized"
+                      ? "success"
+                      : activeRiskTier === "moderate"
+                      ? "info"
+                      : activeRiskTier === "major"
+                      ? "warning"
+                      : "danger"
+                  }
                   className="font-bold uppercase tracking-wider text-[11px] px-2.5 py-1 transition-all duration-300 shadow-sm"
                 >
-                  {activeRiskTier === "harmonized" ? "Optimal Safety" : activeRiskTier === "major" ? "Caution Advised" : "High Clinical Risk"}
+                  {activeRiskTier === "harmonized"
+                    ? "Low Interaction Risk"
+                    : activeRiskTier === "moderate"
+                    ? "Moderate Caution (Monitor)"
+                    : activeRiskTier === "major"
+                    ? "Caution Advised"
+                    : "High Clinical Risk"}
                 </Badge>
               </div>
 
@@ -1322,6 +1713,8 @@ export default function InteractionsPage() {
                     ? "filter drop-shadow-[0_0_18px_rgba(244,63,94,0.35)]"
                     : activeRiskTier === "major"
                     ? "filter drop-shadow-[0_0_18px_rgba(245,158,11,0.35)]"
+                    : activeRiskTier === "moderate"
+                    ? "filter drop-shadow-[0_0_18px_rgba(59,130,246,0.35)]"
                     : "filter drop-shadow-[0_0_18px_rgba(20,184,166,0.3)]"
                 }`}>
                   <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
@@ -1336,6 +1729,8 @@ export default function InteractionsPage() {
                       className={`${
                         activeRiskTier === "harmonized"
                           ? "text-teal-500"
+                          : activeRiskTier === "moderate"
+                          ? "text-blue-500"
                           : activeRiskTier === "major"
                           ? "text-amber-500"
                           : "text-rose-500"
@@ -1354,6 +1749,8 @@ export default function InteractionsPage() {
                         ? "text-rose-600 dark:text-rose-400"
                         : activeRiskTier === "major"
                         ? "text-amber-600 dark:text-amber-400"
+                        : activeRiskTier === "moderate"
+                        ? "text-blue-600 dark:text-blue-400"
                         : "text-slate-900 dark:text-white"
                     }`}>
                       {safetyScore}%
@@ -1366,15 +1763,23 @@ export default function InteractionsPage() {
                         ? "bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 ring-1 ring-rose-300 dark:ring-rose-800"
                         : activeRiskTier === "major"
                         ? "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 ring-1 ring-amber-300 dark:ring-amber-800"
+                        : activeRiskTier === "moderate"
+                        ? "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 ring-1 ring-blue-300 dark:ring-blue-800"
                         : "bg-teal-100 text-teal-700 dark:bg-teal-950/60 dark:text-teal-300 ring-1 ring-teal-300 dark:ring-teal-800"
                     }`}>
-                      {activeRiskTier === "critical" ? "Critical Risk Focus" : activeRiskTier === "major" ? "Major Caution Focus" : "Harmonized Profile"}
+                      {activeRiskTier === "critical"
+                        ? "Critical Risk Focus"
+                        : activeRiskTier === "major"
+                        ? "Major Caution Focus"
+                        : activeRiskTier === "moderate"
+                        ? "Moderate Risk Focus"
+                        : "Harmonized Profile"}
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Interactive Severity Counter Cards (Score-Driven Dynamic Focus Rings) */}
+              {/* Interactive Severity Counter Cards (Severity-Driven Dynamic Focus Rings with 4 Tiers) */}
               <div className="space-y-2 pt-1">
                 <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">
                   <span className="flex items-center gap-1.5">
@@ -1384,12 +1789,12 @@ export default function InteractionsPage() {
                   <span className="text-[11px] font-normal">Click a card to filter</span>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2.5">
-                  {/* Critical / Severe Card with Score-Driven Dynamic Focus Ring */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {/* Critical / Severe Card with Severity-Driven Dynamic Focus Ring */}
                   <button
                     type="button"
                     onClick={() => setSeverityFilter(severityFilter === "critical" ? "all" : "critical")}
-                    className={`p-3 rounded-2xl border text-center transition-all duration-300 flex flex-col items-center justify-between relative overflow-hidden ${
+                    className={`p-2.5 rounded-2xl border text-center transition-all duration-300 flex flex-col items-center justify-between relative overflow-hidden ${
                       activeRiskTier === "critical"
                         ? "ring-2 ring-rose-500 ring-offset-2 dark:ring-offset-slate-900 shadow-lg shadow-rose-500/25 scale-[1.03] border-rose-400"
                         : "hover:scale-[1.02]"
@@ -1406,17 +1811,17 @@ export default function InteractionsPage() {
                       <Flame className={`w-3.5 h-3.5 ${severityFilter === "critical" ? "text-white" : "text-rose-600 dark:text-rose-400"}`} />
                       <span className="text-[11px] font-bold">Critical</span>
                     </div>
-                    <p className="text-2xl font-black my-0.5">{criticalCount}</p>
+                    <p className="text-xl font-black my-0.5">{criticalCount}</p>
                     <span className="text-[9px] opacity-80 font-medium">
                       {activeRiskTier === "critical" ? "● Active Focus" : "Contraindicated"}
                     </span>
                   </button>
 
-                  {/* Major Card with Score-Driven Dynamic Focus Ring */}
+                  {/* Major Card with Severity-Driven Dynamic Focus Ring */}
                   <button
                     type="button"
                     onClick={() => setSeverityFilter(severityFilter === "major" ? "all" : "major")}
-                    className={`p-3 rounded-2xl border text-center transition-all duration-300 flex flex-col items-center justify-between relative overflow-hidden ${
+                    className={`p-2.5 rounded-2xl border text-center transition-all duration-300 flex flex-col items-center justify-between relative overflow-hidden ${
                       activeRiskTier === "major"
                         ? "ring-2 ring-amber-500 ring-offset-2 dark:ring-offset-slate-900 shadow-lg shadow-amber-500/25 scale-[1.03] border-amber-400"
                         : "hover:scale-[1.02]"
@@ -1433,17 +1838,44 @@ export default function InteractionsPage() {
                       <AlertTriangle className={`w-3.5 h-3.5 ${severityFilter === "major" ? "text-white" : "text-amber-600 dark:text-amber-400"}`} />
                       <span className="text-[11px] font-bold">Major</span>
                     </div>
-                    <p className="text-2xl font-black my-0.5">{majorCount}</p>
+                    <p className="text-xl font-black my-0.5">{majorCount}</p>
                     <span className="text-[9px] opacity-80 font-medium">
                       {activeRiskTier === "major" ? "● Active Focus" : "CYP / Metabolic"}
                     </span>
                   </button>
 
-                  {/* Harmonized Card with Score-Driven Dynamic Focus Ring */}
+                  {/* Moderate Card with Severity-Driven Dynamic Focus Ring */}
+                  <button
+                    type="button"
+                    onClick={() => setSeverityFilter(severityFilter === "moderate" ? "all" : "moderate")}
+                    className={`p-2.5 rounded-2xl border text-center transition-all duration-300 flex flex-col items-center justify-between relative overflow-hidden ${
+                      activeRiskTier === "moderate"
+                        ? "ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900 shadow-lg shadow-blue-500/25 scale-[1.03] border-blue-400"
+                        : "hover:scale-[1.02]"
+                    } ${
+                      severityFilter === "moderate"
+                        ? "bg-blue-600 text-white border-blue-600 shadow-md"
+                        : "bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-900/60 text-blue-700 dark:text-blue-300 hover:border-blue-400"
+                    }`}
+                  >
+                    {activeRiskTier === "moderate" && (
+                      <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-blue-500 animate-ping" />
+                    )}
+                    <div className="flex items-center gap-1">
+                      <AlertCircle className={`w-3.5 h-3.5 ${severityFilter === "moderate" ? "text-white" : "text-blue-600 dark:text-blue-400"}`} />
+                      <span className="text-[11px] font-bold">Moderate</span>
+                    </div>
+                    <p className="text-xl font-black my-0.5">{moderateCount}</p>
+                    <span className="text-[9px] opacity-80 font-medium">
+                      {activeRiskTier === "moderate" ? "● Active Focus" : "Dosing / Monitor"}
+                    </span>
+                  </button>
+
+                  {/* Harmonized Card with Severity-Driven Dynamic Focus Ring */}
                   <button
                     type="button"
                     onClick={() => setSeverityFilter("all")}
-                    className={`p-3 rounded-2xl border text-center transition-all duration-300 flex flex-col items-center justify-between relative overflow-hidden ${
+                    className={`p-2.5 rounded-2xl border text-center transition-all duration-300 flex flex-col items-center justify-between relative overflow-hidden ${
                       activeRiskTier === "harmonized"
                         ? "ring-2 ring-teal-500 ring-offset-2 dark:ring-offset-slate-900 shadow-lg shadow-teal-500/25 scale-[1.03] border-teal-400"
                         : "hover:scale-[1.02]"
@@ -1459,12 +1891,12 @@ export default function InteractionsPage() {
                       <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-teal-500 animate-ping" />
                     )}
                     <div className="flex items-center gap-1">
-                      <ShieldCheck className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                      <CheckCircle2 className={`w-3.5 h-3.5 ${severityFilter === "all" && activeRiskTier === "harmonized" ? "text-teal-600 dark:text-teal-400" : "text-slate-500"}`} />
                       <span className="text-[11px] font-bold">Harmonized</span>
                     </div>
-                    <p className="text-2xl font-black my-0.5">{harmonizedCount}</p>
+                    <p className="text-xl font-black my-0.5">{harmonizedCount}</p>
                     <span className="text-[9px] opacity-80 font-medium">
-                      {activeRiskTier === "harmonized" ? "● Active Focus" : "Safe Profile"}
+                      {activeRiskTier === "harmonized" ? "● Active Focus" : "Low Risk Profile"}
                     </span>
                   </button>
                 </div>
@@ -1477,15 +1909,29 @@ export default function InteractionsPage() {
                     <HeartPulse className="w-3.5 h-3.5 text-teal-600" />
                     Clinical Safety Assessment
                   </span>
-                  <span className={`font-extrabold text-[11px] ${criticalCount > 0 ? "text-rose-600" : majorCount > 0 ? "text-amber-600" : "text-teal-600"}`}>
-                    {criticalCount > 0 ? "Action Mandated" : majorCount > 0 ? "Caution Advised" : "Clean Profile"}
+                  <span className={`font-extrabold text-[11px] ${
+                    criticalCount > 0
+                      ? "text-rose-600"
+                      : majorCount > 0
+                      ? "text-amber-600"
+                      : moderateCount > 0
+                      ? "text-blue-600"
+                      : "text-teal-600"
+                  }`}>
+                    {criticalCount > 0
+                      ? "Action Mandated"
+                      : majorCount > 0
+                      ? "Caution Advised"
+                      : moderateCount > 0
+                      ? "Monitor Co-Administration"
+                      : "Clean Profile"}
                   </span>
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-[11px] pt-2 border-t border-slate-200/60 dark:border-slate-800 text-center">
                   <div className="bg-white dark:bg-slate-800/80 p-1.5 rounded-xl border border-slate-100 dark:border-slate-700/60">
                     <span className="text-slate-400 block text-[9px] uppercase font-bold">CYP450 Enzyme</span>
                     <span className="font-bold text-slate-700 dark:text-slate-200 text-[11px]">
-                      {selectedMeds.some(m => ["clarithromycin", "fluoxetine"].includes(m.toLowerCase())) ? "Inhibited" : "Normal"}
+                      {isCYPInhibited ? "Inhibited" : "Normal"}
                     </span>
                   </div>
                   <div className="bg-white dark:bg-slate-800/80 p-1.5 rounded-xl border border-slate-100 dark:border-slate-700/60">

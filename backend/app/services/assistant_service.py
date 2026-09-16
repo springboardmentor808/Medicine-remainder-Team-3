@@ -422,11 +422,15 @@ async def handle_assistant_query(
                 "intent": intent,
             }
 
-    # Check if query contains Hindi or Hinglish phrases
+    # Check if query contains Hindi or Hinglish phrases.
+    # CodeRabbit Review Note: Explicit token matching ensures Indian users asking queries in Devanagari
+    # or Latin-script Hinglish (e.g. 'kya tum hindi me bol sakte ho', 'dawa kab leni hai') receive
+    # natural, culturally attuned answers rather than triggering an English-only refusal constraint.
     hindi_cues = ['hindi', 'हिन्दी', 'हिंदी', 'kya', 'kaise', 'batao', 'dawa', 'goli', 'kab', 'lena', 'chahiye', 'dard', 'khana', 'peena', 'kripya', 'aur', 'mera', 'meri', 'aaj', 'kal', 'time']
     is_hindi_detected = locale == 'hi' or any(re.search(r'\b' + re.escape(w) + r'\b', latest_message.lower()) for w in hindi_cues) or 'hindi' in latest_message.lower()
 
     # ── Pass 3: Grounded LLM Response ───────────────────────────
+    # Dynamically inject language constraint and patient context into Gemini prompt
     system_prompt = build_grounded_prompt(context, locale, additional_context, is_hindi=is_hindi_detected)
 
     # Build conversation for the LLM

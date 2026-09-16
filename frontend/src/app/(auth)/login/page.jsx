@@ -221,29 +221,30 @@ function LoginFormContent() {
               required
               autoComplete="current-password"
               leftIcon={<span className="material-symbols-outlined text-[20px]">lock</span>}
-              rightIcon={
-                <Link
-                  href="/forgot-password"
-                  className="text-caption text-primary hover:underline whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded"
-                >
-                  Forgot?
-                </Link>
-              }
             />
 
-            {/* Remember me */}
-            <div className="flex items-center gap-xs">
-              <input
-                type="checkbox"
-                id="remember"
-                name="remember"
-                checked={form.remember}
-                onChange={handleChange}
-                className="peer w-4 h-4 cursor-pointer appearance-none rounded-sm border-2 border-outline-variant bg-surface-container-lowest checked:border-primary checked:bg-primary transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
-              />
-              <label htmlFor="remember" className="text-body-sm text-on-surface cursor-pointer">
-                Remember me for 30 days
-              </label>
+            {/* Remember me & Forgot Password */}
+            <div className="flex items-center justify-between pt-1">
+              <div className="flex items-center gap-xs">
+                <input
+                  type="checkbox"
+                  id="remember"
+                  name="remember"
+                  checked={form.remember}
+                  onChange={handleChange}
+                  className="peer w-4 h-4 cursor-pointer appearance-none rounded-sm border-2 border-outline-variant bg-surface-container-lowest checked:border-primary checked:bg-primary transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
+                />
+                <label htmlFor="remember" className="text-body-sm text-on-surface cursor-pointer">
+                  Remember me
+                </label>
+              </div>
+
+              <Link
+                href="/forgot-password"
+                className="text-body-sm font-semibold text-teal-600 dark:text-teal-400 hover:text-teal-500 hover:underline transition-colors"
+              >
+                Forgot password?
+              </Link>
             </div>
 
             {/* Submit */}

@@ -23,6 +23,8 @@ import {
   Download,
   Globe,
   HelpCircle,
+  ArrowUpDown,
+  ShieldCheck,
 } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -33,7 +35,7 @@ import AdherenceRing from '@/components/ui/AdherenceRing';
 import PatientRosterCard from '@/components/dashboard/PatientRosterCard';
 import LogoutButton from '@/components/ui/LogoutButton';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
-import ReminderWidget from '@/components/dashboard/ReminderWidget';
+import CaregiverQueueWidget from '@/components/dashboard/CaregiverQueueWidget';
 import ExportDataModal from '@/components/dashboard/ExportDataModal';
 import SupportTicketForm from '@/components/forms/SupportTicketForm';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
@@ -64,9 +66,11 @@ import { useLanguage } from '@/context/LanguageContext';
 // ── Filter Options ────────────────────────────────────────────────────────────
 
 const FILTER_TABS = [
-  { key: 'all',       label: 'All Patients',      icon: Users },
-  { key: 'attention', label: 'Needs Attention',    icon: AlertTriangle },
-  { key: 'critical',  label: 'Critical Stock',     icon: Activity },
+  { key: 'all',            label: 'All Patients',               icon: Users },
+  { key: 'attention',      label: 'Needs Attention',           icon: AlertTriangle },
+  { key: 'high-adherence', label: 'High Adherence (>80%)',     icon: ShieldCheck },
+  { key: 'critical',       label: 'Critical Adherence (<60%)', icon: Activity },
+  { key: 'low-stock',      label: 'Low Medication Stock',      icon: Pill },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -92,7 +96,8 @@ function PatientScheduleModal({ patient, isOpen, onClose, onSendReminder }) {
       (async () => {
         try {
           const res = await caregiverAPI.getPatientSchedule(patient.id);
-          const list = Array.isArray(res) ? res : (res?.schedules || []);
+          const raw = res?.data !== undefined ? res.data : res;
+          const list = Array.isArray(raw) ? raw : (raw?.schedules || []);
           setSchedules(list);
         } catch (err) {
           setError(err.message || 'Failed to load patient schedule.');
@@ -211,6 +216,7 @@ function CaregiverDashboardInner() {
   const [currentUser, setCurrentUser] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('adherence-desc');
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [linkCode, setLinkCode] = useState('');
   const [linkLoading, setLinkLoading] = useState(false);
@@ -220,6 +226,9 @@ function CaregiverDashboardInner() {
   const [patients, setPatients] = useState([]);
   const [patientsLoading, setPatientsLoading] = useState(true);
   const [scheduleModalPatient, setScheduleModalPatient] = useState(null);
+  const [emergencyModalPatient, setEmergencyModalPatient] = useState(null);
+  const [isEmergencyModalOpen, setIsEmergencyModalOpen] = useState(false);
+  const [bulkReminderLoading, setBulkReminderLoading] = useState(false);
   const [alerts, setAlerts] = useState([]);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
@@ -236,62 +245,73 @@ function CaregiverDashboardInner() {
   }, []);
 
   // Fetch live patients and compliance analytics assigned to this caregiver
-  useEffect(() => {
-    (async () => {
-      setPatientsLoading(true);
-      try {
-        const [patientsRes, overviewRes] = await Promise.allSettled([
-          caregiverAPI.getPatients(),
-          caregiverAPI.patientOverview(),
-        ]);
+  const loadDashboardData = useCallback(async (isSilent = false) => {
+    if (!isSilent) setPatientsLoading(true);
+    try {
+      const [patientsRes, overviewRes] = await Promise.allSettled([
+        caregiverAPI.getPatients(),
+        caregiverAPI.patientOverview(),
+      ]);
 
-        const rawList = patientsRes.status === 'fulfilled' && Array.isArray(patientsRes.value)
-          ? patientsRes.value
-          : [];
-        const overviewList = overviewRes.status === 'fulfilled' && Array.isArray(overviewRes.value)
-          ? overviewRes.value
-          : [];
+      const patientsVal = patientsRes.status === 'fulfilled' ? (patientsRes.value?.data || patientsRes.value) : [];
+      const rawList = Array.isArray(patientsVal) ? patientsVal : (patientsVal?.patients || patientsVal?.items || []);
 
-        const mapped = rawList.map((u) => {
-          const stats = overviewList.find((o) => o.patient_id === String(u.id)) || {};
-          const adherence = stats.adherence_percentage ?? 95;
-          const lowStock = stats.low_stock_count ?? 0;
-          return {
-            id: u.id,
-            name: u.full_name || u.username || 'Patient',
-            age: u.age || null,
-            relation: u.relationship || 'Monitored Patient',
-            adherenceScore: Math.round(adherence),
-            pendingDosesCount: lowStock,
-            lastDoseStatus: adherence < 60 ? 'missed' : 'taken',
-            image: null,
-            nextMedication: null,
-            email: u.email,
-          };
-        });
-        setPatients(mapped);
+      const overviewVal = overviewRes.status === 'fulfilled' ? (overviewRes.value?.data || overviewRes.value) : [];
+      const overviewList = Array.isArray(overviewVal) ? overviewVal : (overviewVal?.reports || overviewVal?.items || []);
 
-        // Generate live telemetry alerts for patients with low adherence or low stock
-        const dynamicAlerts = overviewList
-          .filter((o) => (o.adherence_percentage !== undefined && o.adherence_percentage < 75) || (o.low_stock_count && o.low_stock_count > 0))
-          .map((o) => ({
-            id: `alert-${o.patient_id}`,
-            patientId: o.patient_id,
-            patientName: o.patient_name || o.username || 'Patient',
-            severity: (o.adherence_percentage !== undefined && o.adherence_percentage < 60) ? 'critical' : 'warning',
-            message: (o.adherence_percentage !== undefined && o.adherence_percentage < 60)
-              ? `Adherence critical (${o.adherence_percentage}%). Doses missed.`
-              : `${o.low_stock_count} medication(s) running low on stock.`,
-            time: 'Live Telemetry',
-          }));
-        setAlerts(dynamicAlerts);
-      } catch {
-        setPatients([]);
-      } finally {
-        setPatientsLoading(false);
-      }
-    })();
+      const mapped = rawList.map((u) => {
+        const stats = overviewList.find((o) => o.patient_id === String(u.id)) || {};
+        const isDemo = String(u.id).startsWith('00000000-0000-4000-8000-00000000000') || String(u.id).startsWith('demo-');
+        const adherence = stats.adherence_percentage !== undefined && stats.adherence_percentage !== null
+          ? stats.adherence_percentage
+          : (isDemo ? (String(u.id).endsWith('1') ? 94 : 68) : 0);
+        const lowStock = stats.low_stock_count ?? 0;
+        return {
+          id: u.id,
+          name: u.full_name || u.username || 'Patient',
+          age: u.age || null,
+          relation: u.relationship || 'Monitored Patient',
+          adherenceScore: Math.round(adherence),
+          pendingDosesCount: lowStock,
+          lowStockCount: lowStock,
+          lastDoseStatus: adherence < 60 ? 'missed' : 'taken',
+          image: null,
+          nextMedication: null,
+          email: u.email,
+          phone: u.phone,
+          is_demo: isDemo,
+        };
+      });
+      setPatients(mapped);
+
+      // Generate live telemetry alerts for patients with low adherence or low stock
+      // CodeRabbit Review Note: Exclude null adherence to prevent false alerts for new patients
+      const dynamicAlerts = overviewList
+        .filter((o) => (o.adherence_percentage !== undefined && o.adherence_percentage !== null && o.adherence_percentage < 75) || (o.low_stock_count && o.low_stock_count > 0))
+        .map((o) => ({
+          id: `alert-${o.patient_id}`,
+          patientId: o.patient_id,
+          patientName: o.patient_name || o.username || 'Patient',
+          severity: (o.adherence_percentage !== undefined && o.adherence_percentage !== null && o.adherence_percentage < 60) ? 'critical' : 'warning',
+          message: (o.adherence_percentage !== undefined && o.adherence_percentage !== null && o.adherence_percentage < 60)
+            ? `Adherence critical (${o.adherence_percentage}%). Doses missed.`
+            : `${o.low_stock_count} medication(s) running low on stock.`,
+          time: 'Live Telemetry',
+        }));
+      setAlerts(dynamicAlerts);
+    } catch {
+      setPatients([]);
+    } finally {
+      setPatientsLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadDashboardData();
+    // 30-second live polling interval
+    const pollInterval = setInterval(() => loadDashboardData(true), 30000);
+    return () => clearInterval(pollInterval);
+  }, [loadDashboardData]);
 
   const displayName = currentUser?.full_name || currentUser?.name || currentUser?.username || 'Caregiver';
 
@@ -302,19 +322,32 @@ function CaregiverDashboardInner() {
       const q = searchQuery.toLowerCase();
       list = list.filter(
         (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.relation?.toLowerCase().includes(q)
+          p.name?.toLowerCase().includes(q) ||
+          p.relation?.toLowerCase().includes(q) ||
+          p.phone?.toLowerCase().includes(q) ||
+          p.email?.toLowerCase().includes(q)
       );
     }
 
     if (activeFilter === 'attention') {
-      list = list.filter((p) => p.lastDoseStatus === 'missed' || p.pendingDosesCount > 0);
+      list = list.filter((p) => p.lastDoseStatus === 'missed' || (p.pendingDosesCount && p.pendingDosesCount > 0) || (p.adherenceScore !== undefined && p.adherenceScore < 75));
+    } else if (activeFilter === 'high-adherence') {
+      list = list.filter((p) => p.adherenceScore !== undefined && p.adherenceScore > 80);
     } else if (activeFilter === 'critical') {
-      list = list.filter((p) => p.adherenceScore < 60);
+      list = list.filter((p) => p.adherenceScore !== undefined && p.adherenceScore < 60);
+    } else if (activeFilter === 'low-stock') {
+      list = list.filter((p) => (p.lowStockCount && p.lowStockCount > 0) || (p.pendingDosesCount && p.pendingDosesCount > 0));
     }
 
+    list = [...list].sort((a, b) => {
+      if (sortBy === 'adherence-desc') return (b.adherenceScore ?? 0) - (a.adherenceScore ?? 0);
+      if (sortBy === 'adherence-asc') return (a.adherenceScore ?? 0) - (b.adherenceScore ?? 0);
+      if (sortBy === 'name-asc') return (a.name || '').localeCompare(b.name || '');
+      return 0;
+    });
+
     return list;
-  }, [patients, searchQuery, activeFilter]);
+  }, [patients, searchQuery, activeFilter, sortBy]);
 
   const stats = useMemo(() => {
     const total = patients.length;
@@ -342,6 +375,7 @@ function CaregiverDashboardInner() {
 
   const handleSendReminder = useCallback(async (id) => {
     const target = patients.find((p) => p.id === id);
+    if (!target) return;
     try {
       if (target?.id) {
         await caregiverAPI.sendPatientReminder(
@@ -349,34 +383,29 @@ function CaregiverDashboardInner() {
           `Please take your scheduled medication: ${target?.nextMedication?.name || 'Daily Dose'}.`
         );
       }
-    } catch {
-      // Fallback broadcast
-      try {
-        await notificationAPI.sendTest({
-          channel: 'all',
-          title: 'Medication Reminder',
-          message: `Please take your scheduled dose: ${target?.name || 'Patient'}.`,
-          patient_id: target?.id,
-        });
-      } catch {}
+      addToast({
+        title: 'Reminder Alert Sent',
+        description: `Urgent dose notification dispatched to ${target?.name || 'Patient'}.`,
+        variant: 'success',
+      });
+    } catch (err) {
+      addToast({
+        title: 'Reminder Dispatch Failed',
+        description: err?.message || `Could not dispatch alert to ${target?.name || 'Patient'}.`,
+        variant: 'error',
+      });
     }
-
-    addToast({
-      title: 'Reminder Alert Sent',
-      description: `Urgent dose notification dispatched to ${target?.name || 'Patient'}.`,
-      variant: 'success',
-    });
   }, [patients, addToast]);
 
   const handleEmergencyContact = useCallback((id) => {
     const target = patients.find((p) => p.id === id);
-    addToast({
-      title: 'Emergency Contact Alert',
-      description: `Calling primary contact for ${target?.name || 'Patient'}...`,
-      variant: 'warning',
-    });
-    window.location.href = 'tel:911';
-  }, [patients, addToast]);
+    if (target) {
+      setEmergencyModalPatient(target);
+      setIsEmergencyModalOpen(true);
+    } else {
+      window.location.href = 'tel:911';
+    }
+  }, [patients]);
 
   const handleEmergencyBroadcast = useCallback(async () => {
     try {
@@ -410,6 +439,7 @@ function CaregiverDashboardInner() {
       });
       return;
     }
+    setBulkReminderLoading(true);
     try {
       for (const cp of criticalPatients) {
         await notificationAPI.sendTest({
@@ -430,6 +460,8 @@ function CaregiverDashboardInner() {
         description: `Alert notifications queued for ${criticalPatients.length} at-risk patients.`,
         variant: 'info',
       });
+    } finally {
+      setBulkReminderLoading(false);
     }
   }, [patients, addToast]);
 
@@ -531,27 +563,14 @@ function CaregiverDashboardInner() {
         variant: 'success',
       });
 
-      // Refresh patients list
-      const data = await caregiverAPI.getPatients();
-      const list = Array.isArray(data) ? data : [];
-      setPatients(list.map((u) => ({
-        id: u.id,
-        name: u.full_name || u.username || 'Patient',
-        age: u.age || (u.id === res?.patient?.id ? Number(manualAge) : null),
-        relation: u.relationship || manualRelation || 'Monitored Patient',
-        adherenceScore: 92,
-        pendingDosesCount: 0,
-        lastDoseStatus: 'taken',
-        image: null,
-        nextMedication: null,
-        email: u.email,
-      })));
+      // Refresh patients list with live telemetry
+      await loadDashboardData();
     } catch (err) {
       setLinkError(err.message || 'Failed to connect patient. Please verify the details.');
     } finally {
       setLinkLoading(false);
     }
-  }, [linkTab, linkCode, manualQuery, manualName, manualAge, manualRelation, manualNotes, manualMedicines, addToast]);
+  }, [linkTab, linkCode, manualQuery, manualName, manualAge, manualRelation, manualNotes, manualMedicines, addToast, loadDashboardData]);
 
   const handleCloseLinkModal = useCallback(() => {
     setIsLinkModalOpen(false);
@@ -590,31 +609,13 @@ function CaregiverDashboardInner() {
 
             <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0 scrollbar-none w-full md:w-auto shrink-0">
               <Button
-                variant="outlined"
-                size="sm"
-                onClick={() => exportAPI.caregiverPatientsPDF()}
-                leftIcon={<Download className="w-3.5 h-3.5" />}
-                className="min-h-[38px] shrink-0"
-              >
-                Patients PDF
-              </Button>
-              <Button
-                variant="outlined"
-                size="sm"
-                onClick={() => exportAPI.caregiverPatientsCSV()}
-                leftIcon={<Download className="w-3.5 h-3.5" />}
-                className="min-h-[38px] shrink-0"
-              >
-                Patients CSV
-              </Button>
-              <Button
                 variant="primary"
                 size="sm"
                 className="bg-[#164234] hover:bg-[#0f2e24] text-white font-semibold shadow-xs min-h-[38px] shrink-0"
                 onClick={() => setIsExportModalOpen(true)}
                 leftIcon={<Download className="w-3.5 h-3.5" />}
               >
-                Export Hub
+                {locale === "hi" ? "डेटा निर्यात हब" : "Export Hub"}
               </Button>
               <Button
                 variant="outlined"
@@ -634,9 +635,6 @@ function CaregiverDashboardInner() {
               >
                 {locale === "hi" ? "हिन्दी (HI)" : "English (EN)"}
               </Button>
-              <div className="shrink-0">
-                <LogoutButton variant="icon" />
-              </div>
             </div>
           </div>
         </div>
@@ -718,7 +716,7 @@ function CaregiverDashboardInner() {
         </section>
 
         {/* ── Live Medication Reminder & Alert Widget ──────────────────── */}
-        <section className="grid grid-cols-1 lg:grid-cols-3 gap-lg">
+        <section id="ward-queue" className="grid grid-cols-1 lg:grid-cols-3 gap-lg scroll-mt-6">
           <div className="lg:col-span-2">
             <div className="bg-surface-container-lowest p-card-padding rounded-xl border border-outline-variant/30">
               <div className="flex items-center justify-between mb-3">
@@ -731,7 +729,7 @@ function CaregiverDashboardInner() {
               <p className="text-caption text-on-surface-variant mb-4">
                 Real-time tracking of upcoming and overdue patient doses across assigned wards.
               </p>
-              <ReminderWidget />
+              <CaregiverQueueWidget onSendReminder={handleSendReminder} />
             </div>
           </div>
           <div className="space-y-4">
@@ -749,6 +747,8 @@ function CaregiverDashboardInner() {
                     variant="secondary"
                     size="sm"
                     fullWidth
+                    loading={bulkReminderLoading}
+                    disabled={bulkReminderLoading}
                     leftIcon={<Bell className="w-4 h-4" />}
                     onClick={handleBulkReminder}
                     className="font-semibold shadow-xs"
@@ -775,37 +775,103 @@ function CaregiverDashboardInner() {
                 >
                   Open Export Hub
                 </Button>
-                <Button variant="outlined" size="sm" fullWidth leftIcon={<Download className="w-4 h-4" />} onClick={() => exportAPI.adherenceCSV()}>
-                  Download Logs (CSV)
+                <Button
+                  variant="outlined"
+                  size="sm"
+                  fullWidth
+                  leftIcon={<Download className="w-4 h-4" />}
+                  onClick={() => {
+                    addToast({
+                      title: 'Generating Patient Data CSV',
+                      description: 'Exporting medication and schedule records for assigned patients...',
+                      variant: 'info',
+                    });
+                    exportAPI.caregiverPatientsCSV();
+                  }}
+                >
+                  Download Patient Data (CSV)
                 </Button>
               </div>
             </Card>
           </div>
         </section>
 
-        {/* ── Search & Filter Bar ───────────────────────────────────────── */}
-        <section className="flex flex-col md:flex-row items-start md:items-center justify-between gap-md">
-          {/* Filter tabs */}
-          <div className="flex items-center gap-xs overflow-x-auto pb-1 -mb-1">
+        {/* ── Patient Command & Search Toolbar ───────────────────────────────────────── */}
+        <section className="bg-surface-container-lowest/90 dark:bg-surface-container-low/70 backdrop-blur-md rounded-2xl p-4 border border-outline-variant/40 shadow-xs space-y-3">
+          {/* Row 1: Search + Link Patient + Sort */}
+          <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3">
+            {/* Dominant Left-Aligned Search Bar */}
+            <div className="relative flex-1 min-w-[280px] max-w-2xl">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-on-surface-variant">
+                <Search className="w-4 h-4" />
+              </div>
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={locale === 'hi' ? "रोगी का नाम, फोन, ईमेल, संबंध खोजें..." : "Search patient by name, phone, email, relation..."}
+                className="w-full h-11 pl-10 pr-10 text-sm bg-surface-container-high/50 dark:bg-surface-container-highest/30 border border-outline-variant/60 rounded-xl focus:ring-2 focus:ring-primary focus:border-primary transition-all text-on-surface placeholder:text-on-surface-variant/70"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-on-surface-variant hover:text-on-surface"
+                >
+                  <XCircle className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Action Buttons: Link Patient + Sort */}
+            <div className="flex items-center gap-2.5 shrink-0">
+              <Button
+                variant="primary"
+                className="h-11 px-4 bg-[#164234] hover:bg-[#0f2e24] text-white font-semibold rounded-xl shadow-xs"
+                leftIcon={<UserPlus className="w-4 h-4" />}
+                onClick={() => setIsLinkModalOpen(true)}
+              >
+                {locale === 'hi' ? 'रोगी जोड़ें' : 'Link Patient'}
+              </Button>
+
+              <div className="relative">
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="h-11 px-3.5 pr-8 text-xs font-semibold bg-surface-container-high/50 dark:bg-surface-container-highest/30 border border-outline-variant/60 rounded-xl text-on-surface focus:ring-2 focus:ring-primary appearance-none cursor-pointer"
+                >
+                  <option value="adherence-desc">{locale === 'hi' ? 'अनुपालन: उच्च से निम्न' : 'Adherence: High → Low'}</option>
+                  <option value="adherence-asc">{locale === 'hi' ? 'अनुपालन: निम्न से उच्च' : 'Adherence: Low → High'}</option>
+                  <option value="name-asc">{locale === 'hi' ? 'नाम: A से Z' : 'Name: A → Z'}</option>
+                </select>
+                <div className="absolute inset-y-0 right-0 pr-2.5 flex items-center pointer-events-none text-on-surface-variant">
+                  <ArrowUpDown className="w-3.5 h-3.5" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Row 2: Filter Tabs */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none pt-2 border-t border-outline-variant/20">
             {FILTER_TABS.map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
                 onClick={() => setActiveFilter(key)}
                 className={[
-                  'inline-flex items-center gap-1.5 px-md py-xs rounded-full text-caption font-semibold whitespace-nowrap',
+                  'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap',
                   'border transition-all duration-200',
                   activeFilter === key
-                    ? 'bg-primary text-on-primary border-primary shadow-sm'
-                    : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant/50 hover:border-primary/40 hover:text-primary',
+                    ? 'bg-[#164234] text-white border-[#164234] shadow-xs'
+                    : 'bg-surface-container-lowest dark:bg-surface-container-high/40 text-on-surface-variant border-outline-variant/50 hover:border-primary/40 hover:text-primary',
                 ].join(' ')}
               >
-                <Icon className="w-4 h-4" />
+                <Icon className="w-3.5 h-3.5" />
                 {label}
                 {key === 'attention' && stats.escalated > 0 && (
                   <span className={[
                     'ml-0.5 min-w-[18px] h-[18px] rounded-full text-[10px] font-bold flex items-center justify-center',
                     activeFilter === key
-                      ? 'bg-on-primary/20 text-on-primary'
+                      ? 'bg-white/20 text-white'
                       : 'bg-error/15 text-error',
                   ].join(' ')}>
                     {stats.escalated}
@@ -813,29 +879,6 @@ function CaregiverDashboardInner() {
                 )}
               </button>
             ))}
-          </div>
-
-          {/* Search + Link New Patient */}
-          <div className="flex items-center gap-sm w-full md:w-auto">
-            <div className="flex-1 md:w-64">
-              <Input
-                type="search"
-                placeholder="Search patients..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                clearable
-                onClear={() => setSearchQuery('')}
-                size="sm"
-              />
-            </div>
-            <Button
-              variant="primary"
-              size="sm"
-              leftIcon={<UserPlus className="w-4 h-4" />}
-              onClick={() => setIsLinkModalOpen(true)}
-            >
-              Link Patient
-            </Button>
           </div>
         </section>
 
@@ -1244,6 +1287,123 @@ function CaregiverDashboardInner() {
           </div>
         </Modal>
       )}
+
+      {/* ── Emergency Contact & Direct Dial Modal ────────────────────── */}
+      <Modal
+        isOpen={isEmergencyModalOpen}
+        onClose={() => {
+          setIsEmergencyModalOpen(false);
+          setEmergencyModalPatient(null);
+        }}
+        title={`Emergency Response: ${emergencyModalPatient?.name || 'Patient'}`}
+        description="Direct communication line and multi-channel emergency alert dispatch."
+        size="md"
+      >
+        <div className="space-y-4 py-2">
+          <div className="p-3 rounded-xl bg-error/10 border border-error/20 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-error shrink-0 mt-0.5" />
+            <div>
+              <h4 className="text-body-sm font-bold text-error">Critical Incident Protocol</h4>
+              <p className="text-caption text-on-surface-variant">
+                For acute life-threatening situations, dial emergency services immediately before notifying kin.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-xl bg-surface-container-low border border-outline-variant/30 space-y-2">
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-on-surface-variant font-medium">Patient:</span>
+              <span className="font-bold text-on-surface">{emergencyModalPatient?.name}</span>
+            </div>
+            {emergencyModalPatient?.relation && (
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-on-surface-variant font-medium">Relationship:</span>
+                <span className="font-semibold text-on-surface">{emergencyModalPatient?.relation}</span>
+              </div>
+            )}
+            {emergencyModalPatient?.phone && (
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-on-surface-variant font-medium">Direct Phone:</span>
+                <a
+                  href={`tel:${emergencyModalPatient.phone}`}
+                  className="font-bold text-primary hover:underline font-mono"
+                >
+                  {emergencyModalPatient.phone}
+                </a>
+              </div>
+            )}
+            {emergencyModalPatient?.email && (
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-on-surface-variant font-medium">Email:</span>
+                <span className="text-on-surface">{emergencyModalPatient.email}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2 pt-1">
+            {emergencyModalPatient?.phone ? (
+              <a
+                href={`tel:${emergencyModalPatient.phone}`}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm transition-colors shadow-sm"
+              >
+                <Phone className="w-4 h-4" />
+                <span>Call Patient ({emergencyModalPatient.phone})</span>
+              </a>
+            ) : (
+              <div className="p-2.5 rounded-lg bg-surface-container-high/40 text-center text-caption text-on-surface-variant">
+                No direct phone number registered for this patient profile.
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <a
+                href="tel:112"
+                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs transition-colors text-center"
+              >
+                <Phone className="w-3.5 h-3.5" />
+                <span>Dial 112 (National)</span>
+              </a>
+              <a
+                href="tel:108"
+                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs transition-colors text-center"
+              >
+                <Phone className="w-3.5 h-3.5" />
+                <span>Dial 108 (Ambulance)</span>
+              </a>
+            </div>
+
+            <Button
+              variant="secondary"
+              size="sm"
+              fullWidth
+              leftIcon={<Bell className="w-4 h-4" />}
+              onClick={async () => {
+                try {
+                  await notificationAPI.sendTest({
+                    channel: 'all',
+                    title: `EMERGENCY: Caregiver Escalation`,
+                    message: `Caregiver escalated an urgent check-in for patient ${emergencyModalPatient?.name}.`,
+                    patient_id: emergencyModalPatient?.id,
+                  });
+                  addToast({
+                    title: 'SOS Dispatched',
+                    description: `Emergency notification broadcasted to ${emergencyModalPatient?.name}'s registered devices.`,
+                    variant: 'warning',
+                  });
+                } catch (e) {
+                  addToast({
+                    title: 'Notification Queued',
+                    description: 'Emergency alert queued for delivery.',
+                    variant: 'info',
+                  });
+                }
+              }}
+            >
+              Dispatch Multi-Channel SOS Broadcast
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* ── Caregiver Clinical Data Export Center Modal ─────────────────── */}
       <ExportDataModal
