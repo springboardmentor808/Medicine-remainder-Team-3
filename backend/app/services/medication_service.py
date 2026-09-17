@@ -8,7 +8,7 @@ and disease-based grouping. Used by the /api/v1/medicines router.
 import uuid
 from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import cast, func, or_, select, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.medicine import Medicine
@@ -26,23 +26,70 @@ async def create_medicine(
 ) -> Medicine:
     """
     Insert a new medicine record for the given user.
-
-    Sets current_stock equal to initial_quantity on creation.
+    Sets current_stock equal to initial_quantity on creation,
+    and automatically generates corresponding daily reminder schedules.
     """
-    cat_val = data.disease_category.value if hasattr(data.disease_category, "value") else str(data.disease_category)
+    valid_categories = {
+        "blood pressure": "Blood Pressure",
+        "diabetes": "Diabetes",
+        "thyroid": "Thyroid",
+        "antibiotics": "Antibiotics",
+        "vitamins": "Vitamins",
+        "heart medications": "Heart Medications",
+        "general healthcare": "General Healthcare",
+        "general": "General Healthcare",
+        "supplement": "Vitamins",
+        "supplements": "Vitamins",
+    }
+    raw_cat = str(data.disease_category.value if hasattr(data.disease_category, "value") else data.disease_category).strip().lower()
+    cat_val = valid_categories.get(raw_cat, "General Healthcare")
+
     medicine = Medicine(
         user_id=user_id,
-        name=data.name,
+        name=data.name.strip(),
         disease_category=cat_val,
-        dosage=data.dosage,
-        initial_quantity=data.initial_quantity,
-        current_stock=data.initial_quantity,  # full stock on creation
-        daily_frequency=data.daily_frequency,
-        quantity_per_dose=data.quantity_per_dose,
-        notes=data.notes,
+        dosage=data.dosage.strip(),
+        initial_quantity=max(1, data.initial_quantity),
+        current_stock=max(1, data.initial_quantity),  # full stock on creation
+        daily_frequency=max(1, data.daily_frequency),
+        quantity_per_dose=max(1, data.quantity_per_dose),
+        notes=data.notes.strip() if data.notes else None,
     )
     db.add(medicine)
     await db.flush()
+
+    # Automatically generate default daily reminder schedules in the schedules table
+    try:
+        from datetime import time as d_time
+        from app.models.schedule import Schedule
+
+        freq = max(1, data.daily_frequency)
+        if freq == 1:
+            slots = [(d_time(8, 0), "Morning")]
+        elif freq == 2:
+            slots = [(d_time(8, 0), "Morning"), (d_time(20, 0), "Night")]
+        elif freq == 3:
+            slots = [(d_time(8, 0), "Morning"), (d_time(13, 0), "Afternoon"), (d_time(20, 0), "Night")]
+        elif freq == 4:
+            slots = [(d_time(8, 0), "Morning"), (d_time(12, 0), "Afternoon"), (d_time(18, 0), "Evening"), (d_time(22, 0), "Night")]
+        else:
+            slots = [(d_time(8, 0), "Morning")]
+
+        for t_val, lbl in slots:
+            sched = Schedule(
+                user_id=user_id,
+                medicine_id=medicine.id,
+                scheduled_time=t_val,
+                day_of_week=None,
+                frequency_pattern=f"{freq}x daily",
+                dose_label=lbl,
+                is_active=True,
+            )
+            db.add(sched)
+        await db.flush()
+    except Exception as sched_err:
+        print(f"[MedicationService] Auto-schedule creation notice: {sched_err}")
+
     await db.commit()
     await db.refresh(medicine)
     return medicine
@@ -71,7 +118,6 @@ async def get_medicine_by_id(
 
     # Fallback: try string comparison for SQLite which stores UUIDs as hex
     if med is None:
-        from sqlalchemy import or_, cast, String
         med_str = str(medicine_id)
         med_hex = medicine_id.hex
         result = await db.execute(
@@ -80,6 +126,44 @@ async def get_medicine_by_id(
                     cast(Medicine.id, String) == med_str,
                     cast(Medicine.id, String) == med_hex,
                 )
+            )
+        )
+        med = result.scalar_one_or_none()
+
+    return med
+
+
+async def get_medicine_by_id_and_user(
+    db: AsyncSession,
+    medicine_id: uuid.UUID | str,
+    user_id: uuid.UUID | str,
+) -> Medicine | None:
+    """Fetch a medicine record ensuring strict tenant isolation via compound DB filter."""
+    if isinstance(medicine_id, str):
+        try:
+            medicine_id = uuid.UUID(medicine_id)
+        except ValueError:
+            return None
+    if isinstance(user_id, str):
+        try:
+            user_id = uuid.UUID(user_id)
+        except ValueError:
+            return None
+
+    result = await db.execute(
+        select(Medicine).where(
+            Medicine.id == medicine_id,
+            Medicine.user_id == user_id,
+        )
+    )
+    med = result.scalar_one_or_none()
+    if med is None:
+        med_str = str(medicine_id)
+        u_str = str(user_id)
+        result = await db.execute(
+            select(Medicine).where(
+                cast(Medicine.id, String) == med_str,
+                cast(Medicine.user_id, String) == u_str,
             )
         )
         med = result.scalar_one_or_none()
@@ -160,8 +244,7 @@ async def update_medicine(
             value = value.value
         setattr(medicine, field, value)
 
-    await db.flush()
-    await db.commit()
+    await db.flush()  # Commit handled by get_db dependency
     await db.refresh(medicine)
     return medicine
 
@@ -176,8 +259,7 @@ async def delete_medicine(
 ) -> None:
     """Hard delete a medicine record and its cascaded children."""
     await db.delete(medicine)
-    await db.flush()
-    await db.commit()
+    await db.flush()  # Commit handled by get_db dependency
 
 
 # ---------------------------------------------------------------------------
@@ -207,8 +289,7 @@ async def update_stock(
     elif adjustment is not None:
         medicine.current_stock = max(0, previous_stock + adjustment)
 
-    await db.flush()
-    await db.commit()
+    await db.flush()  # Commit handled by get_db dependency
     await db.refresh(medicine)
     return previous_stock, medicine.current_stock
 

@@ -6,18 +6,21 @@ password recovery (OTP + reset link), and logout.
 All passwords are bcrypt-hashed. Tokens are JWT with access + refresh pattern.
 """
 
+import asyncio
 import time
 import random
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.config import settings
+from app.core.redis import get_redis, check_rate_limit
 from app.core.security import (
+
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -36,22 +39,22 @@ from app.schemas.auth_schema import (
     RegisterRequest,
     RegisterResponse,
     ResetPasswordRequest,
+    SendOTPRequest,
     TokenResponse,
     UserResponse,
+    VerifyOTPRequest,
     VerifyOtpRequest,
 )
-from app.services.email_service import (
-    send_otp_email,
-    send_password_reset_link,
-    send_welcome_email,
-)
+from app.services.otp_service import OTPService
+from app.services.email_service import EmailService
+from app.services.sms_service import SMSService, normalize_phone
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-# Temporary in-memory OTP cache: { "email": { "otp": "123456", "expires_at": float } }
-_OTP_STORE = {}
+# Note: OTPs are now stored in Redis (or InMemoryRedisFallback) via cache_set/cache_get
+# under key pattern 'otp:{email}' with 10-minute TTL for multi-worker safety.
 
 
 # ===================================================================
@@ -66,38 +69,70 @@ _OTP_STORE = {}
 )
 async def register(
     payload: RegisterRequest,
+    request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Register a new user.
 
-    - Validates username and email uniqueness.
+    - Rate limited to prevent automated registration abuse.
+    - Validates username and email uniqueness (case-insensitive).
     - Hashes the password with bcrypt.
-    - Issues JWT access and refresh tokens.
+    - Issues JWT access and refresh tokens via HttpOnly cookies and response body.
     - Sends welcome email.
     """
-    # Check for existing username or email
-    existing = await db.execute(
-        select(User).where(
-            or_(
-                User.username == payload.username,
-                User.email == payload.email,
-            )
+    client_ip = request.client.host if (request and request.client) else "127.0.0.1"
+    allowed, remaining = await check_rate_limit(f"ratelimit:register:{client_ip}", max_requests=10, window_seconds=600)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many registration attempts. Please try again later.",
         )
-    )
-    if existing.scalar_one_or_none():
+    clean_email = payload.email.strip().lower()
+    target_username = payload.username.strip().lower() if payload.username else ""
+    if not target_username:
+        email_prefix = clean_email.split("@")[0].replace("-", "_").replace(".", "_")
+        target_username = email_prefix if len(email_prefix) >= 3 else f"{email_prefix}_usr"
+
+    # Check for existing email
+    existing_email = await db.execute(select(User).where(func.lower(User.email) == clean_email))
+    if existing_email.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Username or email already registered.",
+            detail="An account with this email address is already registered.",
         )
 
-    # Create new user
+    # Enforce email verification
+    is_email_ver = await OTPService.is_destination_verified(clean_email, channel="email", purpose="REGISTRATION")
+    if not is_email_ver:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email address has not been verified. Please complete email OTP verification before registering.",
+        )
+
+    # Enforce phone verification if phone is provided
+    if payload.phone:
+        is_phone_ver = await OTPService.is_destination_verified(payload.phone, channel="phone", purpose="REGISTRATION")
+        if not is_phone_ver:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Phone number has not been verified. Please complete mobile OTP verification before registering.",
+            )
+
+    # If username collision occurs, append unique suffix
+    existing_uname = await db.execute(select(User).where(func.lower(User.username) == target_username))
+
+    if existing_uname.scalar_one_or_none():
+        target_username = f"{target_username[:40]}_{uuid.uuid4().hex[:6]}"
+
+    # Create new user with normalized fields
     new_user = User(
-        username=payload.username,
-        email=payload.email,
+        username=target_username,
+        email=clean_email,
         hashed_password=hash_password(payload.password),
-        full_name=payload.full_name,
-        phone=payload.phone,
+        full_name=payload.full_name.strip(),
+        phone=payload.phone.strip() if payload.phone else None,
         role=payload.role,
     )
 
@@ -113,9 +148,27 @@ async def register(
 
     # Send welcome email (non-blocking, don't fail registration if email fails)
     try:
-        await send_welcome_email(new_user.email, new_user.full_name)
+        await EmailService.send_welcome_email(new_user.email, new_user.full_name, new_user.role)
     except Exception as e:
         logger.warning(f"[Auth] Welcome email failed for {new_user.email}: {e}")
+
+    is_prod = settings.ENVIRONMENT.lower() == "production"
+    response.set_cookie(
+        key="pillsync_access_token",
+        value=access_token,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+    response.set_cookie(
+        key="pillsync_refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+    )
 
     return RegisterResponse(
         user=UserResponse(
@@ -144,15 +197,17 @@ async def register(
 )
 async def login(
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Authenticate user credentials and issue JWT token pair.
 
+    - Rate limited to prevent brute force credential stuffing.
     - Accepts JSON body (`{"username": "...", "password": "..."}`) OR Form Data (Swagger Authorize popup).
     - Looks up user by username OR email.
     - Verifies bcrypt password hash.
-    - Returns access + refresh tokens.
+    - Sets HttpOnly access and refresh cookies and returns token pair.
     """
     username: str | None = None
     password: str | None = None
@@ -166,7 +221,7 @@ async def login(
             password = body.get("password")
         except Exception:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Invalid JSON payload.",
             )
     else:
@@ -189,8 +244,17 @@ async def login(
     username_clean = (username or "").strip()
     if not username_clean or not password:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Fields 'username' and 'password' are required.",
+        )
+
+    # Rate limiting on login attempts
+    client_ip = request.client.host if (request and request.client) else "127.0.0.1"
+    allowed, remaining = await check_rate_limit(f"ratelimit:login:{client_ip}:{username_clean}", max_requests=10, window_seconds=60)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Please wait 60 seconds before trying again.",
         )
 
     result = await db.execute(
@@ -222,6 +286,24 @@ async def login(
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
 
+    is_prod = settings.ENVIRONMENT.lower() == "production"
+    response.set_cookie(
+        key="pillsync_access_token",
+        value=access_token,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+    response.set_cookie(
+        key="pillsync_refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+    )
+
     return LoginResponse(
         user=UserResponse(
             id=user.id,
@@ -245,15 +327,159 @@ async def login(
     "/logout",
     response_model=MessageResponse,
     summary="User logout",
-    description="Invalidate the current session. Client should clear stored tokens.",
+    description="Invalidate the current session and add token to Redis blacklist.",
 )
-async def logout():
+async def logout(request: Request, response: Response):
     """
     Logout endpoint.
-    Since JWTs are stateless, the client is responsible for clearing tokens.
-    This endpoint acknowledges the logout request.
+    Adds the caller's JWT token to the Redis revocation blacklist and clears auth cookies.
     """
+    access_token = None
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        access_token = auth_header[7:].strip()
+    elif "pillsync_access_token" in request.cookies:
+        access_token = request.cookies.get("pillsync_access_token", "").strip()
+
+    # Also extract refresh token from cookies or body to revoke it
+    refresh_tok = request.cookies.get("pillsync_refresh_token", "").strip()
+    if not refresh_tok:
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                refresh_tok = str(body.get("refresh_token", "")).strip()
+        except Exception:
+            pass
+
+    redis = get_redis()
+    if redis:
+        if access_token:
+            try:
+                payload = decode_token(access_token)
+                exp = payload.get("exp")
+                ttl = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+                if exp:
+                    remaining = int(exp - time.time())
+                    if remaining > 0:
+                        ttl = remaining
+                await redis.set(f"blacklist:{access_token}", "revoked", ex=ttl)
+            except HTTPException:
+                pass  # Malformed or already expired token does not require Redis blacklisting
+            except Exception as e:
+                logger.warning(f"[Logout] Failed to blacklist access token in Redis: {e}")
+
+        if refresh_tok:
+            try:
+                payload = decode_token(refresh_tok)
+                exp = payload.get("exp")
+                ttl = settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400
+                if exp:
+                    remaining = int(exp - time.time())
+                    if remaining > 0:
+                        ttl = remaining
+                await redis.set(f"blacklist:{refresh_tok}", "revoked", ex=ttl)
+            except HTTPException:
+                pass  # Malformed or already expired token does not require Redis blacklisting
+            except Exception as e:
+                logger.warning(f"[Logout] Failed to blacklist refresh token in Redis: {e}")
+
+    response.delete_cookie("pillsync_access_token")
+    response.delete_cookie("pillsync_refresh_token")
+    response.delete_cookie("access_token")
+
     return MessageResponse(message="Logged out successfully.")
+
+
+# ===================================================================
+# POST /api/v1/auth/demo-login
+# ===================================================================
+@router.post(
+    "/demo-login",
+    response_model=LoginResponse,
+    summary="1-Click Demo Login",
+    description="Logs in or automatically provisions a real database user for a demo role (patient, caregiver, admin) and issues real JWT tokens.",
+)
+async def demo_login(
+    response: Response,
+    role: str = "patient",
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Authenticate or automatically create a demo user in PostgreSQL and return real JWT tokens.
+    """
+    role_clean = role.lower().strip()
+    if role_clean not in ["patient", "caregiver", "admin"]:
+        role_clean = "patient"
+
+    email_map = {
+        "admin": ("admin@pillsync.com", "Admin Superuser", "admin"),
+        "caregiver": ("caregiver@pillsync.com", "Dr. Sarah Kim", "drsarah"),
+        "patient": ("patient@pillsync.com", "Eleanor Martinez", "eleanor"),
+    }
+
+    email, name, uname = email_map[role_clean]
+
+    # Find or auto-provision demo user in DB
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        res2 = await db.execute(select(User).where(User.username == uname))
+        user = res2.scalar_one_or_none()
+
+    if not user:
+        user = User(
+            username=uname,
+            email=email,
+            hashed_password=hash_password("DemoPassword123!"),
+            full_name=name,
+            phone="+1234567890",
+            role=role_clean,
+            is_active=True,
+        )
+        db.add(user)
+        await db.flush()
+        await db.commit()
+        await db.refresh(user)
+
+    # Issue real tokens
+    token_data = {"sub": str(user.id), "role": user.role}
+    access_token = create_access_token(token_data)
+    refresh_token_str = create_refresh_token(token_data)
+
+    is_prod = settings.ENVIRONMENT.lower() == "production"
+    response.set_cookie(
+        key="pillsync_access_token",
+        value=access_token,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+    response.set_cookie(
+        key="pillsync_refresh_token",
+        value=refresh_token_str,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+    )
+
+    return LoginResponse(
+        access_token=access_token,
+        refresh_token=refresh_token_str,
+        token_type="bearer",
+        user=UserResponse(
+            id=user.id,
+            username=user.username,
+            email=user.email,
+            full_name=user.full_name,
+            phone=user.phone,
+            role=user.role,
+            is_active=user.is_active,
+            created_at=user.created_at.isoformat() if hasattr(user.created_at, 'isoformat') else str(user.created_at),
+        ),
+    )
 
 
 # ===================================================================
@@ -267,20 +493,22 @@ async def logout():
 )
 async def refresh_token(
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Issue a new access token using a valid refresh token.
 
-    Accepts refresh_token from JSON body or Authorization header.
+    Accepts refresh_token from cookies, JSON body or Authorization header.
     """
-    # Try to get refresh token from JSON body first
-    refresh_tok = None
-    try:
-        body = await request.json()
-        refresh_tok = body.get("refresh_token")
-    except Exception:
-        pass
+    # Try to get refresh token from cookies first
+    refresh_tok = request.cookies.get("pillsync_refresh_token")
+    if not refresh_tok:
+        try:
+            body = await request.json()
+            refresh_tok = body.get("refresh_token")
+        except Exception:
+            pass
 
     # Fallback: try Authorization header
     if not refresh_tok:
@@ -290,9 +518,24 @@ async def refresh_token(
 
     if not refresh_tok:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="refresh_token is required in body or Authorization header.",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="refresh_token is required in cookies, body or Authorization header.",
         )
+
+    # Verify refresh token is not on Redis revocation blacklist
+    redis = get_redis()
+    if redis:
+        try:
+            is_revoked = await redis.get(f"blacklist:{refresh_tok}")
+            if is_revoked:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Refresh token has been revoked.",
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"[Refresh] Redis error checking revocation blacklist: {e}")
 
     token_payload = decode_token(refresh_tok)
 
@@ -324,10 +567,22 @@ async def refresh_token(
         {"sub": str(user.id), "role": user.role}
     )
 
+    is_prod = settings.ENVIRONMENT.lower() == "production"
+    response.set_cookie(
+        key="pillsync_access_token",
+        value=new_access,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+
     return TokenResponse(
         access_token=new_access,
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         refresh_token=refresh_tok,
     )
+
 
 
 # ===================================================================
@@ -387,161 +642,229 @@ async def change_password(
 # OTP & Password Recovery Endpoints
 # ===================================================================
 
+# ===================================================================
+# OTP & Password Recovery Endpoints
+# ===================================================================
+
+@router.post(
+    "/send-otp",
+    response_model=MessageResponse,
+    summary="Dispatch 6-digit verification code",
+    description="Generates a 6-digit cryptographic OTP, hashes it in Redis (5-min TTL), and dispatches via Email or SMS.",
+)
+async def send_otp(payload: SendOTPRequest):
+    """Generate and dispatch 6-digit OTP verification code."""
+    channel = (payload.channel or "email").strip().lower()
+    dest = (payload.destination or payload.email or payload.phone or "").strip()
+    if not dest:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Destination (email address or phone number) is required.",
+        )
+    if "@" in dest:
+        channel = "email"
+    elif channel != "email" and any(c.isdigit() for c in dest):
+        channel = "phone"
+
+    await OTPService.check_rate_limit(dest, channel=channel)
+    otp_code = await OTPService.generate_otp(dest, channel=channel, purpose=payload.purpose)
+
+    masked = dest[:2] + "****" + dest[-3:] if len(dest) > 5 else "****"
+    logger.info(f"[Auth:OTP] Dispatched code to {masked} via {channel} (5-min TTL)")
+
+    if channel == "email":
+        await EmailService.send_otp_email(dest, otp_code, purpose=payload.purpose)
+    else:
+        await SMSService.send_otp_sms(dest, otp_code, purpose=payload.purpose)
+
+    return MessageResponse(
+        message=f"A 6-digit verification code has been dispatched to your {channel}.",
+        detail=f"OTP sent to {dest} via {channel}",
+    )
+
+
+
 @router.post(
     "/forgot-password",
     response_model=MessageResponse,
-    summary="Request password reset OTP",
-    description="Generates and dispatches a 6-digit OTP to the registered email. Also sends a password reset link.",
+    summary="Request password reset",
+    description="Generates a single-use password reset token and OTP, dispatching via email.",
 )
 async def forgot_password(
     payload: ForgotPasswordRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate and send 6-digit OTP code + reset link for password reset."""
+    """Initiate password recovery with single-use reset token and OTP."""
     email_clean = payload.email.strip().lower()
+    masked_email = email_clean[:2] + "****" + email_clean[-4:] if len(email_clean) > 6 else "****"
 
-    # Check if user exists
     result = await db.execute(select(User).where(func.lower(User.email) == email_clean))
     user = result.scalar_one_or_none()
 
-    # Generate 6-digit numeric OTP
-    otp_code = f"{random.randint(100000, 999999)}"
-    expires_at = time.time() + (10 * 60)  # 10 minutes validity
+    otp_code = None
+    if user:
+        reset_token = await OTPService.create_password_reset_token(user.id, email_clean)
+        otp_code = await OTPService.generate_otp(email_clean, channel="email", purpose="PASSWORD_RESET")
+        logger.info(f"[Auth:PasswordReset] Generated reset OTP for {masked_email}")
+        async def _dispatch_reset_emails():
+            try:
+                await EmailService.send_password_reset_email(email_clean, reset_token)
+                await EmailService.send_otp_email(email_clean, otp_code, purpose="PASSWORD_RESET")
+            except Exception as mail_err:
+                logger.error(f"[Auth:PasswordReset] Error dispatching reset emails to {masked_email}: {mail_err}")
 
-    _OTP_STORE[email_clean] = {
-        "otp": otp_code,
-        "expires_at": expires_at,
-    }
+        asyncio.create_task(_dispatch_reset_emails())
 
-    # Send OTP email
-    try:
-        await send_otp_email(email_clean, otp_code, purpose="password_reset")
-    except Exception as e:
-        logger.warning(f"[Auth] OTP email send failed: {e}")
-
-    # Also send reset link with OTP as token
-    try:
-        await send_password_reset_link(email_clean, otp_code)
-    except Exception as e:
-        logger.warning(f"[Auth] Reset link email send failed: {e}")
-
-    response = MessageResponse(
-        message="A 6-digit OTP has been dispatched to your registered email. You can also use the reset link sent to your email.",
-        detail=f"OTP sent to {email_clean}",
+    return MessageResponse(
+        message="If an account exists for this email, password recovery instructions have been dispatched.",
+        detail=f"Recovery sent to {masked_email}",
     )
 
-    # Only include debug_otp in development mode
-    if settings.DEBUG:
-        response.debug_otp = otp_code
-
-    return response
 
 
 @router.post(
     "/verify-otp",
     response_model=MessageResponse,
-    summary="Verify OTP code",
-    description="Validates that the provided 6-digit OTP is correct and unexpired.",
+    summary="Verify 6-digit OTP code",
+    description="Validates that the provided 6-digit OTP matches Redis hash within 5-min TTL and marks email verified in DB.",
 )
-async def verify_otp(payload: VerifyOtpRequest):
-    """Verify that the submitted OTP matches."""
-    email_clean = payload.email.strip().lower()
-    stored = _OTP_STORE.get(email_clean)
-
-    if not stored:
+async def verify_otp(
+    payload: VerifyOTPRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify 6-digit OTP code with attempt limiting and PostgreSQL user verification."""
+    channel = (payload.channel or "email").strip().lower()
+    dest = (payload.destination or payload.email or payload.phone or "").strip()
+    if not dest:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No active OTP found for this email. Please request a new one.",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Destination (email address or phone number) is required.",
         )
+    if "@" in dest:
+        channel = "email"
+    elif channel != "email" and any(c.isdigit() for c in dest):
+        channel = "phone"
 
-    if time.time() > stored["expires_at"]:
-        _OTP_STORE.pop(email_clean, None)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="OTP has expired. Please request a new one.",
-        )
+    await OTPService.verify_otp(dest, payload.otp, channel=channel, purpose=payload.purpose)
 
-    if stored["otp"] != payload.otp.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid OTP code. Please check and try again.",
-        )
+    # In PostgreSQL, check if user exists with this email/phone, mark active/verified
+    # Security Rule: Do NOT authenticate or issue tokens for PASSWORD_RESET verification
+    is_password_reset = (payload.purpose or "").strip().upper() == "PASSWORD_RESET"
+    user_response = None
+    access_token = None
+    refresh_token_str = None
+    user_role = None
 
-    return MessageResponse(message="OTP verified successfully.")
+    if not is_password_reset and channel == "email":
+        clean_email = dest.lower()
+        result = await db.execute(select(User).where(func.lower(User.email) == clean_email))
+        user = result.scalar_one_or_none()
+        if user:
+            user.is_active = True
+            await db.commit()
+            await db.refresh(user)
+
+            user_role = user.role or "patient"
+            token_data = {"sub": str(user.id), "role": user.role}
+            access_token = create_access_token(token_data)
+            refresh_token_str = create_refresh_token(token_data)
+            user_response = UserResponse(
+                id=user.id,
+                username=user.username,
+                email=user.email,
+                full_name=user.full_name,
+                phone=user.phone,
+                role=user.role,
+                is_active=user.is_active,
+                created_at=user.created_at.isoformat() if hasattr(user.created_at, "isoformat") else str(user.created_at),
+            )
+
+    return MessageResponse(
+        message=f"{channel.capitalize()} verified successfully.",
+        detail="Password reset verification complete. Please submit your new password." if is_password_reset else f"{dest} verified",
+        verified=True,
+        access_token=access_token,
+        refresh_token=refresh_token_str,
+        user=user_response,
+        role=user_role,
+    )
+
+
 
 
 @router.post(
     "/resend-otp",
     response_model=MessageResponse,
     summary="Resend OTP code",
-    description="Generates and dispatches a new 6-digit OTP to the registered email.",
+    description="Generates and dispatches a fresh 6-digit OTP code.",
 )
 async def resend_otp(payload: ForgotPasswordRequest):
-    """Resend OTP to the provided email."""
+    """Resend 6-digit OTP to user email."""
     email_clean = payload.email.strip().lower()
+    otp_code = await OTPService.generate_otp(email_clean, purpose="PASSWORD_RESET")
+    masked_email = email_clean[:2] + "****" + email_clean[-4:] if len(email_clean) > 6 else "****"
+    logger.info(f"[Auth:ResendOTP] Fresh OTP generated for {masked_email}")
+    await EmailService.send_otp_email(email_clean, otp_code, purpose="PASSWORD_RESET")
 
-    # Generate new OTP
-    otp_code = f"{random.randint(100000, 999999)}"
-    expires_at = time.time() + (10 * 60)
-
-    _OTP_STORE[email_clean] = {
-        "otp": otp_code,
-        "expires_at": expires_at,
-    }
-
-    # Send via email
-    try:
-        await send_otp_email(email_clean, otp_code, purpose="password_reset")
-    except Exception as e:
-        logger.warning(f"[Auth] Resend OTP email failed: {e}")
-
-    response = MessageResponse(
-        message="A new OTP has been sent to your email.",
-        detail=f"OTP resent to {email_clean}",
+    return MessageResponse(
+        message="A new 6-digit OTP has been sent to your email.",
+        detail=f"OTP resent to {masked_email}",
     )
 
-    if settings.DEBUG:
-        response.debug_otp = otp_code
-
-    return response
 
 
 @router.post(
     "/reset-password",
     response_model=MessageResponse,
-    summary="Reset password with verified OTP",
-    description="Updates user password after successful OTP verification.",
+    summary="Complete password reset",
+    description="Updates user password after consuming a single-use token or verifying OTP.",
 )
 async def reset_password(
     payload: ResetPasswordRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Reset user password after OTP verification."""
-    email_clean = payload.email.strip().lower()
-    stored = _OTP_STORE.get(email_clean)
+    """Reset user password using single-use cryptographic token or verified OTP."""
+    user = None
+    if payload.token:
+        user_id_str, email = await OTPService.verify_and_consume_reset_token(payload.token)
+        result = await db.execute(select(User).where(User.id == uuid.UUID(user_id_str)))
+        user = result.scalar_one_or_none()
+    elif payload.email:
+        clean_email = payload.email.strip().lower()
+        redis = get_redis()
+        claim_key = f"otp_verified:email:{clean_email}:PASSWORD_RESET"
+        is_claimed = await redis.get(claim_key) if redis else None
 
-    if not stored or stored["otp"] != payload.otp.strip():
+        if not is_claimed:
+            if payload.otp:
+                await OTPService.verify_otp(clean_email, payload.otp, channel="email", purpose="PASSWORD_RESET")
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Please verify the OTP sent to your email before resetting your password.",
+                )
+
+        result = await db.execute(select(User).where(func.lower(User.email) == clean_email))
+        user = result.scalar_one_or_none()
+
+        # Clean up verified claims in Redis if set
+        if redis:
+            await redis.delete(claim_key)
+    else:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired OTP. Please request a new verification code.",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Either a reset token or email address is required.",
         )
 
-    # Find user in database
-    result = await db.execute(select(User).where(func.lower(User.email) == email_clean))
-    user = result.scalar_one_or_none()
 
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User with this email not found.",
+            detail="User account associated with this reset request could not be found.",
         )
 
-    # Update password
     user.hashed_password = hash_password(payload.new_password)
     await db.commit()
     await db.refresh(user)
 
-    # Clear OTP
-    _OTP_STORE.pop(email_clean, None)
-
-    return MessageResponse(message="Password reset successfully! You can now log in with your new password.")
+    return MessageResponse(message="Password reset successfully! You can now log in with your new credentials.")

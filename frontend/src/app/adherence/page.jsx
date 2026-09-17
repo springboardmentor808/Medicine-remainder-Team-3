@@ -29,7 +29,7 @@ import Button from '@/components/ui/Button';
 import EmptyState from '@/components/ui/EmptyState';
 import AdherenceRing from '@/components/ui/AdherenceRing';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
-import { exportAPI } from '@/lib/api';
+import { exportAPI, patientAPI, medicineAPI, analyticsAPI, caregiverAPI } from '@/lib/api';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -49,65 +49,15 @@ const ACTION_CONFIG = {
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-// ── Mock Data ────────────────────────────────────────────────────────────────
+// ── Default Fallbacks for new accounts ────────────────────────────────────────
 
-const MOCK_SUMMARY = {
-  '7d':  { overall: 87, taken: 42, missed: 3, snoozed: 3, total: 48, streakDays: 5 },
-  '30d': { overall: 82, taken: 164, missed: 18, snoozed: 14, total: 196, streakDays: 5 },
-  '90d': { overall: 79, taken: 460, missed: 62, snoozed: 46, total: 568, streakDays: 5 },
+const DEFAULT_SUMMARY = {
+  '7d':  { overall: 0, taken: 0, missed: 0, snoozed: 0, total: 0, streakDays: 0 },
+  '30d': { overall: 0, taken: 0, missed: 0, snoozed: 0, total: 0, streakDays: 0 },
+  '90d': { overall: 0, taken: 0, missed: 0, snoozed: 0, total: 0, streakDays: 0 },
 };
 
-const MOCK_PER_MEDICINE = [
-  { id: 'med-1', name: 'Metformin',     strength: '500mg',   type: 'Diabetes',       adherence: 92, taken: 26, total: 28, trend: 'up' },
-  { id: 'med-2', name: 'Amlodipine',    strength: '5mg',     type: 'Blood Pressure', adherence: 86, taken: 12, total: 14, trend: 'stable' },
-  { id: 'med-3', name: 'Atorvastatin',  strength: '20mg',    type: 'Cholesterol',    adherence: 78, taken: 11, total: 14, trend: 'down' },
-  { id: 'med-4', name: 'Levothyroxine', strength: '50mcg',   type: 'Thyroid',        adherence: 95, taken: 27, total: 28, trend: 'up' },
-  { id: 'med-5', name: 'Aspirin',       strength: '75mg',    type: 'Heart Health',   adherence: 71, taken: 10, total: 14, trend: 'down' },
-  { id: 'med-6', name: 'Vitamin D3',    strength: '1000 IU', type: 'Supplement',     adherence: 100, taken: 14, total: 14, trend: 'stable' },
-];
-
-const MOCK_DOSE_HISTORY = [
-  { id: 'dl-01', medicineName: 'Metformin 500mg',     date: '2026-08-17', time: '08:05 AM', action: 'taken',   notes: '' },
-  { id: 'dl-02', medicineName: 'Amlodipine 5mg',      date: '2026-08-17', time: '08:02 AM', action: 'taken',   notes: '' },
-  { id: 'dl-03', medicineName: 'Levothyroxine 50mcg', date: '2026-08-17', time: '06:32 AM', action: 'taken',   notes: '' },
-  { id: 'dl-04', medicineName: 'Atorvastatin 20mg',   date: '2026-08-16', time: '01:15 PM', action: 'taken',   notes: '' },
-  { id: 'dl-05', medicineName: 'Aspirin 75mg',        date: '2026-08-16', time: '',          action: 'missed',  notes: 'Forgot — was traveling' },
-  { id: 'dl-06', medicineName: 'Metformin 500mg',     date: '2026-08-16', time: '09:00 PM', action: 'snoozed', notes: 'Snoozed 15 min' },
-  { id: 'dl-07', medicineName: 'Metformin 500mg',     date: '2026-08-16', time: '09:18 PM', action: 'taken',   notes: 'Took after snooze' },
-  { id: 'dl-08', medicineName: 'Amlodipine 5mg',      date: '2026-08-16', time: '08:00 AM', action: 'taken',   notes: '' },
-  { id: 'dl-09', medicineName: 'Levothyroxine 50mcg', date: '2026-08-16', time: '06:30 AM', action: 'taken',   notes: '' },
-  { id: 'dl-10', medicineName: 'Vitamin D3 1000 IU',  date: '2026-08-16', time: '09:10 AM', action: 'taken',   notes: '' },
-  { id: 'dl-11', medicineName: 'Atorvastatin 20mg',   date: '2026-08-15', time: '',          action: 'skipped', notes: 'Side effects — nausea' },
-  { id: 'dl-12', medicineName: 'Aspirin 75mg',        date: '2026-08-15', time: '06:20 PM', action: 'taken',   notes: '' },
-  { id: 'dl-13', medicineName: 'Metformin 500mg',     date: '2026-08-15', time: '08:10 AM', action: 'taken',   notes: '' },
-  { id: 'dl-14', medicineName: 'Metformin 500mg',     date: '2026-08-15', time: '09:05 PM', action: 'taken',   notes: '' },
-];
-
-// ── Generate Weekly Heatmap Data ─────────────────────────────────────────────
-
-function generateHeatmapData(weeks = 4) {
-  const data = [];
-  const today = new Date();
-  for (let w = weeks - 1; w >= 0; w--) {
-    const week = [];
-    for (let d = 0; d < 7; d++) {
-      const date = new Date(today);
-      date.setDate(today.getDate() - (w * 7 + (6 - d)));
-      const isFuture = date > today;
-      // Simulate adherence percentage per day
-      const pct = isFuture ? -1 : Math.floor(Math.random() * 40) + 60;
-      week.push({
-        date: date.toISOString().split('T')[0],
-        dayLabel: date.getDate(),
-        weekday: WEEKDAYS[date.getDay()],
-        percentage: pct,
-        isFuture,
-      });
-    }
-    data.push(week);
-  }
-  return data;
-}
+// ── Heatmap is fully real — no mock data generator ───────────────────────────
 
 // ── Inner Page Component ─────────────────────────────────────────────────────
 
@@ -115,22 +65,170 @@ function AdherencePageInner() {
   const { addToast } = useToast();
   const [selectedPeriod, setSelectedPeriod] = useState('7d');
   const [historyFilter, setHistoryFilter] = useState('all'); // 'all' | 'taken' | 'missed' | 'snoozed'
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [liveSummary, setLiveSummary] = useState(DEFAULT_SUMMARY);
+  const [perMedicine, setPerMedicine] = useState([]);
+  const [doseHistory, setDoseHistory] = useState([]);
+  // Real heatmap from PostgreSQL (week-grid: array of weeks, each with 7 day objects)
+  const [heatmapData, setHeatmapData] = useState([]);
 
-  const summary = MOCK_SUMMARY[selectedPeriod] || MOCK_SUMMARY['7d'];
-  const heatmapData = useMemo(() => generateHeatmapData(4), []);
+  // Caregiver Roster State
+  const [currentUser, setCurrentUser] = useState(null);
+  const [wardPatients, setWardPatients] = useState([]);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('pillsync_user');
+      if (stored) {
+        const u = JSON.parse(stored);
+        setCurrentUser(u);
+        if (u.role === 'caregiver') {
+          Promise.allSettled([
+            caregiverAPI.getPatients(),
+            caregiverAPI.patientOverview(),
+          ]).then(([ptsRes, ovRes]) => {
+            const pts = ptsRes.status === 'fulfilled' ? (ptsRes.value?.data || ptsRes.value) : [];
+            const rawPts = Array.isArray(pts) ? pts : (pts?.patients || pts?.items || []);
+            const ovs = ovRes.status === 'fulfilled' ? (ovRes.value?.data || ovRes.value) : [];
+            const rawOvs = Array.isArray(ovs) ? ovs : (ovs?.reports || ovs?.items || []);
+
+            const mapped = rawPts.map((p) => {
+              const stat = rawOvs.find((o) => String(o.patient_id) === String(p.id)) || {};
+              const isDemoPatient = String(p.id).startsWith('00000000-0000-4000-8000-00000000000');
+              const adh = stat.adherence_percentage !== undefined && stat.adherence_percentage !== null
+                ? stat.adherence_percentage
+                : (isDemoPatient ? (String(p.id).endsWith('1') ? 94 : 68) : null);
+              const missed = stat.missed_doses !== undefined && stat.missed_doses !== null
+                ? stat.missed_doses
+                : (isDemoPatient ? (adh !== null && adh < 75 ? 3 : 0) : 0);
+              return {
+                id: p.id,
+                name: p.full_name || p.username || 'Patient',
+                adherence: adh !== null ? Math.round(adh) : null,
+                missedDoses: missed,
+                isDemo: isDemoPatient,
+              };
+            });
+            setWardPatients(mapped);
+          }).catch(() => {});
+        }
+      }
+    } catch {}
+  }, []);
+
+  // Fetch all real data in parallel — no mocks
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const [rep7Res, rep30Res, rep90Res, medsRes, histRes, hmRes] = await Promise.allSettled([
+          analyticsAPI.getSummary({ days: 7 }),
+          analyticsAPI.getSummary({ days: 30 }),
+          analyticsAPI.getSummary({ days: 90 }),
+          medicineAPI.list(),
+          patientAPI.getAdherenceHistory(),
+          analyticsAPI.getHeatmap({ weeks: 4 }),
+        ]);
+
+        // ── Per-period adherence summaries ────────────────────────────
+        const parseSummary = (res) => {
+          if (res.status !== 'fulfilled' || !res.value) return { overall: 0, taken: 0, missed: 0, snoozed: 0, total: 0, streakDays: 0 };
+          const r = res.value;
+          return {
+            overall: Math.round(r.adherence_percentage ?? 0),
+            taken: r.taken_doses ?? 0,
+            missed: r.missed_doses ?? 0,
+            snoozed: r.snoozed_doses ?? 0,
+            total: r.total_doses ?? 0,
+            streakDays: r.streak_days ?? 0,
+          };
+        };
+        setLiveSummary({
+          '7d':  parseSummary(rep7Res),
+          '30d': parseSummary(rep30Res),
+          '90d': parseSummary(rep90Res),
+        });
+
+        // ── Per-medicine adherence from dose history ──────────────────
+        const meds = medsRes.status === 'fulfilled' && Array.isArray(medsRes.value)
+          ? medsRes.value
+          : (medsRes.status === 'fulfilled' && medsRes.value?.items ? medsRes.value.items : []);
+
+        // Compute real per-medicine adherence from history logs
+        const histLogs = histRes.status === 'fulfilled'
+          ? (histRes.value?.logs || [])
+          : [];
+
+        // Build per-medicine taken/total map from history
+        const medMap = {};
+        for (const log of histLogs) {
+          const mId = log.medicine_id;
+          if (!medMap[mId]) medMap[mId] = { taken: 0, total: 0 };
+          medMap[mId].total += 1;
+          if (log.action === 'Taken' || log.action === 'TAKEN') medMap[mId].taken += 1;
+        }
+
+        if (meds.length > 0) {
+          setPerMedicine(meds.map((m, idx) => {
+            const stats = medMap[m.id] || { taken: 0, total: 0 };
+            const adh = stats.total > 0 ? Math.round((stats.taken / stats.total) * 100) : 0;
+            return {
+              id: m.id || `med-${idx}`,
+              name: m.name,
+              strength: m.dosage || '',
+              type: m.disease_category || 'Medication',
+              adherence: adh,
+              taken: stats.taken,
+              total: stats.total,
+              trend: adh >= 80 ? 'up' : adh >= 50 ? 'stable' : 'down',
+            };
+          }));
+        }
+
+        // ── Dose history log entries ──────────────────────────────────
+        if (histLogs.length > 0) {
+          setDoseHistory(histLogs.map((log) => ({
+            id: log.id,
+            date: log.scheduled_date,
+            action: log.action === 'Taken' || log.action === 'TAKEN'
+              ? 'taken'
+              : log.action === 'Missed' || log.action === 'MISSED'
+              ? 'missed'
+              : 'snoozed',
+            medicineName: log.medicine_name ||
+              meds.find((m) => m.id === log.medicine_id)?.name ||
+              'Medication',
+            time: log.action_time
+              ? new Date(log.action_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+              : log.scheduled_time || '—',
+          })).sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : 0)));
+        }
+
+        // ── Real heatmap grid ─────────────────────────────────────────
+        if (hmRes.status === 'fulfilled' && Array.isArray(hmRes.value)) {
+          setHeatmapData(hmRes.value);
+        }
+      } catch (err) {
+        console.error('Failed to load adherence data:', err);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const summary = liveSummary[selectedPeriod] || liveSummary['7d'];
 
   // Sort medicines by adherence (lowest first for attention)
   const sortedMedicines = useMemo(
-    () => [...MOCK_PER_MEDICINE].sort((a, b) => a.adherence - b.adherence),
-    []
+    () => [...perMedicine].sort((a, b) => a.adherence - b.adherence),
+    [perMedicine]
   );
 
   // Filtered dose history
   const filteredHistory = useMemo(() => {
-    if (historyFilter === 'all') return MOCK_DOSE_HISTORY;
-    return MOCK_DOSE_HISTORY.filter((d) => d.action === historyFilter);
-  }, [historyFilter]);
+    if (historyFilter === 'all') return doseHistory;
+    return doseHistory.filter((d) => d.action === historyFilter);
+  }, [doseHistory, historyFilter]);
 
   // Group history by date
   const groupedHistory = useMemo(() => {
@@ -182,8 +280,8 @@ function AdherencePageInner() {
                 <BarChart3 className="w-6 h-6" />
               </div>
               <div>
-                <h1 className="text-headline-sm font-bold">Adherence Reports</h1>
-                <p className="text-body-sm text-on-primary/70">Track your medication compliance</p>
+                <h1 className="text-2xl sm:text-headline-sm font-bold">Adherence Reports</h1>
+                <p className="text-base text-on-primary/90 mt-1 font-medium">Track your medication compliance</p>
               </div>
             </div>
 
@@ -207,6 +305,61 @@ function AdherencePageInner() {
       </header>
 
       <main className="max-w-4xl mx-auto px-gutter py-lg">
+        {/* ── Caregiver Ward Roster Scorecard ─────────────────────── */}
+        {currentUser?.role === 'caregiver' && wardPatients.length > 0 && (
+          <Card className="mb-lg border border-[#bfe3cd] dark:border-[#1e4537] bg-[#f4faf6] dark:bg-[#0e241c]/60">
+            <div className="p-card-padding">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2 text-[#11382d] dark:text-[#a0e5be]">
+                  <Activity className="w-5 h-5 text-[#164234] dark:text-[#a0e5be]" />
+                  <h2 className="text-body-sm font-bold">Monitored Ward Compliance Roster</h2>
+                </div>
+                <Badge variant="caregiver" size="xs">Caregiver Pro</Badge>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {wardPatients.map((p) => (
+                  <div
+                    key={p.id}
+                    className="p-4 rounded-xl bg-white dark:bg-surface-container-low border border-outline-variant/30 flex items-center justify-between gap-3 shadow-xs"
+                  >
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <h3 className="text-sm font-bold text-on-surface">{p.name}</h3>
+                        {p.isDemo && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] bg-secondary/15 text-secondary uppercase font-bold">Sample</span>
+                        )}
+                      </div>
+                      <p className="text-caption text-on-surface-variant mt-0.5">
+                        {p.adherence === null ? (
+                          <span className="text-on-surface-variant font-medium">ℹ️ No dose logs recorded yet</span>
+                        ) : p.missedDoses > 0 ? (
+                          <span className="text-error font-medium">⚠️ {p.missedDoses} missed doses reported</span>
+                        ) : (
+                          <span className="text-emerald-600 font-medium">✅ Full compliance on schedule</span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      {p.adherence !== null ? (
+                        <>
+                          <p className={`text-xl font-bold ${p.adherence > 80 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                            {p.adherence}%
+                          </p>
+                          <p className="text-[10px] text-on-surface-variant uppercase font-semibold">Adherence</p>
+                        </>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-semibold bg-surface-container-high text-on-surface-variant">
+                          No Data
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Card>
+        )}
+
         {/* ── Overall Adherence Ring ──────────────────────────────── */}
         <Card className="mb-lg">
           <div className="p-card-padding">
@@ -301,26 +454,44 @@ function AdherencePageInner() {
               ))}
             </div>
 
-            {/* Heatmap Grid */}
-            <div className="flex flex-col gap-1">
-              {heatmapData.map((week, wi) => (
-                <div key={wi} className="grid grid-cols-7 gap-1">
-                  {week.map((day, di) => (
-                    <div
-                      key={di}
-                      className={`aspect-square rounded-md flex items-center justify-center text-xs font-medium transition-colors
-                        ${getHeatmapColor(day.percentage)}
-                        ${day.percentage >= 75 ? 'text-white' : day.percentage >= 0 ? 'text-on-surface' : 'text-on-surface-variant'}
-                        ${day.isFuture ? 'opacity-30' : 'hover:ring-2 hover:ring-primary/30 cursor-default'}
-                      `}
-                      title={day.isFuture ? 'Future' : `${day.date}: ${day.percentage}% adherence`}
-                    >
-                      {day.dayLabel}
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
+            {/* Heatmap Grid — real data or empty state */}
+            {heatmapData.length === 0 ? (
+              <div className="text-center py-8">
+                <Calendar className="w-8 h-8 text-on-surface-variant/40 mx-auto mb-2" />
+                <p className="text-caption text-on-surface-variant">
+                  {loading ? 'Loading heatmap...' : 'No dose data yet. Start taking your medications to build your history!'}
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {heatmapData.map((week, wi) => (
+                  <div key={wi} className="grid grid-cols-7 gap-1">
+                    {week.map((day, di) => (
+                      <div
+                        key={di}
+                        className={`aspect-square rounded-md flex items-center justify-center text-xs font-medium transition-colors
+                          ${getHeatmapColor(day.percentage)}
+                          ${day.percentage >= 75 ? 'text-white' : day.percentage >= 0 ? 'text-on-surface' : 'text-on-surface-variant'}
+                          ${(day.isFuture || day.isBeforeAccount) ? 'opacity-25' : 'hover:ring-2 hover:ring-primary/30 cursor-default'}
+                        `}
+                        title={
+                          day.isBeforeAccount
+                            ? `${day.date}: before account creation`
+                            : day.isFuture
+                            ? 'Future'
+                            : day.total > 0
+                            ? `${day.date}: ${day.taken}/${day.total} taken (${day.percentage}%)`
+                            : `${day.date}: no doses logged`
+                        }
+                      >
+                        {day.dayLabel}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+
           </div>
         </Card>
 

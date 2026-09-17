@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     Enum as SAEnum,
     ForeignKey,
@@ -44,6 +45,10 @@ class Medicine(Base):
     """
 
     __tablename__ = "medicines"
+    __table_args__ = (
+        CheckConstraint("current_stock >= 0", name="chk_medicine_current_stock_nonneg"),
+        CheckConstraint("quantity_per_dose >= 1", name="chk_medicine_quantity_per_dose_pos"),
+    )
 
     # --- Primary Key ---
     id: Mapped[uuid.UUID] = mapped_column(

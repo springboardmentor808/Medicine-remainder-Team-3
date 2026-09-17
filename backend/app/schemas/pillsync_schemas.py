@@ -1,6 +1,6 @@
 from datetime import datetime
-from pydantic import BaseModel, Field
-from typing import List, Optional
+from pydantic import BaseModel, Field, field_validator
+from typing import Any, List, Optional
 from enum import Enum
 
 class UserRole(str, Enum):
@@ -98,19 +98,35 @@ class ScheduleResponse(BaseModel):
     dose_label: Optional[str] = None
     is_active: bool
     created_at: datetime
+    medicine_name: Optional[str] = None
+    dosage: Optional[str] = None
+    disease_category: Optional[str] = None
+    notes: Optional[str] = None
 
 class ScheduleBatchCreateResponse(BaseModel):
     message: str
     schedules: List[ScheduleResponse]
 
-# Module 4 & 5: Reminder & Adherence Schemas
 class RecordActionRequest(BaseModel):
-    schedule_id: str
-    action: ReminderAction
+    schedule_id: Optional[str] = None
+    action: str = Field(..., description="Action: Taken, Missed, Snooze (case-insensitive)")
+    medicine_id: Optional[str] = None
     action_time: Optional[str] = None
     scheduled_date: Optional[str] = None  # YYYY-MM-DD
+    scheduled_time: Optional[str] = None
     snooze_minutes: Optional[int] = Field(default=15, ge=1, le=1440)
     notes: Optional[str] = None
+
+    @field_validator("action", mode="before")
+    @classmethod
+    def validate_action(cls, v: Any) -> str:
+        if isinstance(v, ReminderAction):
+            return v.value
+        if isinstance(v, str):
+            clean = v.strip().capitalize()
+            if clean in ["Taken", "Missed", "Snooze"]:
+                return clean
+        raise ValueError("Invalid action. Must be 'Taken', 'Missed', or 'Snooze'.")
 
 class DoseLogResponse(BaseModel):
     id: str
@@ -155,8 +171,33 @@ class AdherenceReportResponse(BaseModel):
     taken_doses: int
     missed_doses: int
     snoozed_doses: int
-    adherence_percentage: float
+    adherence_percentage: Optional[float] = None
     consistency_grade: str
+
+
+# Caregiver Queue Schemas
+class CaregiverQueueItem(BaseModel):
+    schedule_id: str
+    patient_id: str
+    patient_name: str
+    patient_phone: Optional[str] = None
+    medicine_id: str
+    medicine_name: str
+    dosage: str
+    scheduled_time: str
+    dose_label: Optional[str] = None
+    status: str  # "Taken", "Missed", "Pending"
+    action_time: Optional[datetime] = None
+    is_demo: bool = False
+
+class CaregiverQueueResponse(BaseModel):
+    date: str
+    total_doses: int
+    pending_count: int
+    taken_count: int
+    missed_count: int
+    is_demo: bool = False
+    items: List[CaregiverQueueItem]
 
 
 # Module 6: AI Refill Prediction Engine Schemas

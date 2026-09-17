@@ -16,6 +16,7 @@ eggs/
 .eggs/
 lib/
 lib64/
+!frontend/src/lib/
 parts/
 sdist/
 var/
@@ -54,20 +55,71 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Environment & Secrets
+# Environment & Secrets (Never commit secrets to Git)
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env*
+*.env
+*.env.*
+!*.env.example
+*.pem
+*.key
+*.cer
+*.crt
+*.pfx
+*.p12
+id_rsa*
+*firebase*.json
+*service*account*.json
+*service_account*.json
+*service-account*.json
+firebase_service_account.json
+backend/firebase_service_account.json
+client_secret*.json
+credentials*.json
+serviceAccountKey*.json
+token.json
+google-services.json
+GoogleService-Info.plist
 
 # Database files
 *.db
+*.db-shm
+*.db-wal
 *.sqlite3
 *.sqlite
+backend/pillsync_dev.db*
 
-# IDE & System
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# IDE, OS & System
 .DS_Store
-*.pem
+Thumbs.db
+ehthumbs.db
+desktop.ini
 .vscode/
 .idea/
+*.sublime-workspace
+*.sublime-project
+.gemini/
+
+# Temporary, Backup & Swap files
+*.bak
+*.backup
+*.tmp
+*.temp
+*.swp
+*~
+scratch/
+
+# Generated Catalogs & Cache
+backend/app/catalogs/*.json
+
+# Generated Reports & PDFs
+*.pdf
+tree_structure.html

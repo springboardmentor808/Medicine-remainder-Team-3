@@ -1,0 +1,62 @@
+import pytest
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.pool import StaticPool
+from app.main import app
+from app.core.database import get_db, Base
+
+TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+engine = create_async_engine(
+    TEST_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+    echo=False,
+)
+TestingSessionLocal = async_sessionmaker(
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
+
+async def override_get_db():
+    async with TestingSessionLocal() as session:
+        yield session
+
+app.dependency_overrides[get_db] = override_get_db
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def setup_database():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+
+
+@pytest.fixture(autouse=True)
+def mock_otp_verified(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.services.otp_service import OTPService
+    monkeypatch.setattr(OTPService, "is_destination_verified", AsyncMock(return_value=True))
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def reset_redis_client():
+    from app.core import redis as app_redis
+    app_redis._in_memory_fallback.clear()
+    if app_redis._redis_client and app_redis._redis_client is not app_redis._in_memory_fallback:
+        try:
+            await app_redis._redis_client.aclose()
+        except Exception:
+            pass
+        app_redis._redis_client = None
+    yield
+    app_redis._in_memory_fallback.clear()
+    if app_redis._redis_client and app_redis._redis_client is not app_redis._in_memory_fallback:
+        try:
+            await app_redis._redis_client.aclose()
+        except Exception:
+            pass
+        app_redis._redis_client = None
+

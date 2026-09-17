@@ -28,13 +28,15 @@ from app.services.prescription_service import (
 
 router = APIRouter(prefix="/ocr", tags=["OCR Scanner"])
 
-# Allowed image MIME types
+# Allowed image / document MIME types
 _ALLOWED_CONTENT_TYPES = {
     "image/jpeg",
+    "image/jpg",
     "image/png",
     "image/bmp",
     "image/tiff",
     "image/webp",
+    "application/pdf",
 }
 
 
@@ -44,9 +46,9 @@ _ALLOWED_CONTENT_TYPES = {
     status_code=status.HTTP_200_OK,
     summary="Scan Prescription Image",
     description=(
-        "Upload a prescription image (JPEG, PNG, BMP, TIFF, or WebP). "
+        "Upload a prescription image (JPEG, PNG, WebP, PDF). "
         "The OCR engine extracts raw text, the NLP parser identifies medicine details, "
-        "and the result is automatically stored in MongoDB."
+        "and the result is automatically stored."
     ),
 )
 async def scan_prescription(
@@ -67,7 +69,11 @@ async def scan_prescription(
         5. Return structured result.
     """
     # --- Validate file type ---
-    if file.content_type not in _ALLOWED_CONTENT_TYPES:
+    is_valid_type = (
+        file.content_type in _ALLOWED_CONTENT_TYPES
+        or (file.content_type and file.content_type.startswith("image/"))
+    )
+    if not is_valid_type:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
@@ -76,52 +82,123 @@ async def scan_prescription(
             ),
         )
 
-    # --- OCR Extraction ---
     try:
-        ocr_result = await extract_text_from_image(file)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"OCR processing failed: {str(e)}",
-        )
+        # --- OCR Extraction ---
+        try:
+            ocr_result = await extract_text_from_image(file)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"OCR processing failed: {str(e)}",
+            )
 
-    raw_text: str = ocr_result.get("raw_text", "")
-    confidence_score: float = ocr_result.get("confidence_score", 0.0)
+        raw_text: str = ocr_result.get("raw_text", "")
+        confidence_score: float = ocr_result.get("confidence_score", 0.0)
 
-    if not raw_text:
+        if not raw_text:
+            return OCRScanResponse(
+                medicine_name=None,
+                dosage=None,
+                frequency=None,
+                daily_frequency=1,
+                dosage_form="Tablet",
+                disease_category="General Healthcare",
+                initial_quantity=30,
+                quantity_per_dose=1,
+                instructions=None,
+                verified=False,
+                matched_medicine=None,
+                generic_salt=None,
+                raw_text="",
+                confidence_score=0.0,
+                scan_id=None,
+            )
+
+        # --- Structured Parsing / NLP Engine Dispatch ---
+        # If Gemini Multimodal Vision succeeded, it populates high-fidelity parsed_data with accurate
+        # duration, frequency, dosage, and calculated initial quantities.
+        # Otherwise, the system gracefully falls back to deterministic NLP parsing on raw Tesseract text.
+        medicines_list = ocr_result.get("medicines", [])
+        if medicines_list and ocr_result.get("parsed_data"):
+            primary_data = ocr_result.get("parsed_data", {})
+            final_medicine_name = primary_data.get("medicine_name") or ocr_result.get("matched_medicine")
+            matched_med = ocr_result.get("matched_medicine") or final_medicine_name
+            generic_salt = primary_data.get("generic_salt") or ocr_result.get("generic_salt")
+            verified_match = True
+            parsed = {
+                "medicine_name": final_medicine_name,
+                "dosage": primary_data.get("dosage"),
+                "frequency": primary_data.get("frequency"),
+                "daily_frequency": primary_data.get("daily_frequency", 1),
+                "dosage_form": primary_data.get("dosage_form", "Tablet"),
+                "disease_category": primary_data.get("disease_category", "General Healthcare"),
+                "initial_quantity": primary_data.get("initial_quantity", 30),
+                "quantity_per_dose": primary_data.get("quantity_per_dose", 1),
+                "instructions": primary_data.get("instructions"),
+            }
+            final_instructions = parsed.get("instructions")
+            if generic_salt:
+                final_instructions = (
+                    f"Generic Salt: {generic_salt}"
+                    if not final_instructions
+                    else f"{final_instructions} | Generic: {generic_salt}"
+                )
+        else:
+            # Fallback path: parse raw OCR text with regex/NLP heuristics
+            parsed = parse_prescription_text(raw_text)
+            verified_match = ocr_result.get("verified", False)
+            matched_med = ocr_result.get("matched_medicine")
+            generic_salt = ocr_result.get("generic_salt")
+
+            final_medicine_name = parsed.get("medicine_name") or matched_med
+            final_instructions = parsed.get("instructions")
+            if generic_salt:
+                final_instructions = (
+                    f"Generic Salt: {generic_salt}"
+                    if not final_instructions
+                    else f"{final_instructions} | Generic: {generic_salt}"
+                )
+
+        # --- Save Result to MongoDB ---
+        scan_id = None
+        try:
+            scan_id = await save_ocr_result(
+                user_id=current_user.id,
+                filename=file.filename or "prescription.jpg",
+                raw_text=raw_text,
+                confidence_score=confidence_score,
+                parsed_data={
+                    **parsed,
+                    "medicine_name": final_medicine_name,
+                    "matched_medicine": matched_med,
+                    "generic_salt": generic_salt,
+                    "verified": verified_match,
+                    "medicines": medicines_list,
+                },
+            )
+        except Exception as db_err:
+            print(f"[OCR Router] Failed to save result to MongoDB: {db_err}")
+
         return OCRScanResponse(
-            medicine_name=None,
-            dosage=None,
-            frequency=None,
-            raw_text="",
-            confidence_score=0.0,
-            scan_id=None,
-        )
-
-    # --- NLP Parsing ---
-    parsed = parse_prescription_text(raw_text)
-
-    # --- Save Result to MongoDB ---
-    scan_id = None
-    try:
-        scan_id = await save_ocr_result(
-            user_id=current_user.id,
-            filename=file.filename or "prescription.jpg",
+            medicine_name=final_medicine_name,
+            dosage=parsed.get("dosage"),
+            frequency=parsed.get("frequency"),
+            daily_frequency=parsed.get("daily_frequency", 1),
+            dosage_form=parsed.get("dosage_form", "Tablet"),
+            disease_category=parsed.get("disease_category", "General Healthcare"),
+            initial_quantity=parsed.get("initial_quantity", 30),
+            quantity_per_dose=parsed.get("quantity_per_dose", 1),
+            instructions=final_instructions,
+            verified=verified_match,
+            matched_medicine=matched_med,
+            generic_salt=generic_salt,
             raw_text=raw_text,
             confidence_score=confidence_score,
-            parsed_data=parsed,
+            scan_id=scan_id,
+            medicines=medicines_list,
         )
-    except Exception as db_err:
-        print(f"[OCR Router] Failed to save result to MongoDB: {db_err}")
-
-    return OCRScanResponse(
-        medicine_name=parsed.get("medicine_name"),
-        dosage=parsed.get("dosage"),
-        frequency=parsed.get("frequency"),
-        raw_text=raw_text,
-        confidence_score=confidence_score,
-        scan_id=scan_id,
-    )
+    finally:
+        await file.close()
 
 
 @router.get(
@@ -180,18 +257,12 @@ async def get_scan_detail_endpoint(
     scan_id: str,
     current_user: User = Depends(get_current_user),
 ) -> PrescriptionDetailResponse:
-    """Fetch a single scan result from MongoDB."""
-    doc = await get_prescription_by_id(scan_id)
+    """Fetch a single scan result from MongoDB with strict IDOR prevention."""
+    doc = await get_prescription_by_id(scan_id, user_id=current_user.id)
     if not doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Prescription scan with ID '{scan_id}' not found.",
-        )
-
-    if doc.get("user_id") != str(current_user.id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have access to this prescription scan.",
+            detail=f"Prescription scan with ID '{scan_id}' not found or access denied.",
         )
 
     return PrescriptionDetailResponse(

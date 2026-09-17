@@ -81,9 +81,12 @@ module.exports = {
 
       // ── Typography ─────────────────────────────────────────────────────
       fontFamily: {
-        sans:   ['Inter', 'system-ui', 'sans-serif'],
-        inter:  ['Inter', 'system-ui', 'sans-serif'],
-        public: ['"Public Sans"', 'system-ui', 'sans-serif'],
+        sans:     ['Inter', 'system-ui', 'sans-serif'],
+        inter:    ['Inter', 'system-ui', 'sans-serif'],
+        serif:    ['Lora', 'Newsreader', 'Georgia', 'serif'],
+        heading:  ['Lora', 'Newsreader', 'Georgia', 'serif'],
+        display:  ['Lora', 'Newsreader', 'Georgia', 'serif'],
+        public:   ['"Public Sans"', 'system-ui', 'sans-serif'],
         atkinson: ['"Atkinson Hyperlegible Next"', 'system-ui', 'sans-serif'],
       },
       fontSize: {

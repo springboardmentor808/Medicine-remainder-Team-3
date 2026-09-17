@@ -60,13 +60,13 @@ const VARIANTS = {
     'hover:bg-surface-container hover:text-primary',
     'active:bg-surface-container-high',
     'focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
-    'rounded-full !p-2',
+    'rounded-full p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center shrink-0',
     'disabled:opacity-50 disabled:cursor-not-allowed',
   ].join(' '),
 };
 
 const SIZES = {
-  sm: 'h-8  px-sm  text-caption  rounded-md  gap-1.5',
+  sm: 'min-h-[36px] sm:min-h-0 h-9 sm:h-8 px-sm text-caption rounded-md gap-1.5',
   md: 'h-touch-target px-lg text-sm rounded-md gap-2',
   lg: 'h-input-target px-xl text-body-sm rounded-md gap-2',
 };

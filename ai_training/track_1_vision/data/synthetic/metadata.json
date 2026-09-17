@@ -1,0 +1,502 @@
+[
+  {
+    "id": "synth_00000",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00000.jpg",
+    "text": "Susp Cefixime 200mg t.d.s."
+  },
+  {
+    "id": "synth_00001",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00001.jpg",
+    "text": "T.. Limcee 500mg - t.d.s. (after food) x 14 days"
+  },
+  {
+    "id": "synth_00002",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00002.jpg",
+    "text": "T. Deflazacort 6mg q.d.s. x 14 days"
+  },
+  {
+    "id": "synth_00003",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00003.jpg",
+    "text": "Rx: Cap Amlodipine 5mg BD ac"
+  },
+  {
+    "id": "synth_00004",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00004.jpg",
+    "text": "Tab Omeprazole 20mg q.d.s. x 5d"
+  },
+  {
+    "id": "synth_00005",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00005.jpg",
+    "text": "Rx: T. Augmentin 625mg o.d. af"
+  },
+  {
+    "id": "synth_00006",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00006.jpg",
+    "text": "Cap. Ranitidine 150mg - SOS (before food) x 1 month"
+  },
+  {
+    "id": "synth_00007",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00007.jpg",
+    "text": "Tab. Metformin SR 1000mg - 1-1-1 (at bedtime) x 14 days"
+  },
+  {
+    "id": "synth_00008",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00008.jpg",
+    "text": "Susp. Telmisartan 40mg - 1-0-0 (before food) x 7 days"
+  },
+  {
+    "id": "synth_00009",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00009.jpg",
+    "text": "Rx: Susp Shelcal 500mg 1-0-1 before food"
+  },
+  {
+    "id": "synth_00010",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00010.jpg",
+    "text": "Tab. Atorvastatin 10mg - o.d. (pc) x 5d"
+  },
+  {
+    "id": "synth_00011",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00011.jpg",
+    "text": "Syr. Deflazacort 6mg - TDS (at bedtime) x 7 days"
+  },
+  {
+    "id": "synth_00012",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00012.jpg",
+    "text": "Oint Oflomac-OZ q.d.s."
+  },
+  {
+    "id": "synth_00013",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00013.jpg",
+    "text": "Rx: Tab Chymoral Forte 1-0-0 at bedtime"
+  },
+  {
+    "id": "synth_00014",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00014.jpg",
+    "text": "Rx: Tab Becosules Cap q.d.s. ac"
+  },
+  {
+    "id": "synth_00015",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00015.jpg",
+    "text": "Shelcal 500mg STAT x 5 days"
+  },
+  {
+    "id": "synth_00016",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00016.jpg",
+    "text": "T. Cefixime 200mg OD x 1 month"
+  },
+  {
+    "id": "synth_00017",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00017.jpg",
+    "text": "Rx: Cap Levofloxacin 500mg TDS af"
+  },
+  {
+    "id": "synth_00018",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00018.jpg",
+    "text": "Ibuprofen 400mg BD x 4 days"
+  },
+  {
+    "id": "synth_00019",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00019.jpg",
+    "text": "T. Augmentin 625mg OD"
+  },
+  {
+    "id": "synth_00020",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00020.jpg",
+    "text": "Atorvastatin 10mg q.d.s. x 5 days"
+  },
+  {
+    "id": "synth_00021",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00021.jpg",
+    "text": "Susp Oflomac-OZ TDS x 5d"
+  },
+  {
+    "id": "synth_00022",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00022.jpg",
+    "text": "Rx: Tab Amlodipine 5mg 1-0-1/2 ac"
+  },
+  {
+    "id": "synth_00023",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00023.jpg",
+    "text": "Rx: T. Cefixime 200mg 1-0-0 before food"
+  },
+  {
+    "id": "synth_00024",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00024.jpg",
+    "text": "Drops Omeprazole 20mg 1-0-1 x 7d"
+  },
+  {
+    "id": "synth_00025",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00025.jpg",
+    "text": "Inj Becosules Cap o.d. x 14 days"
+  },
+  {
+    "id": "synth_00026",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00026.jpg",
+    "text": "Becosules Cap TDS x 10 days"
+  },
+  {
+    "id": "synth_00027",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00027.jpg",
+    "text": "Oint. Chymoral Forte - q.d.s. (at bedtime) x 5 days"
+  },
+  {
+    "id": "synth_00028",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00028.jpg",
+    "text": "Rx: Inj Deflazacort 6mg SOS ac"
+  },
+  {
+    "id": "synth_00029",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00029.jpg",
+    "text": "Syr Becosules Cap TDS"
+  },
+  {
+    "id": "synth_00030",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00030.jpg",
+    "text": "Pan-D TDS x 10 days"
+  },
+  {
+    "id": "synth_00031",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00031.jpg",
+    "text": "Oflomac-OZ SOS x 8 days"
+  },
+  {
+    "id": "synth_00032",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00032.jpg",
+    "text": "Drops. Zero-P - OD (after food) x 10 days"
+  },
+  {
+    "id": "synth_00033",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00033.jpg",
+    "text": "Susp Shelcal 500mg HS x 5 days"
+  },
+  {
+    "id": "synth_00034",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00034.jpg",
+    "text": "Cap Aceclofenac 100mg t.d.s."
+  },
+  {
+    "id": "synth_00035",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00035.jpg",
+    "text": "Tab Levofloxacin 500mg STAT"
+  },
+  {
+    "id": "synth_00036",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00036.jpg",
+    "text": "Glimepiride 2mg QID x 9 days"
+  },
+  {
+    "id": "synth_00037",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00037.jpg",
+    "text": "Drops Atorvastatin 10mg o.d. x 1 month"
+  },
+  {
+    "id": "synth_00038",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00038.jpg",
+    "text": "Amlodipine 5mg 1-0-0 x 9 days"
+  },
+  {
+    "id": "synth_00039",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00039.jpg",
+    "text": "Rx: Susp Deflazacort 6mg t.d.s. af"
+  },
+  {
+    "id": "synth_00040",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00040.jpg",
+    "text": "Susp Montelukast 10mg 1-0-1/2"
+  },
+  {
+    "id": "synth_00041",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00041.jpg",
+    "text": "Susp. Cetirizine 10mg - TDS (pc) x 1 month"
+  },
+  {
+    "id": "synth_00042",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00042.jpg",
+    "text": "Aceclofenac 100mg 1-0-0 x 10 days"
+  },
+  {
+    "id": "synth_00043",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00043.jpg",
+    "text": "Rx: Syr Omeprazole 20mg 1-0-1/2 at bedtime"
+  },
+  {
+    "id": "synth_00044",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00044.jpg",
+    "text": "Montelukast 10mg BD x 7 days"
+  },
+  {
+    "id": "synth_00045",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00045.jpg",
+    "text": "Rx: T. Pantoprazole 40mg BD after food"
+  },
+  {
+    "id": "synth_00046",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00046.jpg",
+    "text": "Drops Shelcal 500mg QID"
+  },
+  {
+    "id": "synth_00047",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00047.jpg",
+    "text": "Susp. Cefixime 200mg - b.d. (ac) x 7d"
+  },
+  {
+    "id": "synth_00048",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00048.jpg",
+    "text": "Drops. Pan-D - BD (pc) x 7d"
+  },
+  {
+    "id": "synth_00049",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00049.jpg",
+    "text": "Azithromycin 500mg b.d. x 9 days"
+  },
+  {
+    "id": "synth_00050",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00050.jpg",
+    "text": "Rx: Susp Dolo 650mg 1-0-0 before food"
+  },
+  {
+    "id": "synth_00051",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00051.jpg",
+    "text": "Pantoprazole 40mg TDS x 5 days"
+  },
+  {
+    "id": "synth_00052",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00052.jpg",
+    "text": "Inj Deflazacort 6mg 1-0-1"
+  },
+  {
+    "id": "synth_00053",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00053.jpg",
+    "text": "Tab Calpol 650mg QID"
+  },
+  {
+    "id": "synth_00054",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00054.jpg",
+    "text": "Cetirizine 10mg 1-0-1/2 x 7 days"
+  },
+  {
+    "id": "synth_00055",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00055.jpg",
+    "text": "Susp. Dolo 650mg - HS (af) x 7d"
+  },
+  {
+    "id": "synth_00056",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00056.jpg",
+    "text": "Rx: Cap Combiflam STAT at bedtime"
+  },
+  {
+    "id": "synth_00057",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00057.jpg",
+    "text": "Pantoprazole 40mg QID x 5 days"
+  },
+  {
+    "id": "synth_00058",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00058.jpg",
+    "text": "Inj Calpol 650mg SOS x 5d"
+  },
+  {
+    "id": "synth_00059",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00059.jpg",
+    "text": "Rx: T. Cefixime 200mg 1-0-1/2 pc"
+  },
+  {
+    "id": "synth_00060",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00060.jpg",
+    "text": "Cap Atorvastatin 10mg o.d."
+  },
+  {
+    "id": "synth_00061",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00061.jpg",
+    "text": "Rx: Drops Omeprazole 20mg 1-0-1 bf"
+  },
+  {
+    "id": "synth_00062",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00062.jpg",
+    "text": "Susp. Oflomac-OZ - SOS (af) x 1 month"
+  },
+  {
+    "id": "synth_00063",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00063.jpg",
+    "text": "Rx: Susp Shelcal 500mg 0-0-1 after food"
+  },
+  {
+    "id": "synth_00064",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00064.jpg",
+    "text": "Ranitidine 150mg q.d.s. x 6 days"
+  },
+  {
+    "id": "synth_00065",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00065.jpg",
+    "text": "Calpol 650mg QID x 3 days"
+  },
+  {
+    "id": "synth_00066",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00066.jpg",
+    "text": "Syr Ibuprofen 400mg OD"
+  },
+  {
+    "id": "synth_00067",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00067.jpg",
+    "text": "Atorvastatin 10mg 1-0-1/2 x 6 days"
+  },
+  {
+    "id": "synth_00068",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00068.jpg",
+    "text": "Oint. Metformin 500mg - q.d.s. (af) x 5d"
+  },
+  {
+    "id": "synth_00069",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00069.jpg",
+    "text": "Drops Glimepiride 2mg QID"
+  },
+  {
+    "id": "synth_00070",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00070.jpg",
+    "text": "T. Levocetirizine 5mg SOS"
+  },
+  {
+    "id": "synth_00071",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00071.jpg",
+    "text": "Pan-D QID x 7 days"
+  },
+  {
+    "id": "synth_00072",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00072.jpg",
+    "text": "Cap Telmisartan 40mg OD"
+  },
+  {
+    "id": "synth_00073",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00073.jpg",
+    "text": "Drops. Azithromycin 500mg - 1-0-1 (ac) x 1 month"
+  },
+  {
+    "id": "synth_00074",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00074.jpg",
+    "text": "Susp. Metformin SR 1000mg - 1-1-1 (before food) x 5d"
+  },
+  {
+    "id": "synth_00075",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00075.jpg",
+    "text": "Rx: Syr Calpol 650mg TDS at bedtime"
+  },
+  {
+    "id": "synth_00076",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00076.jpg",
+    "text": "Rx: Oint Calpol 650mg o.d. pc"
+  },
+  {
+    "id": "synth_00077",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00077.jpg",
+    "text": "Drops. Pantoprazole 40mg - 1-0-1/2 (ac) x 7d"
+  },
+  {
+    "id": "synth_00078",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00078.jpg",
+    "text": "Susp. Amoxicillin 500mg - BD (before food) x 5 days"
+  },
+  {
+    "id": "synth_00079",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00079.jpg",
+    "text": "Susp Combiflam OD"
+  },
+  {
+    "id": "synth_00080",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00080.jpg",
+    "text": "Oint Shelcal 500mg q.d.s."
+  },
+  {
+    "id": "synth_00081",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00081.jpg",
+    "text": "Drops Glimepiride 2mg 1-0-1/2"
+  },
+  {
+    "id": "synth_00082",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00082.jpg",
+    "text": "Rx: Syr Paracetamol 500mg HS before food"
+  },
+  {
+    "id": "synth_00083",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00083.jpg",
+    "text": "Drops. Paracetamol 500mg - b.d. (bf) x 14 days"
+  },
+  {
+    "id": "synth_00084",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00084.jpg",
+    "text": "Zero-P STAT x 6 days"
+  },
+  {
+    "id": "synth_00085",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00085.jpg",
+    "text": "Rx: Inj Chymoral Forte 1-0-1 ac"
+  },
+  {
+    "id": "synth_00086",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00086.jpg",
+    "text": "Susp Cefixime 200mg STAT x 7d"
+  },
+  {
+    "id": "synth_00087",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00087.jpg",
+    "text": "Rx: Inj Metformin SR 1000mg OD at bedtime"
+  },
+  {
+    "id": "synth_00088",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00088.jpg",
+    "text": "Syr. Combiflam - STAT (at bedtime) x 7 days"
+  },
+  {
+    "id": "synth_00089",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00089.jpg",
+    "text": "Cap Dolo 650mg b.d."
+  },
+  {
+    "id": "synth_00090",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00090.jpg",
+    "text": "Telmisartan 40mg 1-0-0 x 5 days"
+  },
+  {
+    "id": "synth_00091",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00091.jpg",
+    "text": "Cap Limcee 500mg o.d. x 1 month"
+  },
+  {
+    "id": "synth_00092",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00092.jpg",
+    "text": "Inj Cefixime 200mg b.d. x 1 month"
+  },
+  {
+    "id": "synth_00093",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00093.jpg",
+    "text": "Inj. Calpol 650mg - 1-0-0 (before food) x 3 days"
+  },
+  {
+    "id": "synth_00094",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00094.jpg",
+    "text": "Susp Calpol 650mg 0-0-1"
+  },
+  {
+    "id": "synth_00095",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00095.jpg",
+    "text": "Cap. Zero-P - QID (at bedtime) x 3 days"
+  },
+  {
+    "id": "synth_00096",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00096.jpg",
+    "text": "Cap Combiflam 1-0-0"
+  },
+  {
+    "id": "synth_00097",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00097.jpg",
+    "text": "Rx: Oint Limcee 500mg o.d. at bedtime"
+  },
+  {
+    "id": "synth_00098",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00098.jpg",
+    "text": "Chymoral Forte t.d.s. x 9 days"
+  },
+  {
+    "id": "synth_00099",
+    "image_path": "ai_training\\track_1_vision\\data\\synthetic\\images\\synth_rx_00099.jpg",
+    "text": "Oint Glimepiride 2mg HS"
+  }
+]

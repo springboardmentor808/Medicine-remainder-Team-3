@@ -8,33 +8,57 @@ Provides an async Redis connection for:
     - Rate Limiting: API request counting per user/IP.
 """
 
+import time
 import json
-from typing import Any, Optional
+import asyncio
+from typing import Any, Optional, Dict, Tuple
 
-import redis.asyncio as aioredis
+try:
+    import redis.asyncio as aioredis
+except ImportError:
+    try:
+        import aioredis  # type: ignore
+    except ImportError:
+        aioredis = None
 
 from app.core.config import settings
+
 
 
 # ---------------------------------------------------------------------------
 # In-Memory Fallback Client for Standalone / Dev Mode
 # ---------------------------------------------------------------------------
 class InMemoryRedisFallback:
-    """Provides in-memory Redis-like operations when Redis server is offline."""
+    """Provides in-memory Redis-like operations with TTL support when Redis server is offline."""
     def __init__(self):
-        self._store = {}
-        self._lists = {}
-        self._zsets = {}
+        # Key -> (Value, ExpirationTimestamp | None)
+        self._store: Dict[str, Tuple[str, Optional[float]]] = {}
+        self._lists: Dict[str, list] = {}
+        self._zsets: Dict[str, dict] = {}
+        self._sets: Dict[str, set] = {}
+
+    def _is_expired(self, key: str) -> bool:
+        """Helper to lazily evict expired keys."""
+        if key not in self._store:
+            return True
+        _, expires_at = self._store[key]
+        if expires_at is not None and time.time() > expires_at:
+            del self._store[key]
+            return True
+        return False
 
     async def ping(self):
         return True
 
     async def get(self, key: str):
-        val = self._store.get(key)
-        return val
+        if self._is_expired(key):
+            return None
+        return self._store[key][0]
 
     async def set(self, key: str, value: Any, ex: Optional[int] = None):
-        self._store[key] = str(value) if not isinstance(value, str) else value
+        expires_at = (time.time() + ex) if ex else None
+        str_val = str(value) if not isinstance(value, str) else value
+        self._store[key] = (str_val, expires_at)
         return True
 
     async def delete(self, *keys: str):
@@ -42,15 +66,37 @@ class InMemoryRedisFallback:
             self._store.pop(k, None)
             self._lists.pop(k, None)
             self._zsets.pop(k, None)
+            self._sets.pop(k, None)
         return True
 
     async def incr(self, key: str):
-        cur = int(self._store.get(key, 0)) + 1
-        self._store[key] = str(cur)
+        if self._is_expired(key):
+            cur = 1
+            expires_at = None
+        else:
+            val_str, expires_at = self._store[key]
+            cur = int(val_str) + 1
+        self._store[key] = (str(cur), expires_at)
         return cur
 
     async def expire(self, key: str, seconds: int):
-        return True
+        if key in self._store:
+            val, _ = self._store[key]
+            self._store[key] = (val, time.time() + seconds)
+            return True
+        return False
+
+    async def ttl(self, key: str) -> int:
+        if key not in self._store:
+            return -2
+        _, expires_at = self._store[key]
+        if expires_at is None:
+            return -1
+        rem = int(expires_at - time.time())
+        if rem <= 0:
+            del self._store[key]
+            return -2
+        return rem
 
     async def lpush(self, key: str, value: str):
         if key not in self._lists:
@@ -97,19 +143,52 @@ class InMemoryRedisFallback:
     async def zcard(self, key: str):
         return len(self._zsets.get(key, {}))
 
+    async def sadd(self, key: str, *members: Any):
+        if key not in self._sets:
+            self._sets[key] = set()
+        added = 0
+        for m in members:
+            str_m = str(m) if not isinstance(m, str) else m
+            if str_m not in self._sets[key]:
+                self._sets[key].add(str_m)
+                added += 1
+        return added
+
+    async def smembers(self, key: str):
+        return set(self._sets.get(key, set()))
+
+    async def srem(self, key: str, *members: Any):
+        if key not in self._sets:
+            return 0
+        removed = 0
+        for m in members:
+            str_m = str(m) if not isinstance(m, str) else m
+            if str_m in self._sets[key]:
+                self._sets[key].remove(str_m)
+                removed += 1
+        return removed
+
     async def scan(self, cursor: int = 0, match: Optional[str] = None, count: int = 100):
         import fnmatch
-        all_keys = list(self._store.keys()) + list(self._lists.keys()) + list(self._zsets.keys())
+        all_keys = list(self._store.keys()) + list(self._lists.keys()) + list(self._zsets.keys()) + list(self._sets.keys())
         if match:
             matched = fnmatch.filter(all_keys, match)
         else:
             matched = all_keys
         return 0, list(set(matched))
 
-    async def close(self):
+    def clear(self):
+        """Purge all stored keys, lists, sets, and zsets."""
         self._store.clear()
         self._lists.clear()
         self._zsets.clear()
+        self._sets.clear()
+
+    async def aclose(self):
+        self.clear()
+
+    async def close(self):
+        self.clear()
 
 
 _in_memory_fallback = InMemoryRedisFallback()
@@ -157,10 +236,27 @@ async def disconnect_redis() -> None:
 def get_redis() -> Any:
     """
     FastAPI dependency — returns the active Redis client or in-memory fallback.
+    Safeguards against stale/closed event loops during testing or loop recycles.
     """
     global _redis_client
     if _redis_client is None:
         return _in_memory_fallback
+    if _redis_client is _in_memory_fallback:
+        return _in_memory_fallback
+
+    try:
+        current_loop = asyncio.get_running_loop()
+        pool = getattr(_redis_client, "connection_pool", None)
+        if pool is not None:
+            pool_loop = getattr(pool, "_loop", None)
+            if pool_loop is not None and (pool_loop.is_closed() or pool_loop is not current_loop):
+                _redis_client = None
+                return _in_memory_fallback
+    except RuntimeError:
+        pass
+    except Exception:
+        pass
+
     return _redis_client
 
 

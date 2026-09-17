@@ -28,9 +28,9 @@ export default function EmptyState({
         <div className="absolute -top-1 -right-1 w-4 h-4 bg-teal-400 rounded-full blur-sm opacity-60"></div>
       </div>
 
-      <h3 className="text-lg sm:text-xl font-bold text-slate-800 dark:text-slate-100 mb-2">
+      <h2 className="text-lg sm:text-xl font-bold text-slate-800 dark:text-slate-100 mb-2">
         {title}
-      </h3>
+      </h2>
       <p className="text-sm sm:text-base text-slate-500 dark:text-slate-400 max-w-md mb-6 leading-relaxed">
         {description}
       </p>
