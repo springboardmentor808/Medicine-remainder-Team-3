@@ -542,12 +542,14 @@ function CaregiverDashboardInner() {
     setLinkError('');
 
     try {
+      const patientInput = (linkTab === 'code' ? linkCode : manualQuery).trim();
       const payload = linkTab === 'code' ? {
-        code: linkCode.trim(),
+        code: patientInput,
         relationship: manualRelation,
       } : {
-        email: manualQuery.trim().includes('@') ? manualQuery.trim() : undefined,
-        phone: !manualQuery.trim().includes('@') && manualQuery.trim() ? manualQuery.trim() : undefined,
+        code: patientInput,
+        email: patientInput,
+        phone: patientInput,
         patient_name: manualName.trim() || undefined,
         age: manualAge ? Number(manualAge) : undefined,
         relationship: manualRelation,
@@ -567,6 +569,11 @@ function CaregiverDashboardInner() {
       await loadDashboardData();
     } catch (err) {
       setLinkError(err.message || 'Failed to connect patient. Please verify the details.');
+      addToast({
+        title: 'Connection Failed',
+        description: err.message || 'Failed to connect patient. Please verify the details.',
+        variant: 'error',
+      });
     } finally {
       setLinkLoading(false);
     }

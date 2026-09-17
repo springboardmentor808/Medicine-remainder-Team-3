@@ -16,43 +16,74 @@ import {
   X,
   Plus,
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
 import AddMedicineModal from '@/components/forms/AddMedicineModal';
-import { medicineAPI } from '@/lib/api';
+import ReviewPrescriptionModal from '@/components/patient/ReviewPrescriptionModal';
+import { ocrAPI, medicineAPI } from '@/lib/api';
 
 function ScanPageInner() {
+  const router = useRouter();
   const { addToast } = useToast();
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
 
   const [selectedFile, setSelectedFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
-  const [scanning, setScanning] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const scanning = isScanning || loading;
+  const setScanning = (val) => {
+    setIsScanning(val);
+    setLoading(val);
+  };
   const [extractedData, setExtractedData] = useState(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const isModalOpen = isReviewModalOpen;
+  const setIsModalOpen = setIsReviewModalOpen;
   const [dragActive, setDragActive] = useState(false);
 
   const handleScanFile = useCallback(async (fileToScan) => {
     const targetFile = fileToScan || selectedFile;
     if (!targetFile) return;
-    setScanning(true);
+    setIsScanning(true);
+    setLoading(true);
     try {
       const formData = new FormData();
       formData.append('file', targetFile);
 
-      const res = await medicineAPI.ocrScan(formData);
-      const data = res?.data || res;
-      setExtractedData(data);
-      setIsModalOpen(true);
+      const res = await (ocrAPI?.uploadPrescription ? ocrAPI.uploadPrescription(formData) : medicineAPI.ocrScan(formData));
+      const data = res?.data?.data || res?.data || res || {};
+
+      const medicineName = data.medicine_name || data.medicines?.[0]?.medicine_name || data.medicines?.[0]?.name || '';
+      const dosage = data.dosage || data.medicines?.[0]?.dosage || '';
+      const frequency = data.frequency || data.medicines?.[0]?.frequency || '1-0-1';
+      const dailyFrequency = data.daily_frequency || data.medicines?.[0]?.daily_frequency || 1;
+      const initialQuantity = data.initial_quantity || data.medicines?.[0]?.initial_quantity || 30;
+
+      const normalizedData = {
+        ...data,
+        medicine_name: medicineName,
+        name: medicineName,
+        dosage: dosage,
+        frequency: frequency,
+        daily_frequency: dailyFrequency,
+        initial_quantity: initialQuantity,
+        dosage_form: data.dosage_form || data.medicines?.[0]?.dosage_form || 'Tablet',
+        disease_category: data.disease_category || data.medicines?.[0]?.disease_category || 'General Healthcare',
+      };
+
+      setExtractedData(normalizedData);
+      setIsReviewModalOpen(true);
 
       addToast({
         title: 'Prescription Extracted',
-        description: data.medicine_name
-          ? `Detected ${data.medicine_name} (${data.dosage || ''}). Review & save to inventory.`
+        description: medicineName
+          ? `Detected ${medicineName} (${dosage || ''}). Review & save to inventory.`
           : 'Text extracted successfully! Review details before saving.',
         variant: 'success',
       });
@@ -63,9 +94,10 @@ function ScanPageInner() {
         variant: 'info',
       });
       // Still open modal so the patient can enter or confirm the medication
-      setIsModalOpen(true);
+      setIsReviewModalOpen(true);
     } finally {
-      setScanning(false);
+      setIsScanning(false);
+      setLoading(false);
     }
   }, [selectedFile, addToast]);
 
@@ -347,20 +379,29 @@ function ScanPageInner() {
             </div>
           </div>
 
-          {/* Prefilled Add Medicine Modal */}
-          <AddMedicineModal
-            isOpen={isModalOpen}
-            onClose={() => setIsModalOpen(false)}
-            initialData={extractedData}
-            onSuccess={() => {
-              addToast({
-                title: 'Medicine Saved',
-                description: `${extractedData?.medicine_name || 'Medication'} added to inventory and schedules generated.`,
-                variant: 'success',
-              });
-              handleClear();
-            }}
-          />
+          {/* Prescription Review & Verification Modal */}
+          {isReviewModalOpen && extractedData && (
+            <ReviewPrescriptionModal
+              data={extractedData}
+              isOpen={isReviewModalOpen}
+              onClose={() => setIsReviewModalOpen(false)}
+              onSave={async (formData) => {
+                if (formData) {
+                  await medicineAPI.create(formData);
+                }
+                setIsReviewModalOpen(false);
+                addToast({
+                  title: 'Prescription Saved',
+                  description: `${formData?.name || 'Medication(s)'} added to inventory and schedules generated.`,
+                  variant: 'success',
+                });
+                handleClear();
+                setTimeout(() => {
+                  router.push('/dashboard/patient');
+                }, 500);
+              }}
+            />
+          )}
         </main>
       </div>
     </DashboardLayout>

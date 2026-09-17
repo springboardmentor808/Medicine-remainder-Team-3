@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import {
   CheckCircle2,
@@ -43,11 +43,13 @@ import ReminderWidget from '@/components/dashboard/ReminderWidget';
 import PushNotificationPrompt from '@/components/patient/PushNotificationPrompt';
 import ExportDataModal from '@/components/dashboard/ExportDataModal';
 import SupportTicketForm from '@/components/forms/SupportTicketForm';
-import { exportAPI, medicineAPI, patientAPI, analyticsAPI } from '@/lib/api';
+import { exportAPI, medicineAPI, patientAPI, analyticsAPI, api } from '@/lib/api';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
 import { useLanguage } from '@/context/LanguageContext';
 import { playWebAudioAlarm, triggerAlarm } from '@/lib/alarm_service';
 import AddReminderModal from '@/components/patient/AddReminderModal';
+import ReviewPrescriptionModal from '@/components/patient/ReviewPrescriptionModal';
+import AddMedicineModal from '@/components/forms/AddMedicineModal';
 import dynamic from 'next/dynamic';
 import TutorialTrigger from '@/components/3d/TutorialTrigger';
 import useMedicalBotStore from '@/store/useMedicalBotStore';
@@ -347,9 +349,25 @@ function PatientDashboardInner() {
   const [inventory, setInventory] = useState([]);
   const [weeklyTrends, setWeeklyTrends] = useState([]);
   const [scheduleLoading, setScheduleLoading] = useState(true);
+  const [adherenceStreak, setAdherenceStreak] = useState(0);
   const [currentUser, setCurrentUser] = useState(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
+
+  // ── Scan & Modal States ──────────────────────────────────────────────────
+  const [isScanning, setIsScanning] = useState(false);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [selectedScanData, setSelectedScanData] = useState(null);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const scanInputRef = useRef(null);
+
+  const emitToast = useCallback((variant, message) => {
+    addToast({
+      title: variant === 'success' ? 'Success' : variant === 'error' ? 'Error' : 'Notice',
+      description: message,
+      variant: variant === 'success' ? 'success' : variant === 'error' ? 'error' : 'info',
+    });
+  }, [addToast]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -365,140 +383,114 @@ function PatientDashboardInner() {
   }, []);
 
   // Coordinated Parallel Initial Data Fetching (Zero Waterfalls)
-  useEffect(() => {
-    let isMounted = true;
-    (async () => {
-      setScheduleLoading(true);
-      try {
-        const [scheduleRes, inventoryRes, trendsRes] = await Promise.allSettled([
-          patientAPI.getTodaySchedule(),
-          medicineAPI.list(),
-          analyticsAPI.getTrends({ days: 7 }),
-        ]);
+  const fetchDashboardData = useCallback(async () => {
+    setScheduleLoading(true);
+    try {
+      const [scheduleRes, inventoryRes, trendsRes, adherenceRes] = await Promise.allSettled([
+        patientAPI.getTodaySchedule(),
+        medicineAPI.list(),
+        analyticsAPI.getTrends({ days: 7 }),
+        analyticsAPI.getAdherence ? analyticsAPI.getAdherence() : Promise.resolve(null),
+      ]);
 
-        if (!isMounted) return;
+      // 1. Process Schedule
+      if (scheduleRes.status === 'fulfilled') {
+        const rawData = scheduleRes.value?.data !== undefined ? scheduleRes.value.data : scheduleRes.value;
+        const list = Array.isArray(rawData) ? rawData : (rawData?.schedules || rawData?.items || []);
+        const slotCycle = ['morning', 'afternoon', 'evening'];
+        const colorCycle = ['primary', 'tertiary', 'secondary'];
+        const mapped = list.map((s, idx) => ({
+          id: s.id || `sched-${idx}`,
+          schedule_id: s.id,
+          medicine_id: s.medicine_id,
+          name: s.medicine_name || s.name || 'Medication',
+          strength: s.dosage || s.strength || '',
+          type: s.disease_category || s.dose_label || 'Medication',
+          instructions: s.notes || s.instructions || '',
+          slot: s.dose_label?.toLowerCase().includes('morning')
+            ? 'morning'
+            : s.dose_label?.toLowerCase().includes('afternoon') || s.dose_label?.toLowerCase().includes('noon')
+            ? 'afternoon'
+            : s.dose_label?.toLowerCase().includes('evening') || s.dose_label?.toLowerCase().includes('night')
+            ? 'evening'
+            : slotCycle[idx % 3],
+          time: s.scheduled_time || ['08:00 AM', '01:00 PM', '08:00 PM'][idx % 3],
+          scheduled_time_24: s.scheduled_time || ['08:00', '13:00', '20:00'][idx % 3],
+          status: 'pending',
+          snoozedUntil: null,
+          color: colorCycle[idx % 3],
+        }));
 
-        // 1. Process Schedule
-        if (scheduleRes.status === 'fulfilled') {
-          const rawData = scheduleRes.value?.data !== undefined ? scheduleRes.value.data : scheduleRes.value;
-          const list = Array.isArray(rawData) ? rawData : (rawData?.schedules || rawData?.items || []);
-          const slotCycle = ['morning', 'afternoon', 'evening'];
-          const colorCycle = ['primary', 'tertiary', 'secondary'];
-          const mapped = list.map((s, idx) => ({
-            id: s.id || `sched-${idx}`,
-            schedule_id: s.id,
-            medicine_id: s.medicine_id,
-            name: s.medicine_name || s.name || 'Medication',
-            strength: s.dosage || s.strength || '',
-            type: s.disease_category || s.dose_label || 'Medication',
-            instructions: s.notes || s.instructions || '',
-            slot: s.dose_label?.toLowerCase().includes('morning')
-              ? 'morning'
-              : s.dose_label?.toLowerCase().includes('afternoon') || s.dose_label?.toLowerCase().includes('noon')
-              ? 'afternoon'
-              : s.dose_label?.toLowerCase().includes('evening') || s.dose_label?.toLowerCase().includes('night')
-              ? 'evening'
-              : slotCycle[idx % 3],
-            time: s.scheduled_time || ['08:00 AM', '01:00 PM', '08:00 PM'][idx % 3],
-            scheduled_time_24: s.scheduled_time || ['08:00', '13:00', '20:00'][idx % 3],
-            status: 'pending',
-            snoozedUntil: null,
-            color: colorCycle[idx % 3],
-          }));
-
-          // ── Reconstruct persisted dose status from PostgreSQL daily-tracking ──
-          try {
-            const tracking = await patientAPI.getDailyTracking();
-            const dbDoses = tracking?.doses || [];
-            // Build a fast lookup: schedule_id → DB status string
-            const statusMap = {};
-            for (const d of dbDoses) {
-              if (d.schedule_id) {
-                statusMap[d.schedule_id] = d.status; // "Taken", "Missed", "Snoozed", "Pending"
-              }
+        // ── Reconstruct persisted dose status from PostgreSQL daily-tracking ──
+        try {
+          const tracking = await patientAPI.getDailyTracking();
+          const dbDoses = tracking?.doses || [];
+          const statusMap = {};
+          for (const d of dbDoses) {
+            if (d.schedule_id) {
+              statusMap[d.schedule_id] = d.status;
             }
-            // Overlay persisted statuses onto the mapped schedule
-            const withPersistedStatus = mapped.map((m) => {
-              const dbStatus = statusMap[m.schedule_id];
-              if (!dbStatus) return m;
-              const normalized =
-                dbStatus === 'Taken'   ? 'taken'   :
-                dbStatus === 'Missed'  ? 'skipped' :
-                dbStatus === 'Snoozed' ? 'snoozed' :
-                'pending';
-              return { ...m, status: normalized };
-            });
-            setSchedule(withPersistedStatus);
-          } catch {
-            // If daily-tracking fails (e.g. no logs yet), fall back to all-pending
-            setSchedule(mapped);
           }
-        } else {
-          setSchedule([]);
+          const withPersistedStatus = mapped.map((m) => {
+            const dbStatus = statusMap[m.schedule_id];
+            if (!dbStatus) return m;
+            const normalized =
+              dbStatus === 'Taken'   ? 'taken'   :
+              dbStatus === 'Missed'  ? 'skipped' :
+              dbStatus === 'Snoozed' ? 'snoozed' :
+              'pending';
+            return { ...m, status: normalized };
+          });
+          setSchedule(withPersistedStatus);
+        } catch {
+          setSchedule(mapped);
         }
+      } else {
+        setSchedule([]);
+      }
 
-        // 2. Process Inventory
-        if (inventoryRes.status === 'fulfilled') {
-          const rawInv = inventoryRes.value?.data !== undefined ? inventoryRes.value.data : inventoryRes.value;
-          const items = Array.isArray(rawInv) ? rawInv : (rawInv?.items || rawInv?.medicines || []);
-          if (Array.isArray(items) && items.length > 0) {
-            const mapped = items.map((m, idx) => ({
-              id: m.id || `inv-${idx}`,
-              name: `${m.name} ${m.dosage || ''}`.trim(),
-              totalDays: m.initial_quantity || 30,
-              remainingDays: Math.round(m.days_until_empty || 0),
-              pillsLeft: m.current_stock || 0,
-            }));
-            setInventory(mapped);
-          } else {
-            setInventory([]);
-          }
+      // 2. Process Inventory
+      if (inventoryRes.status === 'fulfilled') {
+        const rawInv = inventoryRes.value?.data !== undefined ? inventoryRes.value.data : inventoryRes.value;
+        const items = Array.isArray(rawInv) ? rawInv : (rawInv?.items || rawInv?.medicines || []);
+        if (Array.isArray(items) && items.length > 0) {
+          const mapped = items.map((m, idx) => ({
+            id: m.id || `inv-${idx}`,
+            name: `${m.name} ${m.dosage || ''}`.trim(),
+            totalDays: m.initial_quantity || 30,
+            remainingDays: Math.round(m.days_until_empty || 0),
+            pillsLeft: m.current_stock || 0,
+          }));
+          setInventory(mapped);
         } else {
           setInventory([]);
         }
+      } else {
+        setInventory([]);
+      }
 
-        // 3. Process Trends
-        if (trendsRes.status === 'fulfilled') {
-          const rawTrends = trendsRes.value?.data !== undefined ? trendsRes.value.data : trendsRes.value;
-          const trends = Array.isArray(rawTrends) ? rawTrends : (rawTrends?.trends || rawTrends?.items || []);
-          if (Array.isArray(trends) && trends.length > 0) {
-            const todayIso = new Date().toISOString().split('T')[0];
-            const mapped = trends.map((t) => {
-              const pct = t.is_before_account
-                ? 0  // days before account creation: blank/zero bars
-                : Math.round(t.adherence_rate ?? 0);
-              return {
-                // Use day_abbr from backend if available (Sun/Mon/…), else derive from date
-                dayLabel: t.day_abbr
-                  ? t.day_abbr[0]
-                  : new Date(t.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })[0],
-                dayName: t.day_name || t.day_abbr || t.date,
-                percentage: pct,
-                isToday: t.date === todayIso,
-                isBeforeAccount: !!t.is_before_account,
-              };
-            });
-            setWeeklyTrends(mapped);
-          } else {
-            // No trends yet for new accounts — show 7 zero bars (today highlighted)
-            const todayIso = new Date().toISOString().split('T')[0];
-            const days = [];
-            for (let i = 6; i >= 0; i--) {
-              const d = new Date();
-              d.setDate(d.getDate() - i);
-              const iso = d.toISOString().split('T')[0];
-              days.push({
-                dayLabel: d.toLocaleDateString('en-US', { weekday: 'short' })[0],
-                dayName: d.toLocaleDateString('en-US', { weekday: 'short' }),
-                percentage: 0,
-                isToday: iso === todayIso,
-                isBeforeAccount: false,
-              });
-            }
-            setWeeklyTrends(days);
-          }
+      // 3. Process Trends
+      if (trendsRes.status === 'fulfilled') {
+        const rawTrends = trendsRes.value?.data !== undefined ? trendsRes.value.data : trendsRes.value;
+        const trends = Array.isArray(rawTrends) ? rawTrends : (rawTrends?.trends || rawTrends?.items || []);
+        if (Array.isArray(trends) && trends.length > 0) {
+          const todayIso = new Date().toISOString().split('T')[0];
+          const mapped = trends.map((t) => {
+            const pct = t.is_before_account
+              ? 0
+              : Math.round(t.adherence_rate ?? 0);
+            return {
+              dayLabel: t.day_abbr
+                ? t.day_abbr[0]
+                : new Date(t.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })[0],
+              dayName: t.day_name || t.day_abbr || t.date,
+              percentage: pct,
+              isToday: t.date === todayIso,
+              isBeforeAccount: !!t.is_before_account,
+            };
+          });
+          setWeeklyTrends(mapped);
         } else {
-          // Network/auth error — show 7 zero bars
           const todayIso = new Date().toISOString().split('T')[0];
           const days = [];
           for (let i = 6; i >= 0; i--) {
@@ -515,22 +507,104 @@ function PatientDashboardInner() {
           }
           setWeeklyTrends(days);
         }
-      } catch {
-        if (isMounted) {
-          setSchedule([]);
-          setInventory([]);
+      } else {
+        const todayIso = new Date().toISOString().split('T')[0];
+        const days = [];
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const iso = d.toISOString().split('T')[0];
+          days.push({
+            dayLabel: d.toLocaleDateString('en-US', { weekday: 'short' })[0],
+            dayName: d.toLocaleDateString('en-US', { weekday: 'short' }),
+            percentage: 0,
+            isToday: iso === todayIso,
+            isBeforeAccount: false,
+          });
         }
-      } finally {
-        if (isMounted) {
-          setScheduleLoading(false);
-        }
+        setWeeklyTrends(days);
       }
-    })();
 
-    return () => {
-      isMounted = false;
-    };
+      // 4. Process Dynamic Adherence Streak
+      if (adherenceRes && adherenceRes.status === 'fulfilled' && adherenceRes.value) {
+        const rawAdh = adherenceRes.value?.data !== undefined ? adherenceRes.value.data : adherenceRes.value;
+        const streak = Number(rawAdh?.streak_days ?? rawAdh?.streak ?? 0);
+        setAdherenceStreak(isNaN(streak) ? 0 : streak);
+      } else {
+        setAdherenceStreak(0);
+      }
+    } catch {
+      setSchedule([]);
+      setInventory([]);
+      setAdherenceStreak(0);
+    } finally {
+      setScheduleLoading(false);
+    }
   }, []);
+
+  const fetchSchedule = fetchDashboardData;
+  const fetchMedicines = fetchDashboardData;
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
+  // ── Prescription OCR Trigger & Review Modal Handler ──────────────────────
+  const handleScanPrescription = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsScanning(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      // Call single relative OCR endpoint with 45s timeout for AI vision
+      const res = await api.post('/ocr/scan', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 45000,
+      });
+
+      const extracted = res.data?.data || res.data || res || {};
+      if (extracted) {
+        const medicineName = extracted.medicine_name || extracted.medicines?.[0]?.medicine_name || extracted.medicines?.[0]?.name || '';
+        const dosage = extracted.dosage || extracted.medicines?.[0]?.dosage || '';
+        const frequency = extracted.frequency || extracted.medicines?.[0]?.frequency || '1-0-1';
+        const dailyFrequency = extracted.daily_frequency || extracted.medicines?.[0]?.daily_frequency || 2;
+        const initialQuantity = extracted.initial_quantity || extracted.medicines?.[0]?.initial_quantity || 30;
+        const instructions = extracted.instructions || extracted.medicines?.[0]?.instructions || '';
+        const dosageForm = extracted.dosage_form || extracted.medicines?.[0]?.dosage_form || 'Tablet';
+        const diseaseCategory = extracted.disease_category || extracted.medicines?.[0]?.disease_category || 'General Healthcare';
+
+        setSelectedScanData({
+          medicine_name: medicineName,
+          name: medicineName,
+          dosage: dosage,
+          frequency: frequency,
+          daily_frequency: dailyFrequency,
+          initial_quantity: initialQuantity,
+          current_stock: initialQuantity,
+          instructions: instructions,
+          notes: instructions,
+          dosage_form: dosageForm,
+          disease_category: diseaseCategory,
+          confidence_score: extracted.confidence_score || 0.85,
+          raw_text: extracted.raw_text || '',
+          verified: extracted.verified || false,
+          medicines: extracted.medicines || [],
+        });
+        setIsReviewModalOpen(true);
+        emitToast('success', 'Prescription scanned successfully! Please review details.');
+      }
+    } catch (err) {
+      console.error('Scan Error:', err);
+      emitToast('error', err.response?.data?.detail || err.message || 'Failed to parse prescription.');
+    } finally {
+      setIsScanning(false);
+      // Reset file input so user can pick again if needed
+      if (e.target) e.target.value = '';
+    }
+  };
 
 
   const displayName = currentUser?.full_name || currentUser?.name || currentUser?.username || 'Patient';
@@ -799,7 +873,7 @@ function PatientDashboardInner() {
               <Button
                 variant="outlined"
                 size="sm"
-                onClick={() => exportAPI.medicinesPDF()}
+                onClick={() => exportAPI.downloadPdf ? exportAPI.downloadPdf() : exportAPI.medicinesPDF()}
                 leftIcon={<Download className="w-3.5 h-3.5" />}
                 className="min-h-[38px] shrink-0"
               >
@@ -808,7 +882,7 @@ function PatientDashboardInner() {
               <Button
                 variant="outlined"
                 size="sm"
-                onClick={() => exportAPI.allCSV()}
+                onClick={() => exportAPI.downloadCsv ? exportAPI.downloadCsv() : exportAPI.allCSV()}
                 leftIcon={<Download className="w-3.5 h-3.5" />}
                 className="min-h-[38px] shrink-0"
               >
@@ -910,7 +984,7 @@ function PatientDashboardInner() {
                     <div className="flex items-center gap-1.5 px-sm py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-900 dark:text-amber-200">
                       <Flame className="w-3.5 h-3.5 text-amber-600" />
                       <span className="text-label-caps font-bold">
-                        7-Day Streak 🔥
+                        {adherenceStreak > 0 ? `${adherenceStreak}-Day Streak 🔥` : '0 Days Active'}
                       </span>
                     </div>
                   </div>
@@ -995,16 +1069,27 @@ function PatientDashboardInner() {
                     </p>
                   </div>
                   <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
-                    <Link href="/scan" className="w-full sm:w-auto">
-                      <Button variant="primary" size="md" leftIcon={<Camera className="w-4 h-4" />} className="w-full sm:w-auto min-h-[44px]">
-                        {locale === 'hi' ? 'पर्ची स्कैन करें (AI)' : 'Scan Prescription (AI)'}
-                      </Button>
-                    </Link>
-                    <Link href="/medicines" className="w-full sm:w-auto">
-                      <Button variant="outline" size="md" leftIcon={<PlusCircle className="w-4 h-4" />} className="w-full sm:w-auto min-h-[44px]">
-                        {locale === 'hi' ? 'दवा जोड़ें' : 'Add Medication'}
-                      </Button>
-                    </Link>
+                    <Button
+                      variant="primary"
+                      size="md"
+                      leftIcon={<Camera className="w-4 h-4" />}
+                      className="w-full sm:w-auto min-h-[44px]"
+                      onClick={() => scanInputRef.current?.click()}
+                      isLoading={isScanning}
+                    >
+                      {isScanning
+                        ? 'Scanning Prescription...'
+                        : (locale === 'hi' ? 'पर्ची स्कैन करें (AI)' : 'Scan Prescription (AI)')}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="md"
+                      leftIcon={<PlusCircle className="w-4 h-4" />}
+                      className="w-full sm:w-auto min-h-[44px]"
+                      onClick={() => setIsAddModalOpen(true)}
+                    >
+                      {locale === 'hi' ? 'दवा जोड़ें' : 'Add Medication'}
+                    </Button>
                   </div>
                 </div>
               )}
@@ -1159,16 +1244,27 @@ function PatientDashboardInner() {
                 </div>
               </div>
               <div className="mt-sm flex gap-xs">
-                <Link href="/scan" className="flex-1">
-                  <Button variant="primary" size="sm" fullWidth leftIcon={<Camera className="w-4 h-4" />}>
-                    Scan Now
-                  </Button>
-                </Link>
-                <Link href="/medicines" className="flex-1">
-                  <Button variant="outline" size="sm" fullWidth leftIcon={<PlusCircle className="w-4 h-4" />}>
-                    Add Manual
-                  </Button>
-                </Link>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  fullWidth
+                  leftIcon={<Camera className="w-4 h-4" />}
+                  onClick={() => scanInputRef.current?.click()}
+                  isLoading={isScanning}
+                  className="flex-1"
+                >
+                  {isScanning ? 'Scanning...' : 'Scan Now'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  fullWidth
+                  leftIcon={<PlusCircle className="w-4 h-4" />}
+                  onClick={() => setIsAddModalOpen(true)}
+                  className="flex-1"
+                >
+                  Add Manual
+                </Button>
               </div>
             </div>
 
@@ -1379,6 +1475,43 @@ function PatientDashboardInner() {
         onClose={() => setIsAddReminderOpen(false)}
         onAdd={handleAddReminder}
       />
+
+      {/* ── Hidden File Input for Direct Dashboard Scan ────────────────── */}
+      <input
+        type="file"
+        ref={scanInputRef}
+        onChange={handleScanPrescription}
+        accept="image/*,.pdf"
+        className="hidden"
+      />
+
+      {/* ── Prescription Review & Verification Modal ────────────────── */}
+      {isReviewModalOpen && selectedScanData && (
+        <ReviewPrescriptionModal
+          data={selectedScanData}
+          isOpen={isReviewModalOpen}
+          onClose={() => setIsReviewModalOpen(false)}
+          onSave={async (formData) => {
+            if (formData) {
+              await medicineAPI.create(formData);
+            }
+            setIsReviewModalOpen(false);
+            await fetchMedicines();
+            await fetchSchedule();
+            emitToast('Medicine schedule updated!', 'success');
+          }}
+        />
+      )}
+
+      {/* ── Manual Add Medicine Modal ────────────────── */}
+      <AddMedicineModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onSuccess={() => {
+          fetchDashboardData();
+          emitToast('success', 'Medicine added to schedule!');
+        }}
+      />
       </div>
     </DashboardLayout>
   );
@@ -1392,8 +1525,6 @@ export default function PatientDashboardPage() {
       <PatientDashboardInner />
       {/* G-Stack: Fixed overlay canvas — 3D robot floats above DOM, ErrorBoundary ensures zero crash risk */}
       <DualModeMedicalBot />
-      {/* G-Stack: Slide-over chat sidebar — opens when user clicks "Ask PillSync AI" on the docked robot */}
-      <MedicalAssistantWidget />
     </ToastProvider>
   );
 }

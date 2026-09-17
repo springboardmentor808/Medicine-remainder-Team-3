@@ -12,7 +12,7 @@ import random
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -692,6 +692,7 @@ async def send_otp(payload: SendOTPRequest):
 )
 async def forgot_password(
     payload: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     """Initiate password recovery with single-use reset token and OTP."""
@@ -701,24 +702,26 @@ async def forgot_password(
     result = await db.execute(select(User).where(func.lower(User.email) == email_clean))
     user = result.scalar_one_or_none()
 
-    otp_code = None
-    if user:
-        reset_token = await OTPService.create_password_reset_token(user.id, email_clean)
-        otp_code = await OTPService.generate_otp(email_clean, channel="email", purpose="PASSWORD_RESET")
-        logger.info(f"[Auth:PasswordReset] Generated reset OTP for {masked_email}")
-        async def _dispatch_reset_emails():
-            try:
-                await EmailService.send_password_reset_email(email_clean, reset_token)
-                await EmailService.send_otp_email(email_clean, otp_code, purpose="PASSWORD_RESET")
-            except Exception as mail_err:
-                logger.error(f"[Auth:PasswordReset] Error dispatching reset emails to {masked_email}: {mail_err}")
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No registered account found with this email address. Please check your spelling or register.",
+        )
 
-        asyncio.create_task(_dispatch_reset_emails())
+    reset_token = await OTPService.create_password_reset_token(user.id, email_clean)
+    otp_code = await OTPService.generate_otp(email_clean, channel="email", purpose="PASSWORD_RESET")
+    logger.info(f"[Auth:PasswordReset] Generated reset OTP for {masked_email}")
+
+    # Guarantees background dispatch via FastAPI lifecycle
+    background_tasks.add_task(EmailService.send_otp_email, email_clean, otp_code, "PASSWORD_RESET")
+    background_tasks.add_task(EmailService.send_password_reset_email, email_clean, reset_token)
 
     return MessageResponse(
-        message="If an account exists for this email, password recovery instructions have been dispatched.",
+        message="A 6-digit verification code has been dispatched to your email.",
         detail=f"Recovery sent to {masked_email}",
+        debug_otp=otp_code if (settings.DEBUG or not settings.is_production) else None,
     )
+
 
 
 
@@ -798,17 +801,31 @@ async def verify_otp(
     summary="Resend OTP code",
     description="Generates and dispatches a fresh 6-digit OTP code.",
 )
-async def resend_otp(payload: ForgotPasswordRequest):
+async def resend_otp(
+    payload: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
     """Resend 6-digit OTP to user email."""
     email_clean = payload.email.strip().lower()
-    otp_code = await OTPService.generate_otp(email_clean, purpose="PASSWORD_RESET")
     masked_email = email_clean[:2] + "****" + email_clean[-4:] if len(email_clean) > 6 else "****"
+
+    result = await db.execute(select(User).where(func.lower(User.email) == email_clean))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No registered account found with this email address.",
+        )
+
+    otp_code = await OTPService.generate_otp(email_clean, channel="email", purpose="PASSWORD_RESET")
     logger.info(f"[Auth:ResendOTP] Fresh OTP generated for {masked_email}")
-    await EmailService.send_otp_email(email_clean, otp_code, purpose="PASSWORD_RESET")
+    background_tasks.add_task(EmailService.send_otp_email, email_clean, otp_code, "PASSWORD_RESET")
 
     return MessageResponse(
-        message="A new 6-digit OTP has been sent to your email.",
+        message="A fresh 6-digit OTP has been dispatched to your email.",
         detail=f"OTP resent to {masked_email}",
+        debug_otp=otp_code if (settings.DEBUG or not settings.is_production) else None,
     )
 
 
@@ -835,6 +852,10 @@ async def reset_password(
         claim_key = f"otp_verified:email:{clean_email}:PASSWORD_RESET"
         is_claimed = await redis.get(claim_key) if redis else None
 
+        # Fallback to general email claim
+        if not is_claimed and redis:
+            is_claimed = await redis.get(f"otp_verified:email:{clean_email}")
+
         if not is_claimed:
             if payload.otp:
                 await OTPService.verify_otp(clean_email, payload.otp, channel="email", purpose="PASSWORD_RESET")
@@ -850,12 +871,12 @@ async def reset_password(
         # Clean up verified claims in Redis if set
         if redis:
             await redis.delete(claim_key)
+            await redis.delete(f"otp_verified:email:{clean_email}")
     else:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Either a reset token or email address is required.",
         )
-
 
     if not user:
         raise HTTPException(

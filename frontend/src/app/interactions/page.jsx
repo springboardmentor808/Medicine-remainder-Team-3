@@ -1059,6 +1059,16 @@ export default function InteractionsPage() {
     return Math.max(15, 100 - penalty);
   }, [selectedMeds.length, criticalCount, majorCount, moderateCount]);
 
+  // Aligned with backend DDInter composite risk score:
+  // High Risk: 75–100, Moderate: 40–74, Safe / Low: 0–39
+  const compositeRiskScore = useMemo(() => {
+    if (selectedMeds.length < 2) return 0;
+    if (criticalCount > 0) return Math.min(100, Math.max(75, 75 + criticalCount * 8 + majorCount * 4));
+    if (majorCount > 0) return Math.min(74, Math.max(40, 40 + majorCount * 8 + moderateCount * 3));
+    if (moderateCount > 0) return Math.min(39, Math.max(15, 15 + moderateCount * 6));
+    return 12; // Baseline non-zero verified profile
+  }, [selectedMeds.length, criticalCount, majorCount, moderateCount]);
+
   // Dynamic active risk tier:
   // CodeRabbit Fix: Keep the displayed risk tier consistent with interaction severity.
   // The displayed risk tier is strictly determined by the highest severity among detected interactions:
@@ -1774,6 +1784,9 @@ export default function InteractionsPage() {
                         : activeRiskTier === "moderate"
                         ? "Moderate Risk Focus"
                         : "Harmonized Profile"}
+                    </span>
+                    <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mt-1">
+                      Risk Score: <strong className={compositeRiskScore >= 75 ? 'text-rose-600 dark:text-rose-400' : compositeRiskScore >= 40 ? 'text-amber-600 dark:text-amber-400' : 'text-teal-600 dark:text-teal-400'}>{compositeRiskScore}/100</strong>
                     </span>
                   </div>
                 </div>

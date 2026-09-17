@@ -499,3 +499,27 @@ async def update_stock_endpoint(
         adjustment=new - previous,
         medicine=_to_response(medicine),
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /medicines/check-interactions — AI Drug-Drug Interactions & Scoring
+# ---------------------------------------------------------------------------
+@router.post(
+    "/check-interactions",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+    summary="Check Drug Interactions",
+    description="Cross-reference a list of medications against the DDInter matrix and calculate a composite risk score.",
+)
+async def check_interactions_endpoint(
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Evaluate pairwise drug interactions and compute composite risk score."""
+    from app.services.medication_service import check_drug_interactions
+
+    medicines = payload.get("medicines") or payload.get("drugs") or []
+    if isinstance(medicines, str):
+        medicines = [m.strip() for m in medicines.split(",") if m.strip()]
+    return check_drug_interactions(medicines)
+

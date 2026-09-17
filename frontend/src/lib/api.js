@@ -9,7 +9,8 @@
 import axios from 'axios';
 
 // ── Base Config ───────────────────────────────────────────────────────────────
-const BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
+const rawApiUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').trim().replace(/\/+$/, '');
+const BASE_URL = rawApiUrl.endsWith('/api/v1') ? rawApiUrl : `${rawApiUrl}/api/v1`;
 
 const apiClient = axios.create({
   baseURL: BASE_URL,
@@ -21,9 +22,13 @@ const apiClient = axios.create({
   timeout: 30000,
 });
 
-// ── Request Interceptor — Attach JWT Token ────────────────────────────────────
+// ── Request Interceptor — Attach JWT Token & Strip duplicate prefix ────────────
 apiClient.interceptors.request.use(
   (config) => {
+    // Prevent accidental duplicate /api/v1 prefix
+    if (config.url && config.url.startsWith('/api/v1/')) {
+      config.url = config.url.replace(/^\/api\/v1/, '');
+    }
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('pillsync_access_token');
       if (token) {
@@ -183,7 +188,12 @@ const handleError = (error) => {
   if (error.code === 'ECONNABORTED' || error.message?.includes('timeout') || error.message?.includes('15000ms')) {
     msg = 'Network connection timed out. Loading local offline records.';
   } else if (status === 404) {
-    msg = 'The requested medical record or scan result was not found.';
+    const reqUrl = error.config?.url || '';
+    if (reqUrl.includes('/ocr/') || reqUrl.includes('/prescriptions/')) {
+      msg = 'The requested medical record or scan result was not found.';
+    } else {
+      msg = data?.detail || data?.message || 'The requested resource was not found.';
+    }
   } else if (status === 413) {
     msg = 'Upload failed: Prescription image exceeds maximum allowed size (10 MB). Please upload a smaller or cropped image.';
   } else if (status === 429) {
@@ -336,13 +346,17 @@ export const userAPI = {
 export const medicineAPI = {
   /** GET /medicines — Patient's medicine cabinet */
   list: (params) =>
-    apiClient.get('/medicines', { params }).catch(handleError),
+    apiClient.get('/medicines', { params }).then((r) => r.data || r).catch(handleError),
+
+  /** GET /medicines — Get all medicines */
+  getAll: (params) =>
+    apiClient.get('/medicines', { params }).then((r) => r.data || r).catch(handleError),
 
   /**
    * POST /medicines — Add medicine manually
    * @param {{ name, dosage, frequency, instructions, start_date, end_date, stock }} data
    */
-  create: (data) => apiClient.post('/medicines', data).catch(handleError),
+  create: (data) => apiClient.post('/medicines', data).then((r) => r.data || r).catch(handleError),
 
   /**
    * GET /medicines/:id — Medicine details
@@ -362,7 +376,34 @@ export const medicineAPI = {
    * DELETE /medicines/:id
    * @param {string} id
    */
-  delete: (id) => apiClient.delete(`/medicines/${id}`).catch(handleError),
+  delete: (id) => apiClient.delete(`/medicines/${id}`).then((r) => r.data || r).catch(handleError),
+
+  /**
+   * DELETE /medicines/:id — Alias for delete
+   * @param {string} id
+   */
+  remove: (id) => apiClient.delete(`/medicines/${id}`).then((r) => r.data || r).catch(handleError),
+
+  /**
+   * PATCH /medicines/:id/stock — Update/adjust stock
+   * Accepts number (treated as new_stock) or object { new_stock, adjustment }
+   * @param {string} id
+   * @param {number|object} stock
+   */
+  updateStock: (id, stock) => {
+    const payload = typeof stock === 'object' ? stock : { new_stock: Number(stock) };
+    return apiClient.patch(`/medicines/${id}/stock`, payload).then((r) => r.data || r).catch(handleError);
+  },
+
+  /**
+   * PATCH /medicines/:id/stock — Adjust stock alias
+   * @param {string} id
+   * @param {number|object} payload
+   */
+  adjustStock: (id, payload) => {
+    const body = typeof payload === 'number' ? { new_stock: payload } : payload;
+    return apiClient.patch(`/medicines/${id}/stock`, body).then((r) => r.data || r).catch(handleError);
+  },
 
   /**
    * GET /medicines/grouped/by-disease — Group medicines by disease
@@ -387,7 +428,17 @@ export const medicineAPI = {
   ocrScan: (formData) =>
     apiClient.post('/ocr/scan', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-    }).catch(handleError),
+      timeout: 60000,
+    }).then(r => r.data || r).catch(handleError),
+
+  /**
+   * POST /medicines/check-interactions — DDInter safety & risk scoring
+   * @param {string[]} medicines — Array of medicine names or generic salts
+   */
+  checkInteractions: (medicines) =>
+    apiClient.post('/medicines/check-interactions', { medicines })
+      .then(r => r.data || r)
+      .catch(handleError),
 
   /**
    * POST /medicines/:id/take — Log a taken dose
@@ -410,8 +461,8 @@ export const medicineAPI = {
    * @param {string} id
    * @param {{ snooze_minutes }} data
    */
-  snoozeDose: (id, data) =>
-    apiClient.post(`/medicines/${id}/snooze`, data).catch(handleError),
+  snoozeReminder: (id, minutes = 15) =>
+    apiClient.post(`/medicines/${id}/snooze`, { minutes }).catch(handleError),
 
   /** GET /medicines/today — Today's medication schedule */
   todaySchedule: () =>
@@ -529,6 +580,10 @@ export const patientAPI = {
 // 6c. ANALYTICS API
 // ═════════════════════════════════════════════════════════════════════════════
 export const analyticsAPI = {
+  /** GET /analytics/adherence — Real adherence summary and streak from dose logs */
+  getAdherence: (params) =>
+    apiClient.get('/analytics/adherence', { params }).then((r) => r.data || r).catch(handleError),
+
   /** GET /analytics/trends — 7-day or 30-day trends */
   getTrends: (params) =>
     apiClient.get('/analytics/trends', { params }).then((r) => r.data || r).catch(handleError),
@@ -602,10 +657,12 @@ export const caregiverAPI = {
 
   /**
    * POST /users/link-patient
-   * @param {object} data
+   * @param {object} payload — { code, email, phone, ... }
    */
-  linkPatient: (data) =>
-    apiClient.post('/users/link-patient', data).catch(handleError),
+  linkPatient: async (payload) => {
+    const res = await apiClient.post('/users/link-patient', payload);
+    return res?.data !== undefined ? res.data : res;
+  },
 
   /**
    * POST /reminders/notify-patient
@@ -806,124 +863,207 @@ export const adminAPI = {
     apiClient.get('/analytics/summary', { params }).catch(handleError),
 };
 
+// Helper to trigger browser file download from Blob
+function triggerDownload(blobData, filename) {
+  if (typeof window === 'undefined') return;
+  const blob = blobData instanceof Blob ? blobData : new Blob([blobData]);
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // 12. DATA EXPORT
 // ═════════════════════════════════════════════════════════════════════════════
 export const exportAPI = {
-  /** Download medicines as CSV */
-  medicinesCSV: () => {
-    const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
-    const token = typeof window !== 'undefined' ? localStorage.getItem('pillsync_access_token') : '';
-    window.open(`${base}/export/medicines/csv?token=${encodeURIComponent(token || '')}`, '_blank');
+  /** Standard blob PDF report download */
+  downloadPdf: async () => {
+    try {
+      const response = await apiClient.get('/export/medicines/pdf', { responseType: 'blob' });
+      triggerDownload(response.data, 'PillSync_Prescription_Report.pdf');
+    } catch (err) {
+      handleError(err);
+    }
   },
 
-  /** Download medicines as PDF (styled HTML) */
-  medicinesPDF: () => {
-    const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
-    const token = typeof window !== 'undefined' ? localStorage.getItem('pillsync_access_token') : '';
-    window.open(`${base}/export/medicines/pdf?token=${encodeURIComponent(token || '')}`, '_blank');
+  /** Standard blob CSV report download */
+  downloadCsv: async () => {
+    try {
+      const response = await apiClient.get('/export/all/csv', { responseType: 'blob' });
+      triggerDownload(response.data, 'PillSync_Adherence_Report.csv');
+    } catch (err) {
+      handleError(err);
+    }
+  },
+
+  /** Download medicines as CSV */
+  medicinesCSV: async () => {
+    try {
+      const response = await apiClient.get('/export/medicines/csv', { responseType: 'blob' });
+      triggerDownload(response.data, 'PillSync_Medicines.csv');
+    } catch (err) {
+      handleError(err);
+    }
+  },
+
+  /** Download medicines as PDF */
+  medicinesPDF: async () => {
+    try {
+      const response = await apiClient.get('/export/medicines/pdf', { responseType: 'blob' });
+      triggerDownload(response.data, 'PillSync_Prescription_Report.pdf');
+    } catch (err) {
+      handleError(err);
+    }
   },
 
   /** Download adherence history as CSV */
-  adherenceCSV: () => {
-    const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
-    const token = typeof window !== 'undefined' ? localStorage.getItem('pillsync_access_token') : '';
-    window.open(`${base}/export/adherence/csv?token=${encodeURIComponent(token || '')}`, '_blank');
+  adherenceCSV: async () => {
+    try {
+      const response = await apiClient.get('/export/adherence/csv', { responseType: 'blob' });
+      triggerDownload(response.data, 'PillSync_Adherence_Report.csv');
+    } catch (err) {
+      handleError(err);
+    }
   },
 
   /** Download all data as CSV */
-  allCSV: () => {
-    const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
-    const token = typeof window !== 'undefined' ? (localStorage.getItem('pillsync_access_token') || localStorage.getItem('access_token')) : '';
-    window.open(`${base}/export/all/csv?token=${encodeURIComponent(token || '')}`, '_blank');
+  allCSV: async () => {
+    try {
+      const response = await apiClient.get('/export/all/csv', { responseType: 'blob' });
+      triggerDownload(response.data, 'PillSync_Adherence_Report.csv');
+    } catch (err) {
+      handleError(err);
+    }
   },
 
   /** Download complete dossier as clinical PDF */
-  allPDF: () => {
-    const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
-    const token = typeof window !== 'undefined' ? (localStorage.getItem('pillsync_access_token') || localStorage.getItem('access_token')) : '';
-    window.open(`${base}/export/all/pdf?token=${encodeURIComponent(token || '')}`, '_blank');
+  allPDF: async () => {
+    try {
+      const response = await apiClient.get('/export/all/pdf', { responseType: 'blob' });
+      triggerDownload(response.data, 'PillSync_Health_Dossier.pdf');
+    } catch (err) {
+      handleError(err);
+    }
   },
 
   /** Download system audit logs as CSV */
-  auditCSV: () => {
-    const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
-    const token = typeof window !== 'undefined' ? (localStorage.getItem('pillsync_access_token') || localStorage.getItem('access_token')) : '';
-    window.open(`${base}/export/audit/csv?token=${encodeURIComponent(token || '')}`, '_blank');
+  auditCSV: async () => {
+    try {
+      const response = await apiClient.get('/export/audit/csv', { responseType: 'blob' });
+      triggerDownload(response.data, 'PillSync_Audit_Logs.csv');
+    } catch (err) {
+      handleError(err);
+    }
   },
 
   /** Download system audit logs as PDF */
-  auditPDF: () => {
-    const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
-    const token = typeof window !== 'undefined' ? (localStorage.getItem('pillsync_access_token') || localStorage.getItem('access_token')) : '';
-    window.open(`${base}/export/audit/pdf?token=${encodeURIComponent(token || '')}`, '_blank');
+  auditPDF: async () => {
+    try {
+      const response = await apiClient.get('/export/audit/pdf', { responseType: 'blob' });
+      triggerDownload(response.data, 'PillSync_Audit_Logs.pdf');
+    } catch (err) {
+      handleError(err);
+    }
   },
 
   /** Download system health diagnostics as CSV */
-  healthCSV: () => {
-    const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
-    const token = typeof window !== 'undefined' ? (localStorage.getItem('pillsync_access_token') || localStorage.getItem('access_token')) : '';
-    window.open(`${base}/export/health/csv?token=${encodeURIComponent(token || '')}`, '_blank');
+  healthCSV: async () => {
+    try {
+      const response = await apiClient.get('/export/health/csv', { responseType: 'blob' });
+      triggerDownload(response.data, 'PillSync_System_Health.csv');
+    } catch (err) {
+      handleError(err);
+    }
   },
 
   /** Download system health diagnostics as PDF */
-  healthPDF: () => {
-    const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
-    const token = typeof window !== 'undefined' ? (localStorage.getItem('pillsync_access_token') || localStorage.getItem('access_token')) : '';
-    window.open(`${base}/export/health/pdf?token=${encodeURIComponent(token || '')}`, '_blank');
+  healthPDF: async () => {
+    try {
+      const response = await apiClient.get('/export/health/pdf', { responseType: 'blob' });
+      triggerDownload(response.data, 'PillSync_System_Health.pdf');
+    } catch (err) {
+      handleError(err);
+    }
   },
 
   /** Download multi-channel notification telemetry as CSV */
-  telemetryCSV: () => {
-    const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
-    const token = typeof window !== 'undefined' ? (localStorage.getItem('pillsync_access_token') || localStorage.getItem('access_token')) : '';
-    window.open(`${base}/export/telemetry/csv?token=${encodeURIComponent(token || '')}`, '_blank');
+  telemetryCSV: async () => {
+    try {
+      const response = await apiClient.get('/export/telemetry/csv', { responseType: 'blob' });
+      triggerDownload(response.data, 'PillSync_Notification_Telemetry.csv');
+    } catch (err) {
+      handleError(err);
+    }
   },
 
   /** Download comprehensive 8-10 page Master Platform Dossier as PDF */
-  masterPDF: (scope = '30d') => {
-    const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
-    const token = typeof window !== 'undefined' ? (localStorage.getItem('pillsync_access_token') || localStorage.getItem('access_token')) : '';
-    window.open(`${base}/export/master/pdf?scope=${encodeURIComponent(scope)}&token=${encodeURIComponent(token || '')}`, '_blank');
+  masterPDF: async (scope = '30d') => {
+    try {
+      const response = await apiClient.get('/export/master/pdf', { params: { scope }, responseType: 'blob' });
+      triggerDownload(response.data, `PillSync_Master_Dossier_${scope}.pdf`);
+    } catch (err) {
+      handleError(err);
+    }
   },
 
   /** Caregiver: Download assigned patients medication & schedule report as CSV */
-  caregiverPatientsCSV: (patientId = null) => {
-    const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
-    const token = typeof window !== 'undefined' ? (localStorage.getItem('pillsync_access_token') || localStorage.getItem('access_token')) : '';
-    const patientQuery = patientId ? `&patient_id=${encodeURIComponent(patientId)}` : '';
-    window.open(`${base}/export/caregiver/patients/csv?token=${encodeURIComponent(token || '')}${patientQuery}`, '_blank');
+  caregiverPatientsCSV: async (patientId = null) => {
+    try {
+      const params = patientId ? { patient_id: patientId } : {};
+      const response = await apiClient.get('/export/caregiver/patients/csv', { params, responseType: 'blob' });
+      triggerDownload(response.data, 'PillSync_Caregiver_Patients.csv');
+    } catch (err) {
+      handleError(err);
+    }
   },
 
   /** Caregiver: Download assigned patients clinical dossier as PDF */
-  caregiverPatientsPDF: (patientId = null) => {
-    const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
-    const token = typeof window !== 'undefined' ? (localStorage.getItem('pillsync_access_token') || localStorage.getItem('access_token')) : '';
-    const patientQuery = patientId ? `&patient_id=${encodeURIComponent(patientId)}` : '';
-    window.open(`${base}/export/caregiver/patients/pdf?token=${encodeURIComponent(token || '')}${patientQuery}`, '_blank');
+  caregiverPatientsPDF: async (patientId = null) => {
+    try {
+      const params = patientId ? { patient_id: patientId } : {};
+      const response = await apiClient.get('/export/caregiver/patients/pdf', { params, responseType: 'blob' });
+      triggerDownload(response.data, 'PillSync_Caregiver_Patients.pdf');
+    } catch (err) {
+      handleError(err);
+    }
   },
 
   /** Caregiver: Download combined personal cabinet + assigned patients as CSV */
-  caregiverCombinedCSV: () => {
-    const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
-    const token = typeof window !== 'undefined' ? (localStorage.getItem('pillsync_access_token') || localStorage.getItem('access_token')) : '';
-    window.open(`${base}/export/caregiver/combined/csv?token=${encodeURIComponent(token || '')}`, '_blank');
+  caregiverCombinedCSV: async () => {
+    try {
+      const response = await apiClient.get('/export/caregiver/combined/csv', { responseType: 'blob' });
+      triggerDownload(response.data, 'PillSync_Caregiver_Summary.csv');
+    } catch (err) {
+      handleError(err);
+    }
   },
 
   /** Caregiver: Download combined personal cabinet + assigned patients as PDF */
-  caregiverCombinedPDF: () => {
-    const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
-    const token = typeof window !== 'undefined' ? (localStorage.getItem('pillsync_access_token') || localStorage.getItem('access_token')) : '';
-    window.open(`${base}/export/caregiver/combined/pdf?token=${encodeURIComponent(token || '')}`, '_blank');
+  caregiverCombinedPDF: async () => {
+    try {
+      const response = await apiClient.get('/export/caregiver/combined/pdf', { responseType: 'blob' });
+      triggerDownload(response.data, 'PillSync_Caregiver_Summary.pdf');
+    } catch (err) {
+      handleError(err);
+    }
   },
 
   /** Admin: Download complete system database archive (all users, medicines, schedules) as CSV */
-  adminAllCSV: () => {
-    const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
-    const token = typeof window !== 'undefined' ? (localStorage.getItem('pillsync_access_token') || localStorage.getItem('access_token')) : '';
-    window.open(`${base}/export/admin/all/csv?token=${encodeURIComponent(token || '')}`, '_blank');
+  adminAllCSV: async () => {
+    try {
+      const response = await apiClient.get('/export/admin/all/csv', { responseType: 'blob' });
+      triggerDownload(response.data, 'PillSync_Admin_All.csv');
+    } catch (err) {
+      handleError(err);
+    }
   },
 };
+
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 12. AI MEDICAL ASSISTANT (GROUNDED RAG CHATBOT)
@@ -950,7 +1090,57 @@ export const assistantAPI = {
       .get('/assistant/suggestions', { params: { locale } })
       .then((r) => r.data || r)
       .catch(handleError),
+
+  suggestions: (locale = 'en') =>
+    apiClient
+      .get('/assistant/suggestions', { params: { locale } })
+      .then((r) => r.data || r)
+      .catch(handleError),
 };
 
-// ── Default Export ────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// 13. OCR & PRESCRIPTION SCANNING API
+// ═════════════════════════════════════════════════════════════════════════════
+export const ocrAPI = {
+  /**
+   * POST /ocr/scan — Upload prescription image for OCR
+   * @param {FormData} formData
+   */
+  uploadPrescription: (formData) =>
+    apiClient.post('/ocr/scan', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
+    }).then(r => r.data || r).catch(handleError),
+
+  scan: (formData) =>
+    apiClient.post('/ocr/scan', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
+    }).then(r => r.data || r).catch(handleError),
+
+  /**
+   * GET /ocr/history
+   * @param {object|string} params
+   */
+  getHistory: (params) => {
+    if (typeof params === 'string' && (!params || params === 'undefined' || params === 'null')) {
+      return Promise.resolve(null);
+    }
+    return apiClient.get('/ocr/history', { params }).then(r => r.data || r).catch(handleError);
+  },
+
+  /**
+   * GET /ocr/history/{scan_id}
+   * @param {string} scanId
+   */
+  getScanDetail: (scanId) => {
+    if (!scanId || scanId === 'undefined' || scanId === 'null') {
+      return Promise.resolve(null);
+    }
+    return apiClient.get(`/ocr/history/${scanId}`).then(r => r.data || r).catch(handleError);
+  },
+};
+
+// ── Default and Named Aliases ─────────────────────────────────────────────────
+export const api = apiClient;
 export default apiClient;

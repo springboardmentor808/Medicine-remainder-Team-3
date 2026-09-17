@@ -72,7 +72,7 @@ _MEDICINE_NAME_PATTERN = re.compile(
     r"\b([A-Z][A-Za-z0-9\-\/]{1,30}(?:\s+[A-Za-z0-9\-\/]{1,30}){0,3})\b"
 )
 
-# Comprehensive stop-word list to eliminate hospital/doctor header false positives
+# Comprehensive stop-word list to eliminate hospital/doctor header and document metadata false positives
 _EXCLUDE_WORDS: Set[str] = {
     "take", "tablet", "tablets", "capsule", "capsules", "daily",
     "morning", "evening", "night", "after", "before", "with",
@@ -89,11 +89,41 @@ _EXCLUDE_WORDS: Set[str] = {
     "twice", "thrice", "three", "four", "one", "two",
     "tab", "cap", "syrup", "injection", "inj", "oral", "drops",
     "instructions", "review", "follow", "up", "days", "weeks", "months",
+    "templatenet", "template", "company", "prescriber", "information", "info",
+    "details", "license", "licence", "number", "birth", "january", "february",
+    "march", "april", "may", "june", "july", "august", "september", "october",
+    "november", "december", "record", "records", "profile", "form", "specimen",
+    "sample", "draft", "copyright", "trademark",
 }
 
+# Regex patterns matching section headings, patient demographics, and prescription metadata
+_HEADER_EXCLUDE_PATTERNS = [
+    r'\b(?:prescriber|prescription|medication|medicine|patient|doctor|physician|clinic|hospital)\s+(?:info|information|details|record|profile|data|history)\b',
+    r'\b(?:license|licence|reg|registration|dea|npi)\s*(?:no|number|num|#)?\b',
+    r'\b(?:date\s+of\s+birth|dob|birth\s+date|of\s+birth)\b',
+    r'\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}\b',
+    r'\b(?:october|november|december|january|february|march|april|may|june|july|august|september)\b',
+    r'\b(?:templatenet|template\.net|company|clinic|hospital|healthcare|pharmacy|center|centre|opd|emergency)\b',
+    r'\b(?:vital\s+signs|physical\s+exam|lab\s+test|diagnosis|chief\s+complaint|allergies|clinical\s+notes)\b',
+    r'\b(?:signature|valid\s+until|refill\s+count|page\s+\d+\s+of\s+\d+)\b',
+]
+_HEADER_EXCLUDE_REGEX = re.compile('|'.join(_HEADER_EXCLUDE_PATTERNS), re.IGNORECASE)
 
-def _is_excluded(word: str) -> bool:
-    return word.strip().lower() in _EXCLUDE_WORDS
+
+def _is_excluded(word_or_phrase: str) -> bool:
+    """Check if a word, phrase, or line is an excluded stop-word or non-medicine header."""
+    if not word_or_phrase:
+        return True
+    clean = word_or_phrase.strip().lower()
+    if clean in _EXCLUDE_WORDS:
+        return True
+    if _HEADER_EXCLUDE_REGEX.search(clean):
+        return True
+    # If all constituent tokens are in stop-words or numbers
+    tokens = [t for t in re.split(r'[\s\-_\.,/]+', clean) if t]
+    if tokens and all(t in _EXCLUDE_WORDS or t.isdigit() for t in tokens):
+        return True
+    return False
 
 
 def parse_prescription_text(raw_text: str) -> dict:
@@ -227,8 +257,14 @@ def _extract_medicine_name(text: str) -> Optional[str]:
 
 
 def _extract_dosage_form(text: str, med_name: Optional[str] = None) -> str:
-    """Detects dosage form (Tablet, Capsule, Syrup, etc.)."""
+    """Detects dosage form (Tablet, Capsule, Syrup, Lotion, Gel, Cream, etc.)."""
     combined = f"{med_name or ''} {text}".lower()
+    if re.search(r"\b(lotion)\b", combined):
+        return "Lotion"
+    if re.search(r"\b(gel)\b", combined):
+        return "Gel"
+    if re.search(r"\b(cream)\b", combined):
+        return "Cream"
     if re.search(r"\b(syrup|syr|suspension|liquid|solution)\b", combined):
         return "Syrup"
     if re.search(r"\b(capsule|cap|caps)\b", combined):
@@ -239,7 +275,7 @@ def _extract_dosage_form(text: str, med_name: Optional[str] = None) -> str:
         return "Drops"
     if re.search(r"\b(inhaler|rotahaler|respules?)\b", combined):
         return "Inhaler"
-    if re.search(r"\b(ointment|gel|cream)\b", combined):
+    if re.search(r"\b(ointment)\b", combined):
         return "Ointment"
     return "Tablet"
 
@@ -326,4 +362,110 @@ def _extract_instructions(text: str) -> Optional[str]:
         notes_parts.append("With warm water")
 
     return "; ".join(notes_parts) if notes_parts else None
+
+
+def parse_multiple_medicines(raw_text: str) -> List[dict]:
+    """
+    Parses multi-item prescription text line-by-line to extract all prescribed medicines.
+    Enforces clinical evidence validation (dosage, dosage form, frequency, or verified catalog match).
+    Strictly filters out non-medicine headings, hospital/prescriber metadata, dates, and watermarks.
+    Returns a list of structured medicine dictionaries.
+    """
+    if not raw_text or not raw_text.strip():
+        return []
+
+    lines = [ln.strip() for ln in raw_text.split("\n") if ln.strip()]
+    medicines = []
+    seen_names = set()
+
+    # Try importing FuzzyCatalogMatcher
+    matcher = None
+    try:
+        from ai_training.track_1_vision.src.fuzzy_catalog_matcher import FuzzyCatalogMatcher
+        matcher = FuzzyCatalogMatcher()
+    except Exception:
+        matcher = None
+
+    DOSAGE_FORM_KEYWORDS = re.compile(
+        r"\b(tablet|tablets|tab|tabs|capsule|capsules|cap|caps|syrup|syr|liquid|solution|suspension|injection|inj|ampoule|vial|lotion|gel|cream|ointment|drops?|inhaler|powder|spray|patch|mouthwash)\b",
+        re.IGNORECASE,
+    )
+
+    for line in lines:
+        # Discard lines matching header patterns or demographic metadata
+        if _is_excluded(line):
+            continue
+
+        clean_line = re.sub(r"^\d+[\.\)\-]\s*", "", line).strip()
+        clean_line = re.sub(r"^(?:rx:?|tab\.?|cap\.?|syr\.?|inj\.?)\s*", "", clean_line, flags=re.IGNORECASE).strip()
+        if len(clean_line) < 3 or _is_excluded(clean_line):
+            continue
+
+        # Extract clinical evidence signals from this line
+        line_dosage = _extract_dosage(clean_line)
+        line_freq = _extract_frequency(clean_line)
+        line_med_name = _extract_medicine_name(clean_line)
+        has_form_keyword = bool(DOSAGE_FORM_KEYWORDS.search(line)) or bool(DOSAGE_FORM_KEYWORDS.search(clean_line))
+        matched_catalog_name = None
+        generic_salt = None
+        catalog_verified = False
+
+        if matcher and clean_line:
+            # Require high confidence (75%+) for catalog matching to prevent false positive header matches
+            m_res = matcher.match_medicine(line_med_name or clean_line, score_cutoff=75.0)
+            if m_res and m_res.get("verified"):
+                cat_name = m_res.get("matched_medicine")
+                if cat_name and not _is_excluded(cat_name):
+                    matched_catalog_name = cat_name
+                    generic_salt = m_res.get("generic_salt")
+                    catalog_verified = True
+
+        # Clinical validation: A line is ONLY a medicine if it possesses clinical evidence:
+        # 1. Dosage strength (e.g. 500mg, 10ml, 20mg)
+        # 2. Dosage form keyword (e.g. Liquid, Lotion, Gel, Injection, Tablet, Capsule)
+        # 3. Frequency regimen (e.g. 1-0-1, OD, BD, SOS, daily)
+        # 4. High-confidence verified catalog match
+        has_clinical_evidence = bool(line_dosage or has_form_keyword or line_freq or catalog_verified)
+        if not has_clinical_evidence:
+            # Pure text with no dosage, no dosage form, and no frequency is a heading, date, or watermark
+            continue
+
+        final_name = matched_catalog_name or line_med_name
+        if not final_name and line_dosage:
+            # If dosage was found, try words before dosage
+            words_before = clean_line.split(line_dosage)[0].strip()
+            if words_before and len(words_before) >= 3 and not _is_excluded(words_before):
+                final_name = words_before
+
+        if not final_name or len(final_name) < 3 or _is_excluded(final_name):
+            continue
+
+        norm_key = re.sub(r"[^a-z0-9]", "", final_name.lower())
+        if norm_key not in seen_names:
+            seen_names.add(norm_key)
+            df = _extract_daily_frequency(line_freq)
+            med_obj = {
+                "medicine_name": final_name,
+                "generic_salt": generic_salt or "",
+                "dosage": line_dosage or "As prescribed",
+                "frequency": line_freq or (
+                    "1-1-1" if df == 3 else "1-0-1" if df == 2 else "1-0-0"
+                ),
+                "daily_frequency": df,
+                "dosage_form": _extract_dosage_form(clean_line, final_name),
+                "disease_category": _infer_disease_category(final_name, generic_salt),
+                "initial_quantity": _extract_initial_quantity(clean_line, df),
+                "quantity_per_dose": _extract_quantity_per_dose(clean_line),
+                "instructions": _extract_instructions(clean_line) or "Take as directed",
+            }
+            medicines.append(med_obj)
+
+    # Fallback to single parse if no individual lines matched, with strict exclusion
+    if not medicines:
+        single = parse_prescription_text(raw_text)
+        if single and single.get("medicine_name") and not _is_excluded(single.get("medicine_name")):
+            medicines.append(single)
+
+    return medicines
+
 

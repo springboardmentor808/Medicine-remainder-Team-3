@@ -51,16 +51,18 @@ function ForgotPasswordContent() {
   // ── Step 1 — Send OTP ─────────────────────────────────────────────────
   const handleEmailSubmit = async (e) => {
     e.preventDefault();
-    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       setErrors({ email: 'Please enter a valid email address' });
       return;
     }
     setLoading(true);
     setServerError('');
     try {
-      const res = await authAPI.forgotPassword({ email: email.trim() });
-      if (res?.data?.debug_otp) {
-        setDevOtp(res.data.debug_otp);
+      const res = await authAPI.forgotPassword({ email: cleanEmail });
+      const otpVal = res?.data?.debug_otp || res?.debug_otp;
+      if (otpVal) {
+        setDevOtp(otpVal);
       }
       setStep(STEPS.OTP);
       startResendCooldown();
@@ -118,7 +120,14 @@ function ForgotPasswordContent() {
     setLoading(true);
     setServerError('');
     try {
-      await authAPI.verifyOtp({ email, otp: code, purpose: 'PASSWORD_RESET' });
+      const cleanEmail = email.trim().toLowerCase();
+      await authAPI.verifyOtp({
+        email: cleanEmail,
+        destination: cleanEmail,
+        channel: 'email',
+        otp: code,
+        purpose: 'PASSWORD_RESET',
+      });
       setStep(STEPS.RESET);
     } catch (err) {
       setServerError(err.message || 'Invalid OTP. Please try again.');
@@ -132,9 +141,11 @@ function ForgotPasswordContent() {
     setLoading(true);
     setServerError('');
     try {
-      const res = await authAPI.forgotPassword({ email: email.trim() });
-      if (res?.data?.debug_otp) {
-        setDevOtp(res.data.debug_otp);
+      const cleanEmail = email.trim().toLowerCase();
+      const res = await (authAPI.resendOtp ? authAPI.resendOtp({ email: cleanEmail }) : authAPI.forgotPassword({ email: cleanEmail }));
+      const otpVal = res?.data?.debug_otp || res?.debug_otp;
+      if (otpVal) {
+        setDevOtp(otpVal);
       }
       startResendCooldown();
       setOtp(['', '', '', '', '', '']);
@@ -158,8 +169,9 @@ function ForgotPasswordContent() {
     setLoading(true);
     setServerError('');
     try {
+      const cleanEmail = email.trim().toLowerCase();
       await authAPI.resetPassword({
-        email,
+        email: cleanEmail,
         otp: otp.join(''),
         new_password: form.password,
       });

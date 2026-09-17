@@ -88,10 +88,11 @@ function MedicinesPageInner() {
       if (selectedPatientId && selectedPatientId !== 'all') {
         params.patient_id = selectedPatientId;
       }
-      const res = await medicineAPI.list(params);
-      // Backend returns array directly or wrapped in .medicines / .items / .data
-      const items = Array.isArray(res) ? res : (res?.medicines || res?.items || res?.data || []);
-      setMedicines(Array.isArray(items) ? items : []);
+      const res = await (medicineAPI.getAll ? medicineAPI.getAll(params) : medicineAPI.list(params));
+      // Normalize array extraction across Axios response variations
+      const raw = res?.data !== undefined ? res.data : res;
+      const list = Array.isArray(raw) ? raw : (raw?.medicines || raw?.items || []);
+      setMedicines(Array.isArray(list) ? list : []);
       setIsDemoData(false);
     } catch (err) {
       const msg = err.message || '';
@@ -111,6 +112,13 @@ function MedicinesPageInner() {
 
   useEffect(() => {
     fetchMedicines();
+    const handleRefresh = () => fetchMedicines();
+    window.addEventListener('focus', handleRefresh);
+    window.addEventListener('pillsync:medicine-updated', handleRefresh);
+    return () => {
+      window.removeEventListener('focus', handleRefresh);
+      window.removeEventListener('pillsync:medicine-updated', handleRefresh);
+    };
   }, [fetchMedicines]);
 
   const getPatientName = (uid) => {
@@ -160,11 +168,15 @@ function MedicinesPageInner() {
   const handleDelete = async (id, name) => {
     if (!window.confirm(`Are you sure you want to remove ${name}?`)) return;
     try {
-      await medicineAPI.remove(id);
+      // Optimistically remove from state immediately for responsive UX
+      setMedicines((prev) => (Array.isArray(prev) ? prev.filter((m) => m.id !== id) : []));
+      const deleteFn = medicineAPI.remove || medicineAPI.delete;
+      await deleteFn(id);
       setToast({ type: 'success', message: `${name} has been removed from inventory.` });
       fetchMedicines();
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to delete medicine.' });
+      fetchMedicines();
     }
   };
 
@@ -191,12 +203,21 @@ function MedicinesPageInner() {
     if (!stockModalMed) return;
     setUpdatingStock(true);
     try {
-      await medicineAPI.updateStock(stockModalMed.id, Number(newStockVal));
-      setToast({ type: 'success', message: `Stock updated for ${stockModalMed.name}!` });
+      const stockVal = Math.max(0, parseInt(newStockVal, 10) || 0);
+      // Optimistically update stock count in state
+      setMedicines((prev) =>
+        Array.isArray(prev)
+          ? prev.map((m) => (m.id === stockModalMed.id ? { ...m, current_stock: stockVal } : m))
+          : []
+      );
+      const stockFn = medicineAPI.updateStock || medicineAPI.adjustStock;
+      await stockFn(stockModalMed.id, stockVal);
+      setToast({ type: 'success', message: `Stock updated to ${stockVal} units for ${stockModalMed.name}!` });
       setStockModalMed(null);
       fetchMedicines();
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to update stock.' });
+      fetchMedicines();
     } finally {
       setUpdatingStock(false);
     }
@@ -628,6 +649,18 @@ function MedicinesPageInner() {
               <div className="flex items-center gap-2 self-end sm:self-center">
                 <Button variant="outlined" size="sm" onClick={() => handleLogDose(med)}>
                   Log Dose
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setStockModalMed(med);
+                    setNewStockVal(med.current_stock);
+                  }}
+                  title="Adjust Stock Quantity"
+                >
+                  <span className="material-symbols-outlined text-[16px] mr-1">inventory</span>
+                  Stock
                 </Button>
                 <Button
                   variant="ghost"

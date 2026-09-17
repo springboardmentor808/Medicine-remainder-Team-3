@@ -1,5 +1,5 @@
 'use client';
-
+// PillSync Adherence Analytics View
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import {

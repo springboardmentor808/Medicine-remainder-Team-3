@@ -8,7 +8,7 @@ database lifecycle events (PostgreSQL, Redis, MongoDB), and health check endpoin
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 logger = logging.getLogger(__name__)
@@ -162,6 +162,24 @@ app.include_router(export_router, prefix="/api/v1")
 app.include_router(support_router, prefix="/api/v1")
 app.include_router(assistant_router, prefix="/api/v1", tags=["AI Medical Assistant"])
 app.include_router(system_health_router, prefix="/api/v1")
+
+from app.api.v1.assistant import assistant_chat, ChatRequest
+from app.core.security import get_current_user
+from app.core.database import get_db
+
+@app.post(
+    "/api/v1/chat",
+    tags=["AI Medical Assistant"],
+    summary="AI Medical Assistant Chat (Alias)",
+    description="Direct route for /api/v1/chat",
+)
+async def chat_alias_endpoint(
+    request: ChatRequest,
+    current_user=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    return await assistant_chat(request=request, current_user=current_user, db=db)
+
 
 
 # ---------------------------------------------------------------------------

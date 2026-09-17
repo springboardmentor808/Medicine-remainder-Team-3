@@ -27,27 +27,53 @@ import useMedicalBotStore from '@/store/useMedicalBotStore';
 import { useLanguage } from '@/context/LanguageContext';
 
 // ── API Client ───────────────────────────────────────────────────
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// ── API Client ───────────────────────────────────────────────────
+const rawBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').trim().replace(/\/+$/, '');
+const API_BASE = rawBase.endsWith('/api/v1') ? rawBase : `${rawBase}/api/v1`;
+
+const DEFAULT_SUGGESTIONS = [
+  { label: 'Check interactions', query: 'Check interactions between my prescribed medications' },
+  { label: 'Explain dosage schedule', query: 'Explain my daily medication dosage schedule and timings' },
+  { label: 'Side effects', query: 'What common or critical side effects should I watch out for?' },
+];
 
 async function sendChatMessage(messages, locale, token) {
-  const res = await fetch(`${API_BASE}/api/v1/assistant/chat`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ messages, locale }),
-  });
-  if (!res.ok) throw new Error(`Chat API error: ${res.status}`);
+  let res;
+  try {
+    res = await fetch(`${API_BASE}/assistant/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ messages, locale }),
+    });
+    if (!res.ok) throw new Error(`Status ${res.status}`);
+  } catch {
+    res = await fetch(`${API_BASE}/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ messages, locale }),
+    });
+    if (!res.ok) throw new Error(`Chat API error: ${res.status}`);
+  }
   return res.json();
 }
 
 async function fetchSuggestions(locale, token) {
-  const res = await fetch(`${API_BASE}/api/v1/assistant/suggestions?locale=${locale}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) return [];
-  return res.json();
+  try {
+    const res = await fetch(`${API_BASE}/assistant/suggestions?locale=${locale}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return DEFAULT_SUGGESTIONS;
+    const data = await res.json();
+    return Array.isArray(data) && data.length > 0 ? data : DEFAULT_SUGGESTIONS;
+  } catch {
+    return DEFAULT_SUGGESTIONS;
+  }
 }
 
 // ── Emergency Action Card (Strict Clinical SOS Guardrail) ─────────
@@ -116,16 +142,16 @@ function MessageBubble({ message }) {
   return (
     <div className={`flex gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && (
-        <div className="w-7 h-7 rounded-full bg-teal-500/20 flex items-center justify-center shrink-0 mt-0.5 border border-teal-500/30">
-          <Bot className="w-4 h-4 text-teal-300" />
+        <div className="w-7 h-7 rounded-full bg-teal-500/10 dark:bg-teal-500/20 flex items-center justify-center shrink-0 mt-0.5 border border-teal-500/25 dark:border-teal-500/30 shadow-xs">
+          <Bot className="w-4 h-4 text-teal-600 dark:text-teal-300" />
         </div>
       )}
       <div
         className={[
           'max-w-[85%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed',
           isUser
-            ? 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-br-md shadow-md shadow-teal-950/40'
-            : 'bg-slate-900/75 backdrop-blur-xl text-slate-100 border border-teal-500/20 rounded-bl-md shadow-sm',
+            ? 'bg-gradient-to-r from-teal-600 via-teal-500 to-cyan-600 text-white rounded-br-md shadow-md shadow-teal-700/20 font-medium'
+            : 'bg-white/85 dark:bg-slate-900/80 backdrop-blur-xl text-slate-800 dark:text-slate-100 border border-teal-500/20 rounded-bl-md shadow-sm dark:shadow-teal-950/20',
         ].join(' ')}
       >
         {/* Render emergency or DDI cards inside assistant messages */}
@@ -136,8 +162,8 @@ function MessageBubble({ message }) {
         )}
       </div>
       {isUser && (
-        <div className="w-7 h-7 rounded-full bg-cyan-500/20 flex items-center justify-center shrink-0 mt-0.5 border border-cyan-500/30">
-          <User className="w-4 h-4 text-cyan-300" />
+        <div className="w-7 h-7 rounded-full bg-cyan-500/15 dark:bg-cyan-500/20 flex items-center justify-center shrink-0 mt-0.5 border border-cyan-500/30">
+          <User className="w-4 h-4 text-cyan-700 dark:text-cyan-300" />
         </div>
       )}
     </div>
@@ -270,7 +296,7 @@ export default function MedicalAssistantWidget() {
     <>
       {/* ── Backdrop Overlay ─────────────────────────────────────── */}
       <div
-        className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-[9998] transition-opacity duration-300"
+        className="fixed inset-0 bg-slate-900/25 backdrop-blur-[3px] z-[9998] transition-opacity duration-300"
         onClick={closeChat}
         aria-hidden="true"
       />
@@ -279,8 +305,8 @@ export default function MedicalAssistantWidget() {
       <div
         className={[
           'fixed right-0 top-0 h-full w-full sm:w-[420px] z-[9999]',
-          'bg-slate-950/85 backdrop-blur-2xl',
-          'border-l border-teal-500/20 shadow-2xl',
+          'bg-white/85 dark:bg-slate-950/85 backdrop-blur-2xl',
+          'border-l border-teal-500/25 dark:border-teal-500/20 shadow-2xl shadow-teal-950/10 dark:shadow-black/60',
           'flex flex-col',
           'animate-slide-in-right',
         ].join(' ')}
@@ -288,26 +314,26 @@ export default function MedicalAssistantWidget() {
         aria-label="PillSync AI Medical Assistant"
       >
         {/* ── Header ──────────────────────────────────────────── */}
-        <div className="flex items-center justify-between px-4 py-3.5 border-b border-teal-500/20 bg-slate-950/70 backdrop-blur-xl shrink-0">
+        <div className="flex items-center justify-between px-4 py-3.5 border-b border-teal-600/15 dark:border-teal-500/20 bg-white/75 dark:bg-slate-950/70 backdrop-blur-xl shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-teal-500/20 border border-teal-500/30 flex items-center justify-center shadow-inner">
-              <Sparkles className="w-5 h-5 text-teal-300" />
+            <div className="w-9 h-9 rounded-xl bg-teal-500/15 dark:bg-teal-500/20 border border-teal-500/30 flex items-center justify-center shadow-xs">
+              <Sparkles className="w-5 h-5 text-teal-600 dark:text-teal-300" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-100 flex items-center gap-1.5">
+              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
                 <span>PillSync AI</span>
-                <span className="text-[10px] font-normal px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30">
                   RAG
                 </span>
               </h3>
-              <p className="text-[11px] text-slate-400">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 {locale === 'hi' ? 'आपका व्यक्तिगत मेडिकल सहायक' : 'Your Personal Clinical Companion'}
               </p>
             </div>
           </div>
           <button
             onClick={closeChat}
-            className="w-8 h-8 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200 flex items-center justify-center transition-colors cursor-pointer"
+            className="w-8 h-8 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 flex items-center justify-center transition-colors cursor-pointer"
             aria-label="Close chat"
           >
             <X className="w-5 h-5" />
@@ -315,17 +341,17 @@ export default function MedicalAssistantWidget() {
         </div>
 
         {/* ── Messages Area ───────────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 scrollbar-thin scrollbar-thumb-slate-700">
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 scrollbar-thin scrollbar-thumb-teal-500/20 dark:scrollbar-thumb-slate-700">
           {messages.length === 0 && (
             <div className="text-center py-8 space-y-4">
-              <div className="w-16 h-16 mx-auto rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center shadow-inner">
-                <Bot className="w-8 h-8 text-teal-300" />
+              <div className="w-16 h-16 mx-auto rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center shadow-xs">
+                <Bot className="w-8 h-8 text-teal-600 dark:text-teal-300" />
               </div>
               <div>
-                <h4 className="text-sm font-semibold text-slate-200">
+                <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
                   {locale === 'hi' ? 'नमस्ते! मैं PillSync AI हूँ' : "Hi! I'm PillSync AI"}
                 </h4>
-                <p className="text-xs text-slate-400 mt-1 max-w-[280px] mx-auto leading-relaxed">
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 max-w-[280px] mx-auto leading-relaxed">
                   {locale === 'hi'
                     ? 'मैं आपकी दवाइयों, खुराक समय, ड्रग इंटरैक्शन और सुरक्षा के बारे में मदद कर सकता हूँ।'
                     : 'I can help with your active medications, dose schedule, drug-drug safety, and clinical guidelines.'}
@@ -339,7 +365,7 @@ export default function MedicalAssistantWidget() {
                     <button
                       key={i}
                       onClick={() => handleSend(s.query)}
-                      className="px-3 py-1.5 rounded-full bg-slate-900/80 hover:bg-teal-950/60 border border-teal-500/30 hover:border-teal-400 text-xs font-medium text-teal-200 hover:text-teal-100 transition-all active:scale-95 backdrop-blur-md shadow-sm cursor-pointer"
+                      className="px-3 py-1.5 rounded-full bg-white/80 hover:bg-teal-50 dark:bg-slate-900/80 dark:hover:bg-teal-950/60 border border-teal-600/25 dark:border-teal-500/30 hover:border-teal-500 text-xs font-medium text-teal-800 dark:text-teal-200 hover:text-teal-900 dark:hover:text-teal-100 transition-all active:scale-95 backdrop-blur-md shadow-xs cursor-pointer"
                     >
                       {s.label}
                     </button>
@@ -356,21 +382,21 @@ export default function MedicalAssistantWidget() {
           {/* ── Calmed 3-Dot Thinking State ───────────────────── */}
           {isLoading && (
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-full bg-teal-500/20 flex items-center justify-center border border-teal-500/30">
-                <Bot className="w-4 h-4 text-teal-300" />
+              <div className="w-7 h-7 rounded-full bg-teal-500/15 dark:bg-teal-500/20 flex items-center justify-center border border-teal-500/30">
+                <Bot className="w-4 h-4 text-teal-600 dark:text-teal-300" />
               </div>
-              <div className="bg-slate-900/80 backdrop-blur-xl rounded-2xl rounded-bl-md px-4 py-3 border border-teal-500/20 shadow-sm">
+              <div className="bg-white/90 dark:bg-slate-900/80 backdrop-blur-xl rounded-2xl rounded-bl-md px-4 py-3 border border-teal-500/20 shadow-sm">
                 <div className="flex items-center gap-1.5">
                   <span
-                    className="w-2 h-2 bg-teal-400 rounded-full animate-pulse-wave"
+                    className="w-2 h-2 bg-teal-500 rounded-full animate-pulse-wave"
                     style={{ animationDelay: '0ms' }}
                   />
                   <span
-                    className="w-2 h-2 bg-teal-400 rounded-full animate-pulse-wave"
+                    className="w-2 h-2 bg-teal-500 rounded-full animate-pulse-wave"
                     style={{ animationDelay: '280ms' }}
                   />
                   <span
-                    className="w-2 h-2 bg-teal-400 rounded-full animate-pulse-wave"
+                    className="w-2 h-2 bg-teal-500 rounded-full animate-pulse-wave"
                     style={{ animationDelay: '560ms' }}
                   />
                 </div>
@@ -382,7 +408,7 @@ export default function MedicalAssistantWidget() {
         </div>
 
         {/* ── Input Bar ───────────────────────────────────────── */}
-        <div className="shrink-0 px-4 py-3.5 border-t border-teal-500/20 bg-slate-950/70 backdrop-blur-xl">
+        <div className="shrink-0 px-4 py-3.5 border-t border-teal-600/15 dark:border-teal-500/20 bg-white/80 dark:bg-slate-950/70 backdrop-blur-xl">
           <div className="flex items-end gap-2">
             <textarea
               ref={inputRef}
@@ -390,7 +416,7 @@ export default function MedicalAssistantWidget() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={locale === 'hi' ? 'दवाइयों या स्वास्थ्य के बारे में पूछें...' : 'Ask about your medications or schedule...'}
-              className="flex-1 bg-slate-900/80 text-slate-100 text-sm placeholder-slate-500 rounded-xl px-3.5 py-2.5 border border-slate-700/80 focus:border-teal-500 focus:ring-1 focus:ring-teal-500/40 outline-none resize-none min-h-[42px] max-h-[120px] transition-colors"
+              className="flex-1 bg-slate-50/90 dark:bg-slate-900/80 text-slate-800 dark:text-slate-100 text-sm placeholder-slate-400 dark:placeholder-slate-500 rounded-xl px-3.5 py-2.5 border border-slate-200/90 dark:border-slate-700/80 focus:border-teal-500 focus:ring-1 focus:ring-teal-500/40 outline-none resize-none min-h-[42px] max-h-[120px] transition-colors"
               rows={1}
               disabled={isLoading}
             />
@@ -400,15 +426,15 @@ export default function MedicalAssistantWidget() {
               className={[
                 'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all cursor-pointer',
                 input.trim() && !isLoading
-                  ? 'bg-gradient-to-r from-teal-600 via-teal-500 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white shadow-md shadow-teal-950/40 active:scale-95'
-                  : 'bg-slate-800 text-slate-600 cursor-not-allowed',
+                  ? 'bg-gradient-to-r from-teal-600 via-teal-500 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white shadow-md shadow-teal-900/20 active:scale-95'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed',
               ].join(' ')}
               aria-label="Send message"
             >
               <Send className="w-4 h-4" />
             </button>
           </div>
-          <p className="text-[10px] text-slate-500 text-center mt-2">
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 text-center mt-2">
             {locale === 'hi'
               ? 'यह चिकित्सीय निदान नहीं है। आपातकाल में तुरंत डॉक्टर या 108 पर संपर्क करें।'
               : 'Informational only. Contact your physician or dial emergency services (108/112/911) for acute issues.'}

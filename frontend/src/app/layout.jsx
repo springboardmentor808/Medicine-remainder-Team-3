@@ -1,6 +1,7 @@
 import './globals.css'
 import { LanguageProvider } from '@/context/LanguageContext'
 import { ToastProvider } from '@/components/ui/Toast'
+import ClinicalChatBot from '@/components/ai/ClinicalChatBot'
 
 export const viewport = {
   width: 'device-width',
@@ -49,6 +50,7 @@ export default function RootLayout({ children }) {
             <div className="relative z-10 min-h-full">
               {children}
             </div>
+            <ClinicalChatBot />
           </LanguageProvider>
         </ToastProvider>
       </body>

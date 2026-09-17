@@ -258,8 +258,15 @@ async def delete_medicine(
     medicine: Medicine,
 ) -> None:
     """Hard delete a medicine record and its cascaded children."""
+    from app.models.schedule import DoseLog, Schedule
+    from sqlalchemy import delete
+
+    # Explicitly clean up child logs and schedules to ensure flawless cascades across Postgres and SQLite
+    await db.execute(delete(DoseLog).where(DoseLog.medicine_id == medicine.id))
+    await db.execute(delete(Schedule).where(Schedule.medicine_id == medicine.id))
     await db.delete(medicine)
     await db.flush()  # Commit handled by get_db dependency
+
 
 
 # ---------------------------------------------------------------------------
@@ -323,3 +330,78 @@ async def get_medicines_grouped_by_disease(
         groups[category].append(med)
 
     return groups
+
+
+# ---------------------------------------------------------------------------
+# Drug Interaction & Safety Scoring
+# ---------------------------------------------------------------------------
+
+def check_drug_interactions(medicine_names: list[str]) -> dict:
+    """
+    Evaluates pairwise drug-drug interactions across all provided medicine names.
+    Cross-references pairwise generic salts against the DDInter matrix.
+    Calculates a non-zero composite risk score:
+      - High Risk: 75–100 (Critical / Severe contraindications)
+      - Moderate: 40–74 (Major / Moderate interactions)
+      - Safe: 0–39 (Low / No known interactions)
+    """
+    from app.services.drug_interaction_service import DrugInteractionService
+
+    clean_names = [m.strip() for m in medicine_names if m and m.strip()]
+    if len(clean_names) < 2:
+        return {
+            "interactions": [],
+            "critical_count": 0,
+            "major_count": 0,
+            "moderate_count": 0,
+            "composite_risk_score": 0,
+            "safety_score": 100,
+            "status": "SAFE",
+            "message": "At least two medications are required to compute drug-drug interactions.",
+        }
+
+    all_warnings = []
+    seen_keys = set()
+
+    for i in range(len(clean_names)):
+        cand = clean_names[i]
+        others = [clean_names[j] for j in range(len(clean_names)) if j != i]
+        warnings = DrugInteractionService.check_interactions(cand, others)
+        for w in warnings:
+            pair_key = tuple(sorted(w.get("interacting_drugs", [cand])))
+            if pair_key not in seen_keys:
+                seen_keys.add(pair_key)
+                all_warnings.append(w)
+
+    crit = sum(1 for w in all_warnings if w.get("severity") == "CRITICAL")
+    maj = sum(1 for w in all_warnings if w.get("severity") == "MAJOR")
+    mod = sum(1 for w in all_warnings if w.get("severity") == "MODERATE")
+
+    # Composite risk score calculation (0 - 100)
+    if crit > 0:
+        composite_risk = min(100, 75 + (crit * 10) + (maj * 5))
+        status_label = "HIGH_RISK"
+    elif maj > 0:
+        composite_risk = min(74, 40 + (maj * 10) + (mod * 5))
+        status_label = "MODERATE_RISK"
+    elif mod > 0:
+        composite_risk = min(39, 20 + (mod * 5))
+        status_label = "LOW_RISK"
+    else:
+        composite_risk = 5  # baseline multiple medicines safety score
+        status_label = "SAFE"
+
+    safety_score = max(15, 100 - (crit * 35 + maj * 20 + mod * 10))
+
+    return {
+        "interactions": all_warnings,
+        "critical_count": crit,
+        "major_count": maj,
+        "moderate_count": mod,
+        "composite_risk_score": composite_risk,
+        "safety_score": safety_score,
+        "status": status_label,
+        "total_conflicts": len(all_warnings),
+        "analyzed_count": len(clean_names),
+    }
+

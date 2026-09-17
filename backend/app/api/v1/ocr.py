@@ -17,7 +17,7 @@ from app.schemas.ocr_schema import (
     PrescriptionHistoryItem,
     PrescriptionHistoryResponse,
 )
-from app.services.nlp_service import parse_prescription_text
+from app.services.nlp_service import parse_multiple_medicines, parse_prescription_text
 from app.services.ocr_service import extract_text_from_image
 from app.services.prescription_service import (
     get_prescription_by_id,
@@ -95,69 +95,31 @@ async def scan_prescription(
         raw_text: str = ocr_result.get("raw_text", "")
         confidence_score: float = ocr_result.get("confidence_score", 0.0)
 
-        if not raw_text:
-            return OCRScanResponse(
-                medicine_name=None,
-                dosage=None,
-                frequency=None,
-                daily_frequency=1,
-                dosage_form="Tablet",
-                disease_category="General Healthcare",
-                initial_quantity=30,
-                quantity_per_dose=1,
-                instructions=None,
-                verified=False,
-                matched_medicine=None,
-                generic_salt=None,
-                raw_text="",
-                confidence_score=0.0,
-                scan_id=None,
+        if not raw_text or len(raw_text.strip()) < 3:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Could not detect readable text from the uploaded prescription image. Please ensure good lighting and clear handwriting, or enter medicine details manually.",
             )
 
-        # --- Structured Parsing / NLP Engine Dispatch ---
-        # If Gemini Multimodal Vision succeeded, it populates high-fidelity parsed_data with accurate
-        # duration, frequency, dosage, and calculated initial quantities.
-        # Otherwise, the system gracefully falls back to deterministic NLP parsing on raw Tesseract text.
+        # --- Structured Parsing / Multi-Medicine Dispatch ---
         medicines_list = ocr_result.get("medicines", [])
-        if medicines_list and ocr_result.get("parsed_data"):
-            primary_data = ocr_result.get("parsed_data", {})
-            final_medicine_name = primary_data.get("medicine_name") or ocr_result.get("matched_medicine")
-            matched_med = ocr_result.get("matched_medicine") or final_medicine_name
-            generic_salt = primary_data.get("generic_salt") or ocr_result.get("generic_salt")
-            verified_match = True
-            parsed = {
-                "medicine_name": final_medicine_name,
-                "dosage": primary_data.get("dosage"),
-                "frequency": primary_data.get("frequency"),
-                "daily_frequency": primary_data.get("daily_frequency", 1),
-                "dosage_form": primary_data.get("dosage_form", "Tablet"),
-                "disease_category": primary_data.get("disease_category", "General Healthcare"),
-                "initial_quantity": primary_data.get("initial_quantity", 30),
-                "quantity_per_dose": primary_data.get("quantity_per_dose", 1),
-                "instructions": primary_data.get("instructions"),
-            }
-            final_instructions = parsed.get("instructions")
-            if generic_salt:
-                final_instructions = (
-                    f"Generic Salt: {generic_salt}"
-                    if not final_instructions
-                    else f"{final_instructions} | Generic: {generic_salt}"
-                )
-        else:
-            # Fallback path: parse raw OCR text with regex/NLP heuristics
-            parsed = parse_prescription_text(raw_text)
-            verified_match = ocr_result.get("verified", False)
-            matched_med = ocr_result.get("matched_medicine")
-            generic_salt = ocr_result.get("generic_salt")
+        if not medicines_list:
+            medicines_list = parse_multiple_medicines(raw_text)
 
-            final_medicine_name = parsed.get("medicine_name") or matched_med
-            final_instructions = parsed.get("instructions")
-            if generic_salt:
-                final_instructions = (
-                    f"Generic Salt: {generic_salt}"
-                    if not final_instructions
-                    else f"{final_instructions} | Generic: {generic_salt}"
-                )
+        matched_med = ocr_result.get("matched_medicine")
+        generic_salt = ocr_result.get("generic_salt")
+        verified_match = ocr_result.get("verified", False) or bool(matched_med)
+
+        primary_data = medicines_list[0] if medicines_list else parse_prescription_text(raw_text)
+        final_medicine_name = primary_data.get("medicine_name") or matched_med or "Prescribed Medication"
+        if generic_salt and not primary_data.get("generic_salt"):
+            primary_data["generic_salt"] = generic_salt
+
+        final_instructions = primary_data.get("instructions") or ""
+        if generic_salt and generic_salt not in final_instructions:
+            final_instructions = f"{final_instructions} | Generic: {generic_salt}".strip(" |")
+
+        parsed = primary_data
 
         # --- Save Result to MongoDB ---
         scan_id = None
@@ -258,6 +220,18 @@ async def get_scan_detail_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> PrescriptionDetailResponse:
     """Fetch a single scan result from MongoDB with strict IDOR prevention."""
+    clean_id = (scan_id or "").strip().lower()
+    if not clean_id or clean_id in ("undefined", "null", "none"):
+        return PrescriptionDetailResponse(
+            scan_id=scan_id or "",
+            user_id=str(current_user.id),
+            filename="",
+            raw_text="",
+            confidence_score=0.0,
+            parsed_data={},
+            created_at=None,
+        )
+
     doc = await get_prescription_by_id(scan_id, user_id=current_user.id)
     if not doc:
         raise HTTPException(

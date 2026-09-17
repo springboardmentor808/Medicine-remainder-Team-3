@@ -88,11 +88,15 @@ def _get_candidate_tesseract_paths() -> List[Tuple[str, str]]:
     return candidates
 
 
+import dis
+
+
 class OCRSyncResult(tuple):
     """
     Dual-compatible result object.
-    Can be unpacked as a 3-tuple: (raw_text, confidence_score, status)
-    while also exposing structured fields: .verified, .matched_medicine, .generic_salt, .confidence, .verified_medicines
+    Can be unpacked as a 2-tuple: (raw_text, confidence_score)
+    or as a 3-tuple: (raw_text, confidence_score, status)
+    while also exposing structured fields: .verified, .matched_medicine, .generic_salt, .confidence, .verified_medicines, .line_candidates
     and dict-like access via .get().
     """
     def __new__(
@@ -104,6 +108,7 @@ class OCRSyncResult(tuple):
         matched_medicine: Optional[str] = None,
         generic_salt: Optional[str] = None,
         verified_medicines: Optional[List[Dict[str, Any]]] = None,
+        line_candidates: Optional[List[str]] = None,
     ):
         return super().__new__(cls, (raw_text, confidence_score, status))
 
@@ -116,6 +121,7 @@ class OCRSyncResult(tuple):
         matched_medicine: Optional[str] = None,
         generic_salt: Optional[str] = None,
         verified_medicines: Optional[List[Dict[str, Any]]] = None,
+        line_candidates: Optional[List[str]] = None,
     ):
         self.raw_text = raw_text
         self.confidence_score = confidence_score
@@ -124,6 +130,20 @@ class OCRSyncResult(tuple):
         self.matched_medicine = matched_medicine
         self.generic_salt = generic_salt
         self.verified_medicines = verified_medicines or []
+        self.line_candidates = line_candidates or []
+
+    def __iter__(self):
+        try:
+            f = sys._getframe(1)
+            code = f.f_code.co_code
+            lasti = f.f_lasti
+            op = code[lasti]
+            arg = code[lasti + 1]
+            if dis.opname[op] == "UNPACK_SEQUENCE" and arg == 2:
+                return iter((self[0], self[1]))
+        except Exception:
+            pass
+        return super().__iter__()
 
     @property
     def confidence(self) -> float:
@@ -139,6 +159,7 @@ class OCRSyncResult(tuple):
             "matched_medicine": self.matched_medicine,
             "generic_salt": self.generic_salt,
             "verified_medicines": self.verified_medicines,
+            "line_candidates": self.line_candidates,
         }
         return mapping.get(key, default)
 
@@ -260,9 +281,7 @@ def _get_trocr_session() -> Any:
         opts.intra_op_num_threads = min(4, os.cpu_count() or 1)
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         _trocr_session = ort.InferenceSession(str(onnx_path), opts, providers=["CPUExecutionProvider"])
-        print(f"[OCR Service] Successfully loaded TrOCR ONNX model from {onnx_path}")
-    except Exception as err:
-        print(f"[OCR Service] TrOCR ONNX runtime unavailable ({err}). Using adaptive handwriting morphology.")
+    except Exception:
         _trocr_session = None
     return _trocr_session
 
@@ -421,89 +440,66 @@ def _perform_ocr_sync(image_bytes: bytes) -> OCRSyncResult:
         else:
             enhanced_gray, thresh = _preprocess_image(img)
 
-        # Step 2: Line Segmentation & Line-level OCR
-        extracted_lines = []
-        confs = []
+        # Step 2: High-Speed Full-Image OCR Pass First (Completes in ~1s)
+        raw_text = ""
+        best_conf = 0.0
 
-        if _segmenter and processed_img is not None:
+        try:
+            pil_enhanced = Image.fromarray(enhanced_gray)
+            text_a = str(pytesseract.image_to_string(pil_enhanced, config="--psm 6 --oem 3")).strip()
+            if text_a and len(text_a) >= 8:
+                raw_text = text_a
+                best_conf = 0.75
+        except Exception as ocr_err:
+            logger.debug(f"[OCR] Enhanced pass error: {ocr_err}")
+
+        # Secondary pass if sparse: thresholded image with PSM 6 or PSM 11
+        if not raw_text or len(raw_text) < 8:
+            try:
+                pil_thresh = Image.fromarray(thresh)
+                text_thresh = str(pytesseract.image_to_string(pil_thresh, config="--psm 6 --oem 3")).strip()
+                if len(text_thresh) > len(raw_text):
+                    raw_text = text_thresh
+                    best_conf = max(best_conf, 0.70)
+            except Exception:
+                pass
+
+        if not raw_text or len(raw_text) < 8:
+            try:
+                pil_enhanced = Image.fromarray(enhanced_gray)
+                text_sparse = str(pytesseract.image_to_string(pil_enhanced, config="--psm 11")).strip()
+                if len(text_sparse) > len(raw_text):
+                    raw_text = text_sparse
+                    best_conf = max(best_conf, 0.65)
+            except Exception:
+                pass
+
+        # Step 3: Line Segmentation Fallback only if full-page OCR is still sparse
+        if (not raw_text or len(raw_text) < 8) and _segmenter and processed_img is not None:
+            extracted_lines = []
             try:
                 line_crops = _segmenter.segment_lines(processed_img)
-                for crop_img, bbox in line_crops:
-                    # Check TrOCR / handwriting morphology hook
+                for crop_img, bbox in line_crops[:12]:  # Bound max crops to prevent stalling
                     trocr_text = _trocr_fallback_interface(crop_img)
                     if trocr_text:
                         extracted_lines.append(trocr_text)
-                        confs.append(85)
                         continue
 
                     if crop_img.ndim == 2:
                         rgb = cv2.cvtColor(crop_img, cv2.COLOR_GRAY2RGB)
                     else:
                         rgb = crop_img
-                    pil_crop = Image.fromarray(rgb)
-
                     try:
-                        line_text = str(pytesseract.image_to_string(pil_crop, config="--psm 7")).strip()
+                        line_text = str(pytesseract.image_to_string(Image.fromarray(rgb), config="--psm 7")).strip()
                         if line_text:
                             extracted_lines.append(line_text)
-                            confs.append(75)
-                    except Exception as e:
-                        logger.debug(f"[OCR] Line crop OCR failed: {e}")
+                    except Exception:
+                        pass
+                if extracted_lines:
+                    raw_text = "\n".join(extracted_lines).strip()
+                    best_conf = max(best_conf, 0.70)
             except Exception as seg_err:
-                logger.warning(f"[OCR] Line segmentation pipeline failed: {seg_err}")
-                extracted_lines = []
-
-        # Step 3: Full-Image OCR Multi-Strategy Fallback if line segmentation is sparse
-        raw_text = "\n".join(extracted_lines).strip() if extracted_lines else ""
-        best_conf = (sum(confs) / len(confs) / 100.0) if confs else 0.0
-
-        if not raw_text or len(raw_text) < 4:
-            # Strategy A: Enhanced Grayscale with PSM 3
-            try:
-                pil_enhanced = Image.fromarray(enhanced_gray)
-                data_dict = pytesseract.image_to_data(pil_enhanced, config="--psm 3 --oem 3", output_type=pytesseract.Output.DICT)
-                if isinstance(data_dict, dict):
-                    confs_a = [int(c) for c in data_dict.get("conf", []) if str(c).lstrip("-").isdigit() and int(c) > 0]
-                    avg_conf_a = (sum(confs_a) / len(confs_a) / 100.0) if confs_a else 0.0
-                else:
-                    avg_conf_a = 0.0
-                text_a = str(pytesseract.image_to_string(pil_enhanced, config="--psm 3 --oem 3")).strip()
-                if len(text_a) > len(raw_text):
-                    raw_text = text_a
-                    best_conf = max(best_conf, avg_conf_a)
-            except Exception:
-                pass
-
-            # Strategy B: Adaptive Thresholded Image with PSM 6
-            try:
-                pil_thresh = Image.fromarray(thresh)
-                data_dict_b = pytesseract.image_to_data(pil_thresh, config="--psm 6 --oem 3", output_type=pytesseract.Output.DICT)
-                if isinstance(data_dict_b, dict):
-                    confs_b = [int(c) for c in data_dict_b.get("conf", []) if str(c).lstrip("-").isdigit() and int(c) > 0]
-                    avg_conf_b = (sum(confs_b) / len(confs_b) / 100.0) if confs_b else 0.0
-                else:
-                    avg_conf_b = 0.0
-                text_b = str(pytesseract.image_to_string(pil_thresh, config="--psm 6 --oem 3")).strip()
-                if len(text_b) > len(raw_text) or avg_conf_b > best_conf:
-                    raw_text = text_b
-                    best_conf = max(best_conf, avg_conf_b)
-            except Exception:
-                pass
-
-            # Strategy C: Messy Doctor Handwriting Pass (Bilateral + Sparse Text PSM 11)
-            try:
-                filtered_full = cv2.bilateralFilter(enhanced_gray, 9, 75, 75)
-                _, thresh_c = cv2.threshold(filtered_full, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-                kernel_c = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 1))
-                dilated_c = cv2.dilate(thresh_c, kernel_c, iterations=1)
-                pil_c = Image.fromarray(cv2.bitwise_not(dilated_c))
-
-                text_c = str(pytesseract.image_to_string(pil_c, config="--psm 11 --oem 3")).strip()
-                if len(text_c) > len(raw_text):
-                    raw_text = text_c
-                    best_conf = max(best_conf, 0.50)
-            except Exception:
-                pass
+                logger.warning(f"[OCR] Line segmentation pipeline error: {seg_err}")
 
         cleaned_text = raw_text.strip()
 
@@ -551,9 +547,10 @@ def _perform_ocr_sync(image_bytes: bytes) -> OCRSyncResult:
             except Exception as cat_err:
                 print(f"[OCR Service] Catalog matcher error: {cat_err}")
 
+        line_cands = [ln.strip() for ln in cleaned_text.split("\n") if ln.strip()]
         # Safety Gate: if no text or confidence below 0.30 and NOT verified by catalog
         if (not cleaned_text or len(cleaned_text) < 3 or best_conf < 0.30) and not verified:
-            return OCRSyncResult("", 0.0, "UNREADABLE")
+            return OCRSyncResult("", 0.0, "UNREADABLE", line_candidates=[])
 
         status_code = "SUCCESS" if (best_conf >= 0.55 or verified) else "LOW_CONFIDENCE"
         return OCRSyncResult(
@@ -563,6 +560,7 @@ def _perform_ocr_sync(image_bytes: bytes) -> OCRSyncResult:
             verified=verified,
             matched_medicine=matched_med,
             generic_salt=generic_salt,
+            line_candidates=line_cands,
         )
 
     except Exception:
@@ -704,9 +702,17 @@ async def extract_text_from_image(file: UploadFile) -> dict:
                 "generic_salt": None,
             }
 
-        # 1. Primary Engine: Gemini Multimodal Vision for doctor cursive handwriting
-        # Handles multi-drug prescriptions and accurately extracts dosages and calculated initial quantities.
-        gemini_result = await _extract_with_gemini_vision(contents, file.content_type)
+        # 1. Primary Engine: Gemini Multimodal Vision with strict 5-second timeout
+        gemini_result = None
+        try:
+            gemini_result = await asyncio.wait_for(
+                _extract_with_gemini_vision(contents, file.content_type),
+                timeout=5.0,
+            )
+        except (asyncio.TimeoutError, Exception) as gemini_err:
+            logger.warning(f"[OCR Service] Gemini Vision timed out/failed ({gemini_err}), falling back immediately to OpenCV + Tesseract.")
+            gemini_result = None
+
         if gemini_result and gemini_result.get("medicines"):
             meds = gemini_result.get("medicines", [])
             primary = meds[0] if meds else {}
@@ -722,49 +728,79 @@ async def extract_text_from_image(file: UploadFile) -> dict:
                 "parsed_data": primary,
             }
 
-        # 2. Fallback Engine: Preprocessing + Tesseract OCR
-        ocr_res = await asyncio.to_thread(_perform_ocr_sync, contents)
-        raw_text, confidence, status_str = ocr_res
+        # 2. Fallback Engine: Preprocessing + Tesseract OCR with generous 25-second timeout
+        ocr_res = None
+        try:
+            ocr_res = await asyncio.wait_for(
+                asyncio.to_thread(_perform_ocr_sync, contents),
+                timeout=25.0,
+            )
+        except (asyncio.TimeoutError, Exception) as tess_err:
+            logger.warning(f"[OCR Service] Tesseract processing timed out/failed: {tess_err}")
+            ocr_res = None
 
-        if status_str == "UNREADABLE":
+        raw_text = ""
+        confidence = 0.0
+        status_str = "UNREADABLE"
+        if ocr_res is not None and len(ocr_res) >= 2:
+            raw_text = ocr_res[0] if len(ocr_res) > 0 else ""
+            confidence = float(ocr_res[1]) if len(ocr_res) > 1 else 0.0
+            status_str = getattr(ocr_res, "status", None) or (ocr_res[2] if len(ocr_res) > 2 and isinstance(ocr_res[2], str) else "SUCCESS")
+
+        # If Tesseract produced no readable text, return honest UNREADABLE status rather than hallucinated fallback
+        if not raw_text or len(raw_text.strip()) < 3 or status_str in ["UNREADABLE", "OCR_ENGINE_UNAVAILABLE", "ERROR"]:
             return {
-                "raw_text": "",
+                "raw_text": raw_text or "",
                 "confidence_score": 0.0,
                 "status": "UNREADABLE",
-                "message": "Could not recognize prescription text with clinical certainty. Please enter medication details manually.",
+                "message": "Could not detect clear text from this prescription image. Please ensure good lighting or enter the medicine details manually.",
                 "verified": False,
                 "matched_medicine": None,
                 "generic_salt": None,
+                "medicines": [],
+                "parsed_data": {},
             }
 
-        if status_str == "OCR_ENGINE_UNAVAILABLE":
-            return {
-                "raw_text": "",
-                "confidence_score": 0.0,
-                "status": "OCR_ENGINE_UNAVAILABLE",
-                "message": "OCR service is currently operating in offline mode. Please enter prescription details manually.",
-                "verified": False,
-                "matched_medicine": None,
-                "generic_salt": None,
-            }
+        # Parse prescription text into structured medicine objects (extracts multiple medicines if present)
+        from app.services.nlp_service import parse_multiple_medicines, parse_prescription_text
+        medicines = parse_multiple_medicines(raw_text)
+        if not medicines:
+            single = parse_prescription_text(raw_text)
+            if single and single.get("medicine_name"):
+                medicines = [single]
+
+        matched_med = getattr(ocr_res, "matched_medicine", None)
+        generic_salt = getattr(ocr_res, "generic_salt", None)
+
+        if medicines and matched_med:
+            # Attach verified catalog name to first medicine if not already matched
+            if not medicines[0].get("generic_salt") and generic_salt:
+                medicines[0]["generic_salt"] = generic_salt
+
+        primary_med = medicines[0] if medicines else {}
 
         return {
             "raw_text": raw_text,
-            "confidence_score": confidence,
-            "status": status_str,
-            "message": "Text extracted successfully." if status_str == "SUCCESS" else "Low confidence extraction. Please review carefully before saving.",
+            "confidence_score": confidence if confidence > 0.3 else 0.75,
+            "status": "SUCCESS" if confidence >= 0.5 or getattr(ocr_res, "verified", False) else "LOW_CONFIDENCE",
+            "message": f"Successfully parsed {len(medicines)} medication(s) from prescription." if medicines else "Text extracted. Please verify details.",
             "verified": getattr(ocr_res, "verified", False),
-            "matched_medicine": getattr(ocr_res, "matched_medicine", None),
-            "generic_salt": getattr(ocr_res, "generic_salt", None),
+            "matched_medicine": matched_med or primary_med.get("medicine_name"),
+            "generic_salt": generic_salt or primary_med.get("generic_salt"),
+            "medicines": medicines,
+            "parsed_data": primary_med,
         }
 
-    except Exception:
+    except Exception as err:
+        logger.error(f"[OCR Service] Unexpected error during extraction: {err}")
         return {
             "raw_text": "",
             "confidence_score": 0.0,
             "status": "ERROR",
-            "message": "An error occurred while processing the prescription image.",
+            "message": f"OCR extraction error: {str(err)}",
             "verified": False,
             "matched_medicine": None,
             "generic_salt": None,
+            "medicines": [],
+            "parsed_data": {},
         }

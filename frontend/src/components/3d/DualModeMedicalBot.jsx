@@ -64,7 +64,7 @@ function Fallback2DCompanion() {
 
       <button
         onClick={startTour}
-        className="px-3.5 py-2.5 rounded-full bg-slate-900/85 backdrop-blur-xl text-teal-300 border border-teal-500/40 hover:border-teal-400 text-xs font-semibold shadow-lg hover:scale-105 active:scale-95 transition-all cursor-pointer"
+        className="px-3.5 py-2.5 rounded-full bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl text-teal-700 dark:text-teal-300 border border-teal-600/25 dark:border-teal-500/40 hover:border-teal-500 text-xs font-semibold shadow-md shadow-teal-950/5 hover:scale-105 active:scale-95 transition-all cursor-pointer"
         aria-label="Start Guided Tour"
       >
         Tour
@@ -441,7 +441,7 @@ function MedicalBotScene() {
       {(isIntroActive || isTourActive) && (
         <div
           onClick={tapAdvance}
-          className="fixed inset-0 z-[9991] cursor-pointer bg-slate-950/20 dark:bg-black/35 backdrop-blur-[1px] transition-opacity duration-300 pointer-events-auto"
+          className="fixed inset-0 z-[9991] cursor-pointer bg-slate-900/25 dark:bg-black/40 backdrop-blur-[2px] transition-opacity duration-300 pointer-events-auto"
           title="Tap anywhere to advance the tour"
           role="button"
           tabIndex={0}
@@ -451,8 +451,8 @@ function MedicalBotScene() {
           aria-label="Tap anywhere on screen to advance the tour"
         >
           {/* Subtle top indicator bar */}
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-slate-900/80 backdrop-blur-xl border border-teal-500/30 text-teal-300 text-[11px] font-semibold flex items-center gap-1.5 shadow-lg animate-pulse-slow">
-            <Hand className="w-3.5 h-3.5 text-teal-400" />
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl border border-teal-600/25 dark:border-teal-500/30 text-teal-800 dark:text-teal-300 text-[11px] font-semibold flex items-center gap-1.5 shadow-lg shadow-teal-950/10 animate-pulse-slow">
+            <Hand className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
             <span>Tap anywhere to advance • Skip anytime</span>
           </div>
         </div>
@@ -476,21 +476,21 @@ function MedicalBotScene() {
           aria-modal="false"
           aria-live="polite"
           aria-label="PillSync AI Tour Guide"
-          className="w-[320px] sm:w-[380px] rounded-2xl p-4 sm:p-5 bg-slate-900/80 dark:bg-slate-950/85 backdrop-blur-2xl border border-teal-500/40 shadow-[0_20px_50px_rgba(20,184,166,0.25)] transition-all duration-300 animate-in fade-in zoom-in-95 text-slate-100 select-none"
+          className="w-[320px] sm:w-[380px] rounded-2xl p-4 sm:p-5 bg-white/90 dark:bg-slate-950/85 backdrop-blur-2xl border border-teal-500/25 dark:border-teal-500/30 shadow-2xl shadow-teal-950/15 dark:shadow-[0_20px_50px_rgba(20,184,166,0.25)] transition-all duration-300 animate-in fade-in zoom-in-95 text-slate-800 dark:text-slate-100 select-none"
         >
           {/* Header Bar */}
-          <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-teal-500/20">
+          <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-teal-600/15 dark:border-teal-500/20">
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-lg bg-teal-500/20 text-teal-300 flex items-center justify-center font-bold">
-                <Bot className="w-3.5 h-3.5 text-teal-300" />
+              <div className="w-6 h-6 rounded-lg bg-teal-500/15 dark:bg-teal-500/20 text-teal-600 dark:text-teal-300 border border-teal-500/30 flex items-center justify-center font-bold">
+                <Bot className="w-3.5 h-3.5 text-teal-600 dark:text-teal-300" />
               </div>
-              <span className="text-xs font-bold text-teal-300 uppercase tracking-wider">
+              <span className="text-xs font-bold text-teal-700 dark:text-teal-300 uppercase tracking-wider">
                 {hoverTitle || 'PillSync AI'}
               </span>
             </div>
 
             {isTourActive && (
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-teal-950/80 text-teal-300 border border-teal-600/40">
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-teal-500/15 dark:bg-teal-950/80 text-teal-700 dark:text-teal-300 border border-teal-500/30">
                 Step {currentTourStep + 1} / {totalTourSteps}
               </span>
             )}
@@ -500,7 +500,7 @@ function MedicalBotScene() {
                 if (isTourActive || isIntroActive) endTour();
                 else setMode('docked');
               }}
-              className="text-slate-400 hover:text-slate-200 p-0.5 rounded-md transition-colors cursor-pointer"
+              className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
               title="Close"
               aria-label="Close message"
             >
@@ -509,26 +509,26 @@ function MedicalBotScene() {
           </div>
 
           {/* Message Content */}
-          <p className="text-xs sm:text-[13px] leading-relaxed my-3.5 font-medium text-slate-200">
+          <p className="text-xs sm:text-[13px] leading-relaxed my-3.5 font-medium text-slate-700 dark:text-slate-200">
             {hoverMessage}
           </p>
 
           {/* Navigation Action Buttons */}
-          <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
+          <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-teal-600/15 dark:border-slate-800/80">
             {isIntroActive ? (
               // Intro Buttons
               <div className="flex items-center justify-between w-full">
                 <button
                   onClick={endTour}
                   aria-label="Skip guided tour"
-                  className="px-3 py-1.5 rounded-xl text-xs font-medium text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+                  className="px-3 py-1.5 rounded-xl text-xs font-medium text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 transition-colors cursor-pointer"
                 >
                   Skip Tour
                 </button>
                 <button
                   onClick={startTour}
                   aria-label="Start guided tour"
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-teal-600 via-teal-500 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 shadow-lg shadow-teal-950/40 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer border border-teal-400/30"
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-teal-600 via-teal-500 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 shadow-md shadow-teal-900/20 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer border border-teal-400/30"
                 >
                   <Sparkles className="w-3.5 h-3.5 text-cyan-200" />
                   <span>Start Guided Tour</span>
@@ -542,7 +542,7 @@ function MedicalBotScene() {
                   onClick={prevTourStep}
                   disabled={currentTourStep === 0}
                   aria-label="Previous tour step"
-                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 disabled:opacity-25 disabled:pointer-events-none flex items-center gap-1 transition-all cursor-pointer"
+                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-teal-50 dark:hover:bg-slate-800/60 disabled:opacity-25 disabled:pointer-events-none flex items-center gap-1 transition-all cursor-pointer"
                 >
                   <ChevronLeft className="w-3 h-3" />
                   <span>Back</span>
@@ -552,7 +552,7 @@ function MedicalBotScene() {
                   <button
                     onClick={endTour}
                     aria-label="Skip tour"
-                    className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 transition-colors cursor-pointer"
                   >
                     Skip
                   </button>
@@ -560,7 +560,7 @@ function MedicalBotScene() {
                   <button
                     onClick={nextTourStep}
                     aria-label={currentTourStep === totalTourSteps - 1 ? 'Finish guided tour' : 'Next tour step'}
-                    className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-teal-600 via-teal-500 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 shadow-md shadow-teal-950/40 flex items-center gap-1 transition-all active:scale-95 cursor-pointer border border-teal-400/30"
+                    className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-teal-600 via-teal-500 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 shadow-md shadow-teal-900/20 flex items-center gap-1 transition-all active:scale-95 cursor-pointer border border-teal-400/30"
                   >
                     <span>{currentTourStep === totalTourSteps - 1 ? 'Finish Tour' : 'Next'}</span>
                     <ChevronRight className="w-3.5 h-3.5" />
@@ -573,15 +573,15 @@ function MedicalBotScene() {
                 <button
                   onClick={() => startTour()}
                   aria-label="Start full dashboard tour"
-                  className="text-xs font-bold text-teal-300 hover:underline flex items-center gap-1 cursor-pointer"
+                  className="text-xs font-bold text-teal-700 dark:text-teal-300 hover:underline flex items-center gap-1 cursor-pointer"
                 >
-                  <Sparkles className="w-3 h-3 text-teal-300" />
+                  <Sparkles className="w-3 h-3 text-teal-600 dark:text-teal-300" />
                   <span>Full Dashboard Tour</span>
                 </button>
 
                 <button
                   onClick={() => setMode('docked')}
-                  className="px-3 py-1 rounded-lg text-xs font-semibold bg-teal-600 text-white hover:bg-teal-500 shadow-sm transition-all cursor-pointer"
+                  className="px-3 py-1 rounded-lg text-xs font-semibold bg-gradient-to-r from-teal-600 to-cyan-600 text-white hover:from-teal-500 hover:to-cyan-500 shadow-sm transition-all cursor-pointer"
                 >
                   Done
                 </button>
@@ -609,7 +609,7 @@ function MedicalBotScene() {
               e.stopPropagation();
               openChat();
             }}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-gradient-to-r from-teal-600 via-teal-500 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white font-semibold text-xs shadow-xl shadow-teal-950/50 hover:scale-105 active:scale-95 transition-all border border-teal-400/40 cursor-pointer backdrop-blur-xl"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-gradient-to-r from-teal-600 via-teal-500 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white font-semibold text-xs shadow-xl shadow-teal-950/20 hover:scale-105 active:scale-95 transition-all border border-teal-400/40 cursor-pointer backdrop-blur-xl"
             aria-label="Ask PillSync AI"
           >
             <span className="relative flex h-2 w-2">
@@ -625,10 +625,10 @@ function MedicalBotScene() {
               startTour();
             }}
             title="Start Guided Tour"
-            className="px-3 py-2 rounded-full bg-slate-900/80 backdrop-blur-xl text-teal-300 border border-teal-500/40 hover:border-teal-400 font-bold text-xs shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center gap-1"
+            className="px-3 py-2 rounded-full bg-white/85 dark:bg-slate-900/80 backdrop-blur-xl text-teal-700 dark:text-teal-300 border border-teal-600/25 dark:border-teal-500/40 hover:border-teal-500 font-bold text-xs shadow-md shadow-teal-950/5 hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center gap-1"
             aria-label="Start Guided Tour"
           >
-            <Sparkles className="w-3 h-3 text-teal-300" />
+            <Sparkles className="w-3 h-3 text-teal-600 dark:text-teal-300" />
             <span>Tour</span>
           </button>
         </div>
