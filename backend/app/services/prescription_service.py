@@ -47,12 +47,19 @@ async def save_ocr_result(
     db = get_mongo_db()
     collection = db[COLLECTION_OCR_RESULTS]
 
+    # Sanitize and strictly type parsed_data to avoid MongoDB schema drift
+    sanitized_parsed_data = {}
+    if parsed_data and isinstance(parsed_data, dict):
+        for k, v in parsed_data.items():
+            if isinstance(v, (str, int, float, bool, list, dict)) or v is None:
+                sanitized_parsed_data[str(k)] = v
+
     document = {
         "user_id": str(user_id),
-        "filename": filename,
-        "raw_text": raw_text,
-        "confidence_score": confidence_score,
-        "parsed_data": parsed_data or {},
+        "filename": str(filename or "unnamed_scan"),
+        "raw_text": str(raw_text or ""),
+        "confidence_score": float(confidence_score or 0.0),
+        "parsed_data": sanitized_parsed_data,
         "created_at": datetime.now(timezone.utc),
     }
 
@@ -106,21 +113,29 @@ async def get_prescription_history(
 # Get Single Prescription
 # ---------------------------------------------------------------------------
 
-async def get_prescription_by_id(scan_id: str) -> Optional[dict]:
+async def get_prescription_by_id(
+    scan_id: str,
+    user_id: Optional[uuid.UUID] = None,
+) -> Optional[dict]:
     """
-    Fetch a single OCR scan result by its MongoDB document ID.
+    Fetch a single OCR scan result by its MongoDB document ID with mandatory user isolation.
 
     Args:
         scan_id: MongoDB ObjectId as string.
+        user_id: Optional UUID to enforce compound database-level tenant isolation (Zero Trust).
 
     Returns:
-        Scan document dict, or None if not found.
+        Scan document dict, or None if not found / unauthorized.
     """
     db = get_mongo_db()
     collection = db[COLLECTION_OCR_RESULTS]
 
     try:
-        doc = await collection.find_one({"_id": ObjectId(scan_id)})
+        query: dict = {"_id": ObjectId(scan_id)}
+        if user_id is not None:
+            query["user_id"] = str(user_id)
+
+        doc = await collection.find_one(query)
     except Exception:
         return None
 

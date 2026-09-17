@@ -23,6 +23,8 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import LogoutButton from '@/components/ui/LogoutButton';
+import ExportDataModal from '@/components/dashboard/ExportDataModal';
+import { exportAPI } from '@/lib/api';
 
 /**
  * Sidebar — PillSync
@@ -34,7 +36,7 @@ const NAV_ITEMS = {
   patient: [
     { href: '/dashboard/patient', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/medicines', label: 'My Medicines', icon: Pill },
-    { href: '/reminders', label: 'Reminders', icon: Bell },
+    { href: '/schedules', label: 'Schedule & Alarms', icon: Bell },
     { href: '/adherence', label: 'Adherence', icon: BarChart3 },
     { href: '/refill', label: 'Refill Tracker', icon: Package },
     { href: '/interactions', label: 'AI Drug Safety', icon: Shield },
@@ -43,7 +45,7 @@ const NAV_ITEMS = {
   caregiver: [
     { href: '/dashboard/caregiver', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/medicines', label: 'Patient Medicines', icon: Pill },
-    { href: '/reminders', label: 'Schedules', icon: Bell },
+    { href: '/schedules', label: 'Schedules & Alarms', icon: Bell },
     { href: '/adherence', label: 'Adherence Reports', icon: BarChart3 },
     { href: '/refill', label: 'Refill Tracker', icon: Package },
     { href: '/interactions', label: 'AI Drug Safety', icon: Shield },
@@ -54,7 +56,6 @@ const NAV_ITEMS = {
     { href: '/dashboard/admin', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/admin/users', label: 'User Management', icon: Users },
     { href: '/admin/health', label: 'System Health', icon: Activity },
-    { href: '/interactions', label: 'AI Drug Safety', icon: Shield },
     { href: '/notifications', label: 'Broadcast & Queue', icon: Bell },
     { href: '/help', label: 'Help & Support', icon: HelpCircle },
   ],
@@ -64,22 +65,36 @@ export default function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
   const [user, setUser] = useState(null);
+  const [currentHash, setCurrentHash] = useState('');
 
   useEffect(() => {
     try {
       const stored = localStorage.getItem('pillsync_user');
       if (stored) setUser(JSON.parse(stored));
     } catch {}
-  }, []);
+    if (typeof window !== 'undefined') {
+      setCurrentHash(window.location.hash);
+      const handleHash = () => setCurrentHash(window.location.hash);
+      window.addEventListener('hashchange', handleHash);
+      return () => window.removeEventListener('hashchange', handleHash);
+    }
+  }, [pathname]);
 
-  // Determine effective role from current path or stored user role
+  // Determine effective role from stored user role or current path
+  const userRole = (user?.role || '').toLowerCase();
   const isAdminPath = pathname?.startsWith('/admin') || pathname === '/dashboard/admin';
-  const isCaregiverPath = pathname === '/dashboard/caregiver';
-  const effectiveRole = isAdminPath ? 'admin' : isCaregiverPath ? 'caregiver' : (user?.role || 'patient');
+  const isCaregiverPath = pathname?.startsWith('/dashboard/caregiver') || pathname === '/dashboard/caregiver';
+
+  const effectiveRole = userRole === 'admin' || isAdminPath
+    ? 'admin'
+    : userRole === 'caregiver' || isCaregiverPath
+    ? 'caregiver'
+    : 'patient';
 
   const items = NAV_ITEMS[effectiveRole] || NAV_ITEMS.patient;
-  const initials = (user?.full_name || user?.name || user?.username || (effectiveRole === 'admin' ? 'AU' : 'U'))
+  const initials = (user?.full_name || user?.name || user?.username || (effectiveRole === 'admin' ? 'AU' : effectiveRole === 'caregiver' ? 'CG' : 'PT'))
     .split(' ')
     .map((w) => w[0])
     .join('')
@@ -87,7 +102,14 @@ export default function Sidebar() {
     .slice(0, 2);
 
   const isActive = (href) => {
+    if (href.includes('#')) {
+      const [baseHref, hash] = href.split('#');
+      return pathname === baseHref && currentHash === `#${hash}`;
+    }
     if (href === '/dashboard/patient' || href === '/dashboard/caregiver' || href === '/dashboard/admin') {
+      if (currentHash && pathname === href) {
+        return false;
+      }
       return pathname === href;
     }
     return pathname?.startsWith(href);
@@ -106,7 +128,7 @@ export default function Sidebar() {
         </div>
         {!collapsed && (
           <div className="min-w-0 flex-1">
-            <h2 className="text-body-sm font-bold text-on-surface truncate flex items-center justify-between">
+            <h2 className="text-body-sm font-bold font-sans text-on-surface truncate flex items-center justify-between">
               <span>PillSync</span>
               <span className="text-[10px] text-on-surface-variant/60 font-normal group-hover:text-primary transition-colors">
                 ⟨ ⟩
@@ -130,10 +152,23 @@ export default function Sidebar() {
         </div>
         {!collapsed && (
           <div className="min-w-0 flex-1">
-            <p className="text-caption font-semibold text-on-surface truncate">
-              {user?.full_name || user?.name || (effectiveRole === 'admin' ? 'Admin User' : 'User')}
-            </p>
-            <p className="text-[11px] text-on-surface-variant truncate">{user?.email || ''}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-caption font-semibold text-on-surface truncate">
+                {user?.full_name || user?.name || (effectiveRole === 'admin' ? 'Admin User' : 'Caregiver')}
+              </p>
+              {effectiveRole === 'caregiver' && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-secondary/15 text-secondary border border-secondary/25">
+                  Pro
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-on-surface-variant truncate">{user?.email || 'Active Session'}</p>
+            {effectiveRole === 'caregiver' && (
+              <div className="flex items-center gap-1.5 mt-1 text-[10px] text-emerald-600 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>Monitoring: Active Ward</span>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -147,10 +182,10 @@ export default function Sidebar() {
               key={href}
               href={href}
               onClick={() => setMobileOpen(false)}
-              className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
+              className={`flex items-center min-h-[44px] ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
                 ${active
-                  ? 'bg-primary/12 text-primary shadow-sm'
-                  : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
+                  ? 'bg-primary/15 text-primary shadow-sm border border-primary/20 backdrop-blur-sm font-semibold'
+                  : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface border border-transparent'
                 }`}
               title={collapsed ? label : undefined}
             >
@@ -163,27 +198,8 @@ export default function Sidebar() {
         {/* Export link */}
         <div className={`pt-2 mt-2 border-t border-outline-variant/20`}>
           <button
-            onClick={async () => {
-              try {
-                const token = localStorage.getItem('pillsync_access_token');
-                const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-                const res = await fetch(`${base}/api/v1/export/medicines/pdf`, {
-                  method: 'GET',
-                  headers: { 'Authorization': `Bearer ${token}` },
-                });
-                if (!res.ok) throw new Error('Export failed');
-                const blob = await res.blob();
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'medicines_report.pdf';
-                a.click();
-                URL.revokeObjectURL(url);
-              } catch (err) {
-                console.error('Export error:', err);
-              }
-            }}
-            className={`w-full flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg text-sm font-medium text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-all duration-200`}
+            onClick={() => setExportModalOpen(true)}
+            className={`w-full flex items-center min-h-[44px] ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg text-sm font-medium text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-all duration-200`}
             title={collapsed ? 'Export Data' : undefined}
           >
             <Download className="w-5 h-5 flex-shrink-0" />
@@ -196,7 +212,7 @@ export default function Sidebar() {
       <div className="hidden lg:block px-2 py-2 border-t border-outline-variant/20">
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-on-surface-variant hover:bg-surface-container-low transition-all"
+          className="w-full flex items-center justify-center gap-2 min-h-[40px] px-3 py-2 rounded-lg text-xs font-medium text-on-surface-variant hover:bg-surface-container-low transition-all"
         >
           {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
           {!collapsed && <span>Collapse</span>}
@@ -212,29 +228,29 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* Mobile Toggle Button */}
+      {/* Mobile Toggle Button (Strictly 44x44px Touch Target) */}
       <button
         onClick={() => setMobileOpen(true)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 rounded-lg bg-surface-container-lowest shadow-elevated border border-outline-variant/30 text-on-surface"
-        aria-label="Open menu"
+        className="lg:hidden fixed top-3 left-3 z-50 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl bg-surface-container-lowest/95 backdrop-blur-md shadow-elevated border border-outline-variant/40 text-on-surface hover:bg-surface-container active:scale-95 transition-all"
+        aria-label="Open navigation menu"
       >
         <Menu className="w-5 h-5" />
       </button>
 
-      {/* Mobile Overlay */}
+      {/* Mobile Overlay & Slide-out Drawer */}
       {mobileOpen && (
         <div
-          className="lg:hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+          className="lg:hidden fixed inset-0 z-50 bg-black/50 backdrop-blur-sm transition-opacity duration-300"
           onClick={() => setMobileOpen(false)}
         >
           <aside
-            className="w-72 h-full bg-surface-container-lowest shadow-2xl border-r border-outline-variant/30 transform transition-transform"
+            className="w-80 max-w-[85vw] h-[100dvh] pt-safe pb-safe bg-surface-container-lowest shadow-2xl border-r border-outline-variant/30 flex flex-col relative transform transition-transform duration-300 ease-in-out"
             onClick={(e) => e.stopPropagation()}
           >
             <button
               onClick={() => setMobileOpen(false)}
-              className="absolute top-4 right-4 p-1 rounded-lg text-on-surface-variant hover:bg-surface-container-low"
-              aria-label="Close menu"
+              className="absolute top-3 right-3 z-10 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-on-surface-variant hover:bg-surface-container-low active:scale-95 transition-all"
+              aria-label="Close navigation menu"
             >
               <X className="w-5 h-5" />
             </button>
@@ -251,6 +267,13 @@ export default function Sidebar() {
       >
         {sidebarContent}
       </aside>
+
+      {/* Clinical Export Center Modal */}
+      <ExportDataModal
+        isOpen={exportModalOpen}
+        onClose={() => setExportModalOpen(false)}
+        userRole={effectiveRole}
+      />
     </>
   );
 }

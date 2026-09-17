@@ -25,9 +25,23 @@ class Base(DeclarativeBase):
 # SQLite Foreign Key Enforcement
 # ---------------------------------------------------------------------------
 def _enable_sqlite_fk(dbapi_conn, connection_record):
-    """Enable foreign key constraint enforcement on every SQLite connection."""
-    cursor = dbapi_conn.execute("PRAGMA foreign_keys=ON")
+    """Enable foreign key constraint enforcement and WAL mode on SQLite."""
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=30000")
     cursor.close()
+
+
+def create_sqlite_engine(url: str):
+    """Factory creating an async SQLite engine with FK enforcement and WAL mode."""
+    eng = create_async_engine(
+        url,
+        echo=settings.DEBUG,
+        connect_args={"check_same_thread": False, "timeout": 30},
+    )
+    event.listen(eng.sync_engine, "connect", _enable_sqlite_fk)
+    return eng
 
 
 # ---------------------------------------------------------------------------
@@ -36,12 +50,7 @@ def _enable_sqlite_fk(dbapi_conn, connection_record):
 db_url = settings.POSTGRES_URL
 
 if "sqlite" in db_url:
-    engine = create_async_engine(
-        db_url,
-        echo=settings.DEBUG,
-        connect_args={"check_same_thread": False},
-    )
-    event.listen(engine.sync_engine, "connect", _enable_sqlite_fk)
+    engine = create_sqlite_engine(db_url)
 else:
     try:
         engine = create_async_engine(
@@ -52,18 +61,15 @@ else:
             pool_pre_ping=True,
             pool_recycle=3600,
         )
-    except Exception:
+    except Exception as err:
+        if settings.ENVIRONMENT.lower() == "production":
+            raise RuntimeError(f"FATAL: Production PostgreSQL connection failed: {err}") from err
         fallback_url = "sqlite+aiosqlite:///./pillsync_dev.db"
-        print(f"[PillSync DB] PostgreSQL unavailable at {db_url}. Falling back to local SQLite: {fallback_url}")
-        engine = create_async_engine(
-            fallback_url,
-            echo=settings.DEBUG,
-            connect_args={"check_same_thread": False},
-        )
-        event.listen(engine.sync_engine, "connect", _enable_sqlite_fk)
+        print(f"[PillSync DB Dev Warning] Primary database unavailable. Falling back to local SQLite: {fallback_url}")
+        engine = create_sqlite_engine(fallback_url)
 
 # ---------------------------------------------------------------------------
-# Async Session Factory
+# Async Session Factory & Dynamic Getters
 # ---------------------------------------------------------------------------
 async_session_factory = async_sessionmaker(
     bind=engine,
@@ -72,6 +78,18 @@ async_session_factory = async_sessionmaker(
     autocommit=False,
     autoflush=False,
 )
+
+
+def get_engine():
+    """Retrieve the currently active SQLAlchemy async engine (supports runtime fallback)."""
+    global engine
+    return engine
+
+
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
+    """Retrieve the currently active async session factory (supports runtime fallback)."""
+    global async_session_factory
+    return async_session_factory
 
 
 # ---------------------------------------------------------------------------
@@ -84,13 +102,26 @@ async def init_db():
     import app.models  # noqa: F401
 
     try:
+        # 1. On PostgreSQL, attempt optional extension setup in an isolated transaction
+        if "postgresql" in str(engine.url):
+            try:
+                from sqlalchemy import text
+                async with engine.begin() as ext_conn:
+                    await ext_conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+                    await ext_conn.execute(text('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";'))
+            except Exception as ext_err:
+                print(f"[PillSync DB] PostgreSQL extension creation notice: {ext_err}. Continuing with existing cluster extensions.")
+
+        # 2. Table creation in its own dedicated, unpolluted transaction
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         print("[PillSync DB] Database connection & tables verified successfully.")
     except Exception as err:
-        print(f"[PillSync DB] Primary PostgreSQL connection failed ({err}). Initializing local SQLite fallback...")
+        if settings.ENVIRONMENT.lower() == "production":
+            raise RuntimeError(f"FATAL: Database connection and table verification failed in production: {err}") from err
+        print(f"[PillSync DB Dev Warning] Primary database connection/migration issue ({err}). Initializing local SQLite fallback...")
         fallback_url = "sqlite+aiosqlite:///./pillsync_dev.db"
-        engine = create_async_engine(fallback_url, echo=settings.DEBUG)
+        engine = create_sqlite_engine(fallback_url)
         async_session_factory = async_sessionmaker(
             bind=engine,
             class_=AsyncSession,
@@ -100,7 +131,7 @@ async def init_db():
         )
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        print("[PillSync DB] Local SQLite fallback database initialized successfully.")
+        print("[PillSync DB Dev] Local SQLite fallback database initialized successfully.")
 
 
 # ---------------------------------------------------------------------------
@@ -109,8 +140,10 @@ async def init_db():
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     Yields an async database session for FastAPI dependency injection.
+    Dynamically pulls from get_session_factory() to ensure runtime fallback resilience.
     """
-    async with async_session_factory() as session:
+    factory = get_session_factory()
+    async with factory() as session:
         try:
             yield session
             await session.commit()
@@ -119,4 +152,5 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             raise
         finally:
             await session.close()
+
 

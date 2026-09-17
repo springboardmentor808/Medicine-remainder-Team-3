@@ -194,14 +194,14 @@ export default function LandingPage() {
                 />
 
                 {/* Floating micro feature badges */}
-                <div className="absolute top-4 left-4 bg-surface-container-lowest/90 backdrop-blur-md rounded-full shadow-elevated border border-outline-variant/30 px-3 py-1.5 flex items-center gap-1.5">
+                <div className="absolute top-4 right-4 bg-surface-container-lowest/90 backdrop-blur-md rounded-full shadow-elevated border border-outline-variant/30 px-3 py-1.5 flex items-center gap-1.5 z-10">
                   <span className="material-symbols-outlined text-primary text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>
                     verified
                   </span>
                   <span className="text-caption font-semibold text-on-surface">AI Powered OCR</span>
                 </div>
 
-                <div className="absolute bottom-4 right-4 bg-surface-container-lowest/90 backdrop-blur-md rounded-full shadow-elevated border border-outline-variant/30 px-3 py-1.5 flex items-center gap-1.5">
+                <div className="absolute bottom-4 right-4 bg-surface-container-lowest/90 backdrop-blur-md rounded-full shadow-elevated border border-outline-variant/30 px-3 py-1.5 flex items-center gap-1.5 z-10">
                   <span className="w-2 h-2 rounded-full bg-tertiary animate-pulse" />
                   <span className="text-caption font-semibold text-tertiary">Smart Scheduling</span>
                 </div>

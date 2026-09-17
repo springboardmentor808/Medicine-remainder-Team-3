@@ -125,7 +125,7 @@ const Badge = React.forwardRef(function Badge(
       ref={ref}
       className={[
         // Base
-        'inline-flex items-center gap-1 font-semibold uppercase tracking-wide',
+        'inline-flex items-center gap-1 font-semibold tracking-wide',
         'whitespace-nowrap select-none',
         // Variant
         VARIANTS[variant] ?? VARIANTS.default,

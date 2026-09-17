@@ -17,6 +17,8 @@ services:
       - POSTGRES_URL_SYNC=postgresql://postgres:${POSTGRES_PASSWORD:-postgrespassword}@postgres:5432/${POSTGRES_DB:-med_db}
       - MONGO_URL=mongodb://mongo:27017/${POSTGRES_DB:-med_db}
       - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./backend:/app
     depends_on:
       postgres:
         condition: service_healthy

@@ -1,0 +1,340 @@
+[
+  {
+    "id": "ddi_1",
+    "type": "DDI_INTERACTION",
+    "title": "Severe Hemorrhage Risk (Warfarin + NSAID)",
+    "severity": "CRITICAL",
+    "drug_primary": "warfarin",
+    "interacting_classes": [
+      "nsaid",
+      "aspirin",
+      "ibuprofen",
+      "diclofenac",
+      "aceclofenac"
+    ],
+    "content": "Drug Interaction: Severe Hemorrhage Risk (Warfarin + NSAID)\nPrimary Drug: warfarin\nInteracting Drugs/Classes: nsaid, aspirin, ibuprofen, diclofenac, aceclofenac\nSeverity: CRITICAL\nClinical Consequence: NSAIDs inhibit platelet aggregation and cause gastric mucosal erosion, dramatically increasing fatal gastrointestinal and intracranial bleeding risk with Warfarin.\nAction Required: Avoid concurrent use. Use Paracetamol for analgesia or consult prescribing physician.",
+    "action": "Avoid concurrent use. Use Paracetamol for analgesia or consult prescribing physician.",
+    "source": "FDA/BNF Pharmacological Matrix"
+  },
+  {
+    "id": "ddi_2",
+    "type": "DDI_INTERACTION",
+    "title": "Reduced Antiplatelet Efficacy (Clopidogrel + Omeprazole)",
+    "severity": "MAJOR",
+    "drug_primary": "clopidogrel",
+    "interacting_classes": [
+      "omeprazole",
+      "esomeprazole"
+    ],
+    "content": "Drug Interaction: Reduced Antiplatelet Efficacy (Clopidogrel + Omeprazole)\nPrimary Drug: clopidogrel\nInteracting Drugs/Classes: omeprazole, esomeprazole\nSeverity: MAJOR\nClinical Consequence: Omeprazole competitively inhibits CYP2C19, preventing conversion of Clopidogrel into its active antiplatelet metabolite. Increases stent thrombosis and re-infarction risk.\nAction Required: Switch PPI to Pantoprazole or Rabeprazole (minimal CYP2C19 inhibition).",
+    "action": "Switch PPI to Pantoprazole or Rabeprazole (minimal CYP2C19 inhibition).",
+    "source": "FDA/BNF Pharmacological Matrix"
+  },
+  {
+    "id": "ddi_3",
+    "type": "DDI_INTERACTION",
+    "title": "Potentially Fatal Hypotension (PDE5i + Nitrates)",
+    "severity": "CRITICAL",
+    "drug_primary": "sildenafil",
+    "interacting_classes": [
+      "nitrates",
+      "nitroglycerin",
+      "isosorbide dinitrate",
+      "isosorbide mononitrate"
+    ],
+    "content": "Drug Interaction: Potentially Fatal Hypotension (PDE5i + Nitrates)\nPrimary Drug: sildenafil\nInteracting Drugs/Classes: nitrates, nitroglycerin, isosorbide dinitrate, isosorbide mononitrate\nSeverity: CRITICAL\nClinical Consequence: Potentiation of nitric oxide / cGMP pathway causes severe, refractory, life-threatening hypotension and cardiovascular collapse.\nAction Required: STRICT ABSOLUTE CONTRAINDICATION. Do not co-administer.",
+    "action": "STRICT ABSOLUTE CONTRAINDICATION. Do not co-administer.",
+    "source": "FDA/BNF Pharmacological Matrix"
+  },
+  {
+    "id": "ddi_4",
+    "type": "DDI_INTERACTION",
+    "title": "Severe Hyperkalemia / Dual RAAS Blockade",
+    "severity": "MAJOR",
+    "drug_primary": "telmisartan",
+    "interacting_classes": [
+      "spironolactone",
+      "potassium chloride",
+      "losartan",
+      "enalapril",
+      "ramipril"
+    ],
+    "content": "Drug Interaction: Severe Hyperkalemia / Dual RAAS Blockade\nPrimary Drug: telmisartan\nInteracting Drugs/Classes: spironolactone, potassium chloride, losartan, enalapril, ramipril\nSeverity: MAJOR\nClinical Consequence: Combining ARBs with ACE inhibitors or potassium-sparing diuretics markedly increases life-threatening hyperkalemia, acute kidney injury, and hypotension.\nAction Required: Monitor serum potassium and creatinine. Avoid dual RAAS blockade.",
+    "action": "Monitor serum potassium and creatinine. Avoid dual RAAS blockade.",
+    "source": "FDA/BNF Pharmacological Matrix"
+  },
+  {
+    "id": "ddi_5",
+    "type": "DDI_INTERACTION",
+    "title": "Lactic Acidosis Risk (Metformin + Contrast)",
+    "severity": "MAJOR",
+    "drug_primary": "metformin",
+    "interacting_classes": [
+      "iodinated contrast",
+      "contrast media"
+    ],
+    "content": "Drug Interaction: Lactic Acidosis Risk (Metformin + Contrast)\nPrimary Drug: metformin\nInteracting Drugs/Classes: iodinated contrast, contrast media\nSeverity: MAJOR\nClinical Consequence: Intravascular iodinated radiocontrast agents can lead to acute renal failure and massive accumulation of metformin, triggering fatal lactic acidosis.\nAction Required: Withhold metformin 48 hours prior to and post-contrast imaging.",
+    "action": "Withhold metformin 48 hours prior to and post-contrast imaging.",
+    "source": "FDA/BNF Pharmacological Matrix"
+  },
+  {
+    "id": "ddi_6",
+    "type": "DDI_INTERACTION",
+    "title": "Additive QT Prolongation / Torsades de Pointes",
+    "severity": "MAJOR",
+    "drug_primary": "azithromycin",
+    "interacting_classes": [
+      "ciprofloxacin",
+      "levofloxacin",
+      "amiodarone",
+      "domperidone"
+    ],
+    "content": "Drug Interaction: Additive QT Prolongation / Torsades de Pointes\nPrimary Drug: azithromycin\nInteracting Drugs/Classes: ciprofloxacin, levofloxacin, amiodarone, domperidone\nSeverity: MAJOR\nClinical Consequence: Co-administration of multiple QT-prolonging agents exponentially increases the risk of ventricular arrhythmias and sudden cardiac death.\nAction Required: Avoid combination in patients with underlying cardiac conditions or baseline long QT.",
+    "action": "Avoid combination in patients with underlying cardiac conditions or baseline long QT.",
+    "source": "FDA/BNF Pharmacological Matrix"
+  },
+  {
+    "id": "ddi_7",
+    "type": "DDI_INTERACTION",
+    "title": "Serotonin Syndrome & Seizure Threshold Lowering",
+    "severity": "MAJOR",
+    "drug_primary": "tramadol",
+    "interacting_classes": [
+      "fluoxetine",
+      "sertraline",
+      "escitalopram",
+      "paroxetine",
+      "duloxetine",
+      "ssri",
+      "snri"
+    ],
+    "content": "Drug Interaction: Serotonin Syndrome & Seizure Threshold Lowering\nPrimary Drug: tramadol\nInteracting Drugs/Classes: fluoxetine, sertraline, escitalopram, paroxetine, duloxetine, ssri, snri\nSeverity: MAJOR\nClinical Consequence: Tramadol inhibits serotonin and norepinephrine reuptake. Concomitant use with SSRIs/SNRIs precipitates potentially fatal Serotonin Syndrome and lowers seizure threshold.\nAction Required: Monitor for tremors, hyperreflexia, agitation, and hyperthermia. Reduce tramadol dose.",
+    "action": "Monitor for tremors, hyperreflexia, agitation, and hyperthermia. Reduce tramadol dose.",
+    "source": "FDA/BNF Pharmacological Matrix"
+  },
+  {
+    "id": "ddi_8",
+    "type": "DDI_INTERACTION",
+    "title": "Severe Rhabdomyolysis Risk (Statin + Macrolide/Azole)",
+    "severity": "MAJOR",
+    "drug_primary": "atorvastatin",
+    "interacting_classes": [
+      "clarithromycin",
+      "erythromycin",
+      "itraconazole",
+      "ketoconazole"
+    ],
+    "content": "Drug Interaction: Severe Rhabdomyolysis Risk (Statin + Macrolide/Azole)\nPrimary Drug: atorvastatin\nInteracting Drugs/Classes: clarithromycin, erythromycin, itraconazole, ketoconazole\nSeverity: MAJOR\nClinical Consequence: Potent CYP3A4 inhibition elevates atorvastatin serum concentrations by up to 400%, precipitating severe myopathy, acute rhabdomyolysis, and renal failure.\nAction Required: Temporarily suspend statin therapy during course of antibiotic/antifungal.",
+    "action": "Temporarily suspend statin therapy during course of antibiotic/antifungal.",
+    "source": "FDA/BNF Pharmacological Matrix"
+  },
+  {
+    "id": "who_9",
+    "type": "DOSAGE_SAFETY",
+    "title": "WHO Dosage Benchmark — Paracetamol",
+    "severity": "MAJOR",
+    "drug_primary": "paracetamol",
+    "interacting_classes": [],
+    "content": "Dosage Safety Guidelines: Paracetamol\nStandard Adult Dose: \nMax Single Dose: None mg\nMax Daily Dose: None mg\nToxicity / Overdose Warning: ",
+    "action": "Do not exceed Nonemg in a 24-hour period.",
+    "source": "WHO Model Formulary & BNF Dosage Limits"
+  },
+  {
+    "id": "who_10",
+    "type": "DOSAGE_SAFETY",
+    "title": "WHO Dosage Benchmark — Ibuprofen",
+    "severity": "MAJOR",
+    "drug_primary": "ibuprofen",
+    "interacting_classes": [],
+    "content": "Dosage Safety Guidelines: Ibuprofen\nStandard Adult Dose: \nMax Single Dose: None mg\nMax Daily Dose: None mg\nToxicity / Overdose Warning: ",
+    "action": "Do not exceed Nonemg in a 24-hour period.",
+    "source": "WHO Model Formulary & BNF Dosage Limits"
+  },
+  {
+    "id": "who_11",
+    "type": "DOSAGE_SAFETY",
+    "title": "WHO Dosage Benchmark — Diclofenac",
+    "severity": "MAJOR",
+    "drug_primary": "diclofenac",
+    "interacting_classes": [],
+    "content": "Dosage Safety Guidelines: Diclofenac\nStandard Adult Dose: \nMax Single Dose: None mg\nMax Daily Dose: None mg\nToxicity / Overdose Warning: ",
+    "action": "Do not exceed Nonemg in a 24-hour period.",
+    "source": "WHO Model Formulary & BNF Dosage Limits"
+  },
+  {
+    "id": "who_12",
+    "type": "DOSAGE_SAFETY",
+    "title": "WHO Dosage Benchmark — Aceclofenac",
+    "severity": "MAJOR",
+    "drug_primary": "aceclofenac",
+    "interacting_classes": [],
+    "content": "Dosage Safety Guidelines: Aceclofenac\nStandard Adult Dose: \nMax Single Dose: None mg\nMax Daily Dose: None mg\nToxicity / Overdose Warning: ",
+    "action": "Do not exceed Nonemg in a 24-hour period.",
+    "source": "WHO Model Formulary & BNF Dosage Limits"
+  },
+  {
+    "id": "who_13",
+    "type": "DOSAGE_SAFETY",
+    "title": "WHO Dosage Benchmark — Tramadol",
+    "severity": "MAJOR",
+    "drug_primary": "tramadol",
+    "interacting_classes": [],
+    "content": "Dosage Safety Guidelines: Tramadol\nStandard Adult Dose: \nMax Single Dose: None mg\nMax Daily Dose: None mg\nToxicity / Overdose Warning: ",
+    "action": "Do not exceed Nonemg in a 24-hour period.",
+    "source": "WHO Model Formulary & BNF Dosage Limits"
+  },
+  {
+    "id": "who_14",
+    "type": "DOSAGE_SAFETY",
+    "title": "WHO Dosage Benchmark — Metformin",
+    "severity": "MAJOR",
+    "drug_primary": "metformin",
+    "interacting_classes": [],
+    "content": "Dosage Safety Guidelines: Metformin\nStandard Adult Dose: \nMax Single Dose: None mg\nMax Daily Dose: None mg\nToxicity / Overdose Warning: ",
+    "action": "Do not exceed Nonemg in a 24-hour period.",
+    "source": "WHO Model Formulary & BNF Dosage Limits"
+  },
+  {
+    "id": "who_15",
+    "type": "DOSAGE_SAFETY",
+    "title": "WHO Dosage Benchmark — Glimepiride",
+    "severity": "MAJOR",
+    "drug_primary": "glimepiride",
+    "interacting_classes": [],
+    "content": "Dosage Safety Guidelines: Glimepiride\nStandard Adult Dose: \nMax Single Dose: None mg\nMax Daily Dose: None mg\nToxicity / Overdose Warning: ",
+    "action": "Do not exceed Nonemg in a 24-hour period.",
+    "source": "WHO Model Formulary & BNF Dosage Limits"
+  },
+  {
+    "id": "who_16",
+    "type": "DOSAGE_SAFETY",
+    "title": "WHO Dosage Benchmark — Sitagliptin",
+    "severity": "MAJOR",
+    "drug_primary": "sitagliptin",
+    "interacting_classes": [],
+    "content": "Dosage Safety Guidelines: Sitagliptin\nStandard Adult Dose: \nMax Single Dose: None mg\nMax Daily Dose: None mg\nToxicity / Overdose Warning: ",
+    "action": "Do not exceed Nonemg in a 24-hour period.",
+    "source": "WHO Model Formulary & BNF Dosage Limits"
+  },
+  {
+    "id": "who_17",
+    "type": "DOSAGE_SAFETY",
+    "title": "WHO Dosage Benchmark — Glipizide",
+    "severity": "MAJOR",
+    "drug_primary": "glipizide",
+    "interacting_classes": [],
+    "content": "Dosage Safety Guidelines: Glipizide\nStandard Adult Dose: \nMax Single Dose: None mg\nMax Daily Dose: None mg\nToxicity / Overdose Warning: ",
+    "action": "Do not exceed Nonemg in a 24-hour period.",
+    "source": "WHO Model Formulary & BNF Dosage Limits"
+  },
+  {
+    "id": "who_18",
+    "type": "DOSAGE_SAFETY",
+    "title": "WHO Dosage Benchmark — Amlodipine",
+    "severity": "MAJOR",
+    "drug_primary": "amlodipine",
+    "interacting_classes": [],
+    "content": "Dosage Safety Guidelines: Amlodipine\nStandard Adult Dose: \nMax Single Dose: None mg\nMax Daily Dose: None mg\nToxicity / Overdose Warning: ",
+    "action": "Do not exceed Nonemg in a 24-hour period.",
+    "source": "WHO Model Formulary & BNF Dosage Limits"
+  },
+  {
+    "id": "who_19",
+    "type": "DOSAGE_SAFETY",
+    "title": "WHO Dosage Benchmark — Telmisartan",
+    "severity": "MAJOR",
+    "drug_primary": "telmisartan",
+    "interacting_classes": [],
+    "content": "Dosage Safety Guidelines: Telmisartan\nStandard Adult Dose: \nMax Single Dose: None mg\nMax Daily Dose: None mg\nToxicity / Overdose Warning: ",
+    "action": "Do not exceed Nonemg in a 24-hour period.",
+    "source": "WHO Model Formulary & BNF Dosage Limits"
+  },
+  {
+    "id": "who_20",
+    "type": "DOSAGE_SAFETY",
+    "title": "WHO Dosage Benchmark — Atorvastatin",
+    "severity": "MAJOR",
+    "drug_primary": "atorvastatin",
+    "interacting_classes": [],
+    "content": "Dosage Safety Guidelines: Atorvastatin\nStandard Adult Dose: \nMax Single Dose: None mg\nMax Daily Dose: None mg\nToxicity / Overdose Warning: ",
+    "action": "Do not exceed Nonemg in a 24-hour period.",
+    "source": "WHO Model Formulary & BNF Dosage Limits"
+  },
+  {
+    "id": "who_21",
+    "type": "DOSAGE_SAFETY",
+    "title": "WHO Dosage Benchmark — Losartan",
+    "severity": "MAJOR",
+    "drug_primary": "losartan",
+    "interacting_classes": [],
+    "content": "Dosage Safety Guidelines: Losartan\nStandard Adult Dose: \nMax Single Dose: None mg\nMax Daily Dose: None mg\nToxicity / Overdose Warning: ",
+    "action": "Do not exceed Nonemg in a 24-hour period.",
+    "source": "WHO Model Formulary & BNF Dosage Limits"
+  },
+  {
+    "id": "who_22",
+    "type": "DOSAGE_SAFETY",
+    "title": "WHO Dosage Benchmark — Amoxicillin",
+    "severity": "MAJOR",
+    "drug_primary": "amoxicillin",
+    "interacting_classes": [],
+    "content": "Dosage Safety Guidelines: Amoxicillin\nStandard Adult Dose: \nMax Single Dose: None mg\nMax Daily Dose: None mg\nToxicity / Overdose Warning: ",
+    "action": "Do not exceed Nonemg in a 24-hour period.",
+    "source": "WHO Model Formulary & BNF Dosage Limits"
+  },
+  {
+    "id": "who_23",
+    "type": "DOSAGE_SAFETY",
+    "title": "WHO Dosage Benchmark — Clavulanic Acid",
+    "severity": "MAJOR",
+    "drug_primary": "clavulanic acid",
+    "interacting_classes": [],
+    "content": "Dosage Safety Guidelines: Clavulanic Acid\nStandard Adult Dose: \nMax Single Dose: None mg\nMax Daily Dose: None mg\nToxicity / Overdose Warning: ",
+    "action": "Do not exceed Nonemg in a 24-hour period.",
+    "source": "WHO Model Formulary & BNF Dosage Limits"
+  },
+  {
+    "id": "who_24",
+    "type": "DOSAGE_SAFETY",
+    "title": "WHO Dosage Benchmark — Azithromycin",
+    "severity": "MAJOR",
+    "drug_primary": "azithromycin",
+    "interacting_classes": [],
+    "content": "Dosage Safety Guidelines: Azithromycin\nStandard Adult Dose: \nMax Single Dose: None mg\nMax Daily Dose: None mg\nToxicity / Overdose Warning: ",
+    "action": "Do not exceed Nonemg in a 24-hour period.",
+    "source": "WHO Model Formulary & BNF Dosage Limits"
+  },
+  {
+    "id": "who_25",
+    "type": "DOSAGE_SAFETY",
+    "title": "WHO Dosage Benchmark — Ciprofloxacin",
+    "severity": "MAJOR",
+    "drug_primary": "ciprofloxacin",
+    "interacting_classes": [],
+    "content": "Dosage Safety Guidelines: Ciprofloxacin\nStandard Adult Dose: \nMax Single Dose: None mg\nMax Daily Dose: None mg\nToxicity / Overdose Warning: ",
+    "action": "Do not exceed Nonemg in a 24-hour period.",
+    "source": "WHO Model Formulary & BNF Dosage Limits"
+  },
+  {
+    "id": "who_26",
+    "type": "DOSAGE_SAFETY",
+    "title": "WHO Dosage Benchmark — Pantoprazole",
+    "severity": "MAJOR",
+    "drug_primary": "pantoprazole",
+    "interacting_classes": [],
+    "content": "Dosage Safety Guidelines: Pantoprazole\nStandard Adult Dose: \nMax Single Dose: None mg\nMax Daily Dose: None mg\nToxicity / Overdose Warning: ",
+    "action": "Do not exceed Nonemg in a 24-hour period.",
+    "source": "WHO Model Formulary & BNF Dosage Limits"
+  },
+  {
+    "id": "who_27",
+    "type": "DOSAGE_SAFETY",
+    "title": "WHO Dosage Benchmark — Omeprazole",
+    "severity": "MAJOR",
+    "drug_primary": "omeprazole",
+    "interacting_classes": [],
+    "content": "Dosage Safety Guidelines: Omeprazole\nStandard Adult Dose: \nMax Single Dose: None mg\nMax Daily Dose: None mg\nToxicity / Overdose Warning: ",
+    "action": "Do not exceed Nonemg in a 24-hour period.",
+    "source": "WHO Model Formulary & BNF Dosage Limits"
+  }
+]

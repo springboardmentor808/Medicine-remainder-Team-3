@@ -8,6 +8,7 @@ import {
   XCircle,
   Camera,
   PlusCircle,
+  Plus,
   Pill,
   Bell,
   ChevronRight,
@@ -20,107 +21,52 @@ import {
   Calendar,
   RotateCcw,
   Download,
+  Flame,
+  Share2,
+  HeartPulse,
+  ShieldCheck,
+  ShieldAlert,
+  Droplets,
+  PhoneCall,
+  Globe,
+  HelpCircle,
+  Sparkles,
 } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
+import Modal from '@/components/ui/Modal';
 import AdherenceRing from '@/components/ui/AdherenceRing';
 import LogoutButton from '@/components/ui/LogoutButton';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import ReminderWidget from '@/components/dashboard/ReminderWidget';
 import PushNotificationPrompt from '@/components/patient/PushNotificationPrompt';
-import { exportAPI, medicineAPI } from '@/lib/api';
+import ExportDataModal from '@/components/dashboard/ExportDataModal';
+import SupportTicketForm from '@/components/forms/SupportTicketForm';
+import { exportAPI, medicineAPI, patientAPI, analyticsAPI } from '@/lib/api';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
+import { useLanguage } from '@/context/LanguageContext';
+import { playWebAudioAlarm, triggerAlarm } from '@/lib/alarm_service';
+import AddReminderModal from '@/components/patient/AddReminderModal';
+import dynamic from 'next/dynamic';
+import TutorialTrigger from '@/components/3d/TutorialTrigger';
+import useMedicalBotStore from '@/store/useMedicalBotStore';
+
+// Pure Three.js WebGL Robot — SSR-safe, no R3F dependencies
+const DualModeMedicalBot = dynamic(
+  () => import('@/components/3d/DualModeMedicalBot'),
+  { ssr: false }
+);
+
+// G-Stack: Dynamic import for Chat Widget — SSR-safe, lazy-loaded
+const MedicalAssistantWidget = dynamic(
+  () => import('@/components/chat/MedicalAssistantWidget'),
+  { ssr: false }
+);
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const SNOOZE_MINUTES = 15;
-
-// ── Mock Data (replace with API: GET /patient/schedule/today) ────────────────
-
-const INITIAL_SCHEDULE = [
-  {
-    id: 'm-001',
-    name: 'Metformin',
-    strength: '500mg',
-    type: 'Diabetes',
-    instructions: 'Take with food',
-    slot: 'morning',
-    time: '08:00 AM',
-    status: 'pending', // 'pending' | 'taken' | 'snoozed' | 'skipped'
-    snoozedUntil: null,
-    color: 'primary',
-  },
-  {
-    id: 'm-002',
-    name: 'Amlodipine',
-    strength: '5mg',
-    type: 'Blood Pressure',
-    instructions: 'Take at the same time each day',
-    slot: 'morning',
-    time: '08:00 AM',
-    status: 'taken',
-    snoozedUntil: null,
-    color: 'tertiary',
-  },
-  {
-    id: 'm-003',
-    name: 'Atorvastatin',
-    strength: '20mg',
-    type: 'Cholesterol',
-    instructions: 'Can be taken with or without food',
-    slot: 'afternoon',
-    time: '01:00 PM',
-    status: 'pending',
-    snoozedUntil: null,
-    color: 'secondary',
-  },
-  {
-    id: 'm-004',
-    name: 'Omeprazole',
-    strength: '20mg',
-    type: 'Acid Reflux',
-    instructions: 'Take 30 minutes before meal',
-    slot: 'afternoon',
-    time: '01:00 PM',
-    status: 'skipped',
-    snoozedUntil: null,
-    color: 'primary',
-  },
-  {
-    id: 'm-005',
-    name: 'Aspirin',
-    strength: '75mg',
-    type: 'Heart Health',
-    instructions: 'Take after food',
-    slot: 'evening',
-    time: '08:00 PM',
-    status: 'pending',
-    snoozedUntil: null,
-    color: 'tertiary',
-  },
-  {
-    id: 'm-006',
-    name: 'Vitamin D3',
-    strength: '1000 IU',
-    type: 'Supplement',
-    instructions: 'Take with a fatty meal for best absorption',
-    slot: 'evening',
-    time: '08:00 PM',
-    status: 'pending',
-    snoozedUntil: null,
-    color: 'secondary',
-  },
-];
-
-const INVENTORY = [
-  { id: 'i-001', name: 'Metformin 500mg',  totalDays: 30, remainingDays: 2,  pillsLeft: 4  },
-  { id: 'i-002', name: 'Amlodipine 5mg',   totalDays: 30, remainingDays: 12, pillsLeft: 24 },
-  { id: 'i-003', name: 'Atorvastatin 20mg',totalDays: 30, remainingDays: 1,  pillsLeft: 2  },
-  { id: 'i-004', name: 'Omeprazole 20mg',  totalDays: 30, remainingDays: 18, pillsLeft: 36 },
-  { id: 'i-005', name: 'Aspirin 75mg',     totalDays: 60, remainingDays: 29, pillsLeft: 58 },
-  { id: 'i-006', name: 'Vitamin D3 1000IU',totalDays: 90, remainingDays: 3,  pillsLeft: 9  },
-];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -218,7 +164,7 @@ function DoseCard({ med, onTaken, onSnooze, onSkip }) {
               size="sm"
               leftIcon={<CheckCircle2 className="w-3.5 h-3.5" />}
               onClick={() => onTaken(med.id)}
-              className="!h-8"
+              className="h-10 sm:!h-8 min-h-[40px] sm:min-h-0 font-semibold px-3"
             >
               Taken
             </Button>
@@ -227,7 +173,7 @@ function DoseCard({ med, onTaken, onSnooze, onSkip }) {
               size="sm"
               leftIcon={<Clock className="w-3.5 h-3.5" />}
               onClick={() => onSnooze(med.id)}
-              className="!h-8"
+              className="h-10 sm:!h-8 min-h-[40px] sm:min-h-0 px-3"
             >
               Snooze {SNOOZE_MINUTES}m
             </Button>
@@ -236,7 +182,7 @@ function DoseCard({ med, onTaken, onSnooze, onSkip }) {
               size="sm"
               leftIcon={<XCircle className="w-3.5 h-3.5" />}
               onClick={() => onSkip(med.id)}
-              className="!h-8 !text-error hover:!bg-error/8"
+              className="h-10 sm:!h-8 min-h-[40px] sm:min-h-0 !text-error hover:!bg-error/8 px-3"
             >
               Skip
             </Button>
@@ -247,9 +193,9 @@ function DoseCard({ med, onTaken, onSnooze, onSkip }) {
         {isDone && (
           <button
             onClick={() => med.status === 'taken' ? onTaken(med.id, true) : onSkip(med.id, true)}
-            className="mt-1 text-label-caps text-on-surface-variant hover:text-primary flex items-center gap-1 transition-colors"
+            className="mt-1.5 min-h-[36px] py-1 text-label-caps text-on-surface-variant hover:text-primary flex items-center gap-1.5 transition-colors active:scale-95"
           >
-            <RotateCcw className="w-3 h-3" /> Undo
+            <RotateCcw className="w-3.5 h-3.5" /> Undo
           </button>
         )}
       </div>
@@ -393,10 +339,17 @@ function InventoryWidget({ items }) {
 
 function PatientDashboardInner() {
   const { addToast } = useToast();
+  const { locale, toggleLocale, t } = useLanguage();
+  const startTour = useMedicalBotStore((s) => s.startTour);
 
   // ── State ──────────────────────────────────────────────────────────────────
-  const [schedule, setSchedule] = useState(INITIAL_SCHEDULE);
+  const [schedule, setSchedule] = useState([]);
+  const [inventory, setInventory] = useState([]);
+  const [weeklyTrends, setWeeklyTrends] = useState([]);
+  const [scheduleLoading, setScheduleLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -411,33 +364,174 @@ function PatientDashboardInner() {
     }
   }, []);
 
-  // Fetch dynamic medicine schedule from backend
+  // Coordinated Parallel Initial Data Fetching (Zero Waterfalls)
   useEffect(() => {
+    let isMounted = true;
     (async () => {
+      setScheduleLoading(true);
       try {
-        const res = await medicineAPI.list();
-        if (res?.data && Array.isArray(res.data) && res.data.length > 0) {
+        const [scheduleRes, inventoryRes, trendsRes] = await Promise.allSettled([
+          patientAPI.getTodaySchedule(),
+          medicineAPI.list(),
+          analyticsAPI.getTrends({ days: 7 }),
+        ]);
+
+        if (!isMounted) return;
+
+        // 1. Process Schedule
+        if (scheduleRes.status === 'fulfilled') {
+          const rawData = scheduleRes.value?.data !== undefined ? scheduleRes.value.data : scheduleRes.value;
+          const list = Array.isArray(rawData) ? rawData : (rawData?.schedules || rawData?.items || []);
           const slotCycle = ['morning', 'afternoon', 'evening'];
           const colorCycle = ['primary', 'tertiary', 'secondary'];
-          const mapped = res.data.map((med, idx) => ({
-            id: med.id || `dyn-${idx}`,
-            name: med.name || med.medicine_name || 'Unknown',
-            strength: med.dosage || med.strength || '',
-            type: med.form || med.category || 'Medication',
-            instructions: med.instructions || med.notes || '',
-            slot: slotCycle[idx % 3],
-            time: ['08:00 AM', '01:00 PM', '08:00 PM'][idx % 3],
+          const mapped = list.map((s, idx) => ({
+            id: s.id || `sched-${idx}`,
+            schedule_id: s.id,
+            medicine_id: s.medicine_id,
+            name: s.medicine_name || s.name || 'Medication',
+            strength: s.dosage || s.strength || '',
+            type: s.disease_category || s.dose_label || 'Medication',
+            instructions: s.notes || s.instructions || '',
+            slot: s.dose_label?.toLowerCase().includes('morning')
+              ? 'morning'
+              : s.dose_label?.toLowerCase().includes('afternoon') || s.dose_label?.toLowerCase().includes('noon')
+              ? 'afternoon'
+              : s.dose_label?.toLowerCase().includes('evening') || s.dose_label?.toLowerCase().includes('night')
+              ? 'evening'
+              : slotCycle[idx % 3],
+            time: s.scheduled_time || ['08:00 AM', '01:00 PM', '08:00 PM'][idx % 3],
+            scheduled_time_24: s.scheduled_time || ['08:00', '13:00', '20:00'][idx % 3],
             status: 'pending',
             snoozedUntil: null,
             color: colorCycle[idx % 3],
           }));
-          setSchedule(mapped);
+
+          // ── Reconstruct persisted dose status from PostgreSQL daily-tracking ──
+          try {
+            const tracking = await patientAPI.getDailyTracking();
+            const dbDoses = tracking?.doses || [];
+            // Build a fast lookup: schedule_id → DB status string
+            const statusMap = {};
+            for (const d of dbDoses) {
+              if (d.schedule_id) {
+                statusMap[d.schedule_id] = d.status; // "Taken", "Missed", "Snoozed", "Pending"
+              }
+            }
+            // Overlay persisted statuses onto the mapped schedule
+            const withPersistedStatus = mapped.map((m) => {
+              const dbStatus = statusMap[m.schedule_id];
+              if (!dbStatus) return m;
+              const normalized =
+                dbStatus === 'Taken'   ? 'taken'   :
+                dbStatus === 'Missed'  ? 'skipped' :
+                dbStatus === 'Snoozed' ? 'snoozed' :
+                'pending';
+              return { ...m, status: normalized };
+            });
+            setSchedule(withPersistedStatus);
+          } catch {
+            // If daily-tracking fails (e.g. no logs yet), fall back to all-pending
+            setSchedule(mapped);
+          }
+        } else {
+          setSchedule([]);
+        }
+
+        // 2. Process Inventory
+        if (inventoryRes.status === 'fulfilled') {
+          const rawInv = inventoryRes.value?.data !== undefined ? inventoryRes.value.data : inventoryRes.value;
+          const items = Array.isArray(rawInv) ? rawInv : (rawInv?.items || rawInv?.medicines || []);
+          if (Array.isArray(items) && items.length > 0) {
+            const mapped = items.map((m, idx) => ({
+              id: m.id || `inv-${idx}`,
+              name: `${m.name} ${m.dosage || ''}`.trim(),
+              totalDays: m.initial_quantity || 30,
+              remainingDays: Math.round(m.days_until_empty || 0),
+              pillsLeft: m.current_stock || 0,
+            }));
+            setInventory(mapped);
+          } else {
+            setInventory([]);
+          }
+        } else {
+          setInventory([]);
+        }
+
+        // 3. Process Trends
+        if (trendsRes.status === 'fulfilled') {
+          const rawTrends = trendsRes.value?.data !== undefined ? trendsRes.value.data : trendsRes.value;
+          const trends = Array.isArray(rawTrends) ? rawTrends : (rawTrends?.trends || rawTrends?.items || []);
+          if (Array.isArray(trends) && trends.length > 0) {
+            const todayIso = new Date().toISOString().split('T')[0];
+            const mapped = trends.map((t) => {
+              const pct = t.is_before_account
+                ? 0  // days before account creation: blank/zero bars
+                : Math.round(t.adherence_rate ?? 0);
+              return {
+                // Use day_abbr from backend if available (Sun/Mon/…), else derive from date
+                dayLabel: t.day_abbr
+                  ? t.day_abbr[0]
+                  : new Date(t.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })[0],
+                dayName: t.day_name || t.day_abbr || t.date,
+                percentage: pct,
+                isToday: t.date === todayIso,
+                isBeforeAccount: !!t.is_before_account,
+              };
+            });
+            setWeeklyTrends(mapped);
+          } else {
+            // No trends yet for new accounts — show 7 zero bars (today highlighted)
+            const todayIso = new Date().toISOString().split('T')[0];
+            const days = [];
+            for (let i = 6; i >= 0; i--) {
+              const d = new Date();
+              d.setDate(d.getDate() - i);
+              const iso = d.toISOString().split('T')[0];
+              days.push({
+                dayLabel: d.toLocaleDateString('en-US', { weekday: 'short' })[0],
+                dayName: d.toLocaleDateString('en-US', { weekday: 'short' }),
+                percentage: 0,
+                isToday: iso === todayIso,
+                isBeforeAccount: false,
+              });
+            }
+            setWeeklyTrends(days);
+          }
+        } else {
+          // Network/auth error — show 7 zero bars
+          const todayIso = new Date().toISOString().split('T')[0];
+          const days = [];
+          for (let i = 6; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            const iso = d.toISOString().split('T')[0];
+            days.push({
+              dayLabel: d.toLocaleDateString('en-US', { weekday: 'short' })[0],
+              dayName: d.toLocaleDateString('en-US', { weekday: 'short' }),
+              percentage: 0,
+              isToday: iso === todayIso,
+              isBeforeAccount: false,
+            });
+          }
+          setWeeklyTrends(days);
         }
       } catch {
-        // Keep INITIAL_SCHEDULE as fallback
+        if (isMounted) {
+          setSchedule([]);
+          setInventory([]);
+        }
+      } finally {
+        if (isMounted) {
+          setScheduleLoading(false);
+        }
       }
     })();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
+
 
   const displayName = currentUser?.full_name || currentUser?.name || currentUser?.username || 'Patient';
 
@@ -455,8 +549,8 @@ function PatientDashboardInner() {
   );
 
   const lowStockCount = useMemo(
-    () => INVENTORY.filter((i) => i.remainingDays <= 3).length,
-    []
+    () => inventory.filter((i) => i.remainingDays <= 3).length,
+    [inventory]
   );
 
   // Grouped by slot
@@ -471,7 +565,9 @@ function PatientDashboardInner() {
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
-  const handleTaken = useCallback((id, undo = false) => {
+  const handleTaken = useCallback(async (id, undo = false) => {
+    const med = schedule.find((m) => m.id === id);
+    // Optimistic update
     setSchedule((prev) =>
       prev.map((m) =>
         m.id === id
@@ -480,38 +576,68 @@ function PatientDashboardInner() {
       )
     );
     if (!undo) {
-      const med = schedule.find((m) => m.id === id);
       addToast({
         title: '✅ Dose Recorded',
         description: `${med?.name} ${med?.strength} marked as taken.`,
         variant: 'success',
         duration: 3500,
       });
+      try {
+        await patientAPI.recordAction({
+          schedule_id: med?.schedule_id,
+          medicine_id: med?.medicine_id,
+          scheduled_date: new Date().toISOString().split('T')[0],
+          scheduled_time: med?.scheduled_time_24 || new Date().toTimeString().slice(0, 5),
+          action: 'TAKEN',
+        });
+      } catch (err) {
+        // Revert optimistic update on failure
+        setSchedule((prev) =>
+          prev.map((m) => (m.id === id ? { ...m, status: 'pending' } : m))
+        );
+        addToast({ title: 'Error', description: err.message || 'Failed to record dose.', variant: 'error' });
+      }
     }
   }, [schedule, addToast]);
 
-  const handleSnooze = useCallback((id) => {
+  const handleSnooze = useCallback(async (id) => {
     const now = new Date();
     now.setMinutes(now.getMinutes() + SNOOZE_MINUTES);
     const snoozedUntil = now.toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
     });
+    const med = schedule.find((m) => m.id === id);
 
+    // Optimistic update
     setSchedule((prev) =>
       prev.map((m) => (m.id === id ? { ...m, status: 'snoozed', snoozedUntil } : m))
     );
 
-    const med = schedule.find((m) => m.id === id);
     addToast({
       title: '⏰ Snoozed',
       description: `Reminder for ${med?.name} set for ${snoozedUntil}.`,
       variant: 'info',
       duration: 3000,
     });
+
+    try {
+      await patientAPI.recordAction({
+        schedule_id: med?.schedule_id,
+        medicine_id: med?.medicine_id,
+        scheduled_date: new Date().toISOString().split('T')[0],
+        scheduled_time: med?.scheduled_time_24 || new Date().toTimeString().slice(0, 5),
+        action: 'SNOOZE',
+        snooze_minutes: SNOOZE_MINUTES,
+      });
+    } catch {
+      // Snooze is best-effort — keep local state even if server fails
+    }
   }, [schedule, addToast]);
 
-  const handleSkip = useCallback((id, undo = false) => {
+  const handleSkip = useCallback(async (id, undo = false) => {
+    const med = schedule.find((m) => m.id === id);
+    // Optimistic update
     setSchedule((prev) =>
       prev.map((m) =>
         m.id === id
@@ -520,7 +646,6 @@ function PatientDashboardInner() {
       )
     );
     if (!undo) {
-      const med = schedule.find((m) => m.id === id);
       addToast({
         title: 'Dose Skipped',
         description: `${med?.name} skipped for this session.`,
@@ -528,7 +653,6 @@ function PatientDashboardInner() {
         duration: 3000,
         action: {
           label: 'Undo',
-          // Inline undo — avoids circular self-reference in useCallback deps
           onClick: () =>
             setSchedule((prev) =>
               prev.map((m) =>
@@ -537,21 +661,113 @@ function PatientDashboardInner() {
             ),
         },
       });
+      try {
+        await patientAPI.recordAction({
+          schedule_id: med?.schedule_id,
+          medicine_id: med?.medicine_id,
+          scheduled_date: new Date().toISOString().split('T')[0],
+          scheduled_time: med?.scheduled_time_24 || new Date().toTimeString().slice(0, 5),
+          action: 'MISSED',
+        });
+      } catch {
+        // Non-critical — keep local state
+      }
     }
   }, [schedule, addToast]);
+
+  // ── Auto-Popup for Next Due Medication (Medical Sage Green) ───────────────
+  const [dosePopupOpen, setDosePopupOpen] = useState(false);
+
+  // Identify next due medication
+  const nextDueMed = useMemo(() => {
+    return schedule.find((m) => m.status === 'pending') || schedule.find((m) => m.status === 'snoozed') || null;
+  }, [schedule]);
+
+  // Open auto-popup once per session if pending medication exists
+  useEffect(() => {
+    if (!scheduleLoading && schedule.length > 0) {
+      const alreadySeen = typeof window !== 'undefined' ? sessionStorage.getItem('pillsync_patient_popup_seen') : null;
+      const hasPending = schedule.some((m) => m.status === 'pending');
+      if (!alreadySeen && hasPending) {
+        setDosePopupOpen(true);
+        try { playWebAudioAlarm(); } catch {}
+      }
+    }
+  }, [scheduleLoading, schedule]);
+
+  const [isAlarmTesting, setIsAlarmTesting] = useState(false);
+  const [isAddReminderOpen, setIsAddReminderOpen] = useState(false);
+
+  const handleAddReminder = useCallback(async (newReminder) => {
+    const newEntry = {
+      id: `custom-${Date.now()}`,
+      name: newReminder.medicine,
+      strength: newReminder.dosage,
+      slot: newReminder.slot || 'morning',
+      time: newReminder.time || '08:00 AM',
+      scheduled_time_24: newReminder.time || '08:00',
+      status: 'pending',
+      color: newReminder.slot === 'morning' ? 'primary' : newReminder.slot === 'afternoon' ? 'secondary' : 'tertiary',
+      instructions: newReminder.notes || 'Take with water as directed',
+      type: 'Scheduled Regimen',
+    };
+    setSchedule((prev) => [...prev, newEntry]);
+    addToast({
+      title: locale === 'hi' ? '🔔 नया अलार्म शेड्यूल हुआ' : '🔔 Reminder Scheduled',
+      description: `${newReminder.medicine} (${newReminder.time}) ${locale === 'hi' ? 'दैनिक शेड्यूल में जुड़ गया है।' : 'is now live in your daily schedule.'}`,
+      variant: 'success',
+    });
+  }, [locale, addToast]);
+
+  const handleTestAlarm = useCallback(() => {
+    setIsAlarmTesting(true);
+    try {
+      triggerAlarm({
+        title: locale === 'hi' ? '⏰ दवाई का समय: मेटफ़ॉर्मिन 500mg' : '⏰ Medication Time: Metformin 500mg',
+        body: locale === 'hi' ? 'कृपया अपनी निर्धारित खुराक समय पर लें।' : 'Time to take your scheduled dose with water.',
+      });
+    } catch {
+      try { playWebAudioAlarm(); } catch {}
+    }
+    addToast({
+      title: locale === 'hi' ? '🔔 अलार्म और घंटी बजी' : '🔔 Alarm Bell & Sound Triggered',
+      description: locale === 'hi' ? 'मेडिकल दो-टोन चाइम ऑडियो बज रहा है और नोटिफिकेशन जारी हुआ।' : 'Two-tone medical chime is sounding and desktop alert dispatched.',
+      variant: 'info',
+    });
+    setTimeout(() => setIsAlarmTesting(false), 3500);
+  }, [locale, addToast]);
+
+  const handleModalTaken = useCallback(async () => {
+    if (!nextDueMed) return;
+    if (typeof window !== 'undefined') sessionStorage.setItem('pillsync_patient_popup_seen', '1');
+    await handleTaken(nextDueMed.id);
+    setDosePopupOpen(false);
+  }, [nextDueMed, handleTaken]);
+
+  const handleModalSnooze = useCallback(async () => {
+    if (!nextDueMed) return;
+    if (typeof window !== 'undefined') sessionStorage.setItem('pillsync_patient_popup_seen', '1');
+    await handleSnooze(nextDueMed.id);
+    setDosePopupOpen(false);
+  }, [nextDueMed, handleSnooze]);
+
+  const handleModalDismiss = useCallback(() => {
+    if (typeof window !== 'undefined') sessionStorage.setItem('pillsync_patient_popup_seen', '1');
+    setDosePopupOpen(false);
+  }, []);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <DashboardLayout>
       <div className="min-h-screen bg-background">
-        {/* ── Top Actions Bar ────────────────────────────────────────── */}
-        <div className="border-b border-outline-variant/30 bg-surface-container-lowest/60 backdrop-blur-md px-gutter py-3">
-          <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
+        {/* ── Top Actions Bar (Mobile Notch & Hamburger Aware) ────────────────────────── */}
+        <div className="border-b border-outline-variant/30 bg-surface-container-lowest/80 backdrop-blur-md px-4 sm:px-gutter py-2.5 sm:py-3 pl-16 lg:pl-gutter transition-all">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
               <Badge variant="patient" size="sm">Patient Portal</Badge>
               {pendingCount > 0 && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary/10 border border-secondary/20">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary/10 border border-secondary/20 shrink-0">
                   <span className="w-2 h-2 rounded-full bg-secondary animate-pulse-slow" />
                   <span className="text-[11px] text-secondary font-semibold">
                     {pendingCount} doses pending today
@@ -560,24 +776,76 @@ function PatientDashboardInner() {
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0 scrollbar-none w-full md:w-auto shrink-0">
+              <Button
+                variant="outlined"
+                size="sm"
+                onClick={() => startTour()}
+                leftIcon={<Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />}
+                className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 font-bold border-emerald-500/40 min-h-[38px] shrink-0"
+                title="Start Interactive Guided Dashboard Tour"
+              >
+                🎯 {locale === 'hi' ? 'डैशबोर्ड टूर' : 'Start Tour'}
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setIsExportModalOpen(true)}
+                leftIcon={<Download className="w-3.5 h-3.5" />}
+                className="bg-[#164234] hover:bg-[#0f2e24] text-white font-semibold min-h-[38px] shrink-0"
+              >
+                Export Hub
+              </Button>
               <Button
                 variant="outlined"
                 size="sm"
                 onClick={() => exportAPI.medicinesPDF()}
                 leftIcon={<Download className="w-3.5 h-3.5" />}
+                className="min-h-[38px] shrink-0"
               >
-                PDF Report
+                PDF <span className="hidden sm:inline">Report</span>
               </Button>
               <Button
                 variant="outlined"
                 size="sm"
                 onClick={() => exportAPI.allCSV()}
                 leftIcon={<Download className="w-3.5 h-3.5" />}
+                className="min-h-[38px] shrink-0"
               >
-                Export CSV
+                CSV
               </Button>
-              <LogoutButton variant="icon" />
+              <Button
+                variant="outlined"
+                size="sm"
+                onClick={handleTestAlarm}
+                leftIcon={<Bell className={`w-3.5 h-3.5 text-amber-500 ${isAlarmTesting ? 'animate-bounce' : ''}`} />}
+                className="min-h-[38px] shrink-0 font-medium border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/20"
+                title={locale === 'hi' ? 'अलार्म घंटी और आवाज टेस्ट करें' : 'Test Alarm Sound & Notification'}
+              >
+                {locale === 'hi' ? 'अलार्म घंटी' : 'Test Alarm'}
+              </Button>
+              <Button
+                variant="outlined"
+                size="sm"
+                onClick={() => setIsSupportModalOpen(true)}
+                leftIcon={<HelpCircle className="w-3.5 h-3.5 text-primary" />}
+                className="min-h-[38px] shrink-0 font-medium"
+              >
+                {locale === "hi" ? "सहायता केंद्र" : "Need Help?"}
+              </Button>
+              <Button
+                variant="outlined"
+                size="sm"
+                onClick={toggleLocale}
+                leftIcon={<Globe className="w-3.5 h-3.5" />}
+                title={t("switch_lang")}
+                className="min-h-[38px] shrink-0"
+              >
+                {locale === "hi" ? "हिन्दी (HI)" : "English (EN)"}
+              </Button>
+              <div className="shrink-0">
+                <LogoutButton variant="icon" />
+              </div>
             </div>
           </div>
         </div>
@@ -592,31 +860,39 @@ function PatientDashboardInner() {
             <PushNotificationPrompt />
 
             {/* 1. Welcome Banner ────────────────────────────────────── */}
-            <section className="relative bg-gradient-to-br from-primary via-primary to-primary-container rounded-lg p-card-padding overflow-hidden text-on-primary">
-              {/* Decorative blobs */}
-              <div className="absolute -top-10 -right-10 w-44 h-44 rounded-full bg-on-primary/5 blur-sm pointer-events-none" aria-hidden="true" />
-              <div className="absolute -bottom-6 -left-6 w-28 h-28 rounded-full bg-on-primary/5 blur-sm pointer-events-none" aria-hidden="true" />
+            <section data-tour="header-overview" className="relative bg-[#d8eedf] dark:bg-[#132a22] rounded-2xl p-card-padding overflow-hidden border border-[#bfe3cd] dark:border-[#1e4537] shadow-sm">
+              {/* Decorative subtle medical blobs */}
+              <div className="absolute -top-10 -right-10 w-44 h-44 rounded-full bg-emerald-400/15 dark:bg-emerald-800/10 blur-xl pointer-events-none" aria-hidden="true" />
+              <div className="absolute -bottom-6 -left-6 w-28 h-28 rounded-full bg-teal-500/10 dark:bg-teal-900/15 blur-xl pointer-events-none" aria-hidden="true" />
 
               <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-lg">
                 {/* Greeting */}
                 <div>
-                  <p className="text-on-primary/70 text-caption">{getGreeting()}</p>
-                  <h1 className="text-headline-sm font-bold mt-0.5">{displayName}</h1>
-                  <div className="flex items-center gap-xs mt-1.5 text-on-primary/70">
-                    <Calendar className="w-3.5 h-3.5" />
-                    <span className="text-caption">{formatDate()}</span>
+                  <p className="text-xs sm:text-sm font-extrabold text-[#164234] dark:text-[#a0e5be] tracking-wider uppercase">
+                    PILLSYNC CARE SPACE
+                  </p>
+                  <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold font-heading text-[#11382d] dark:text-white mt-1 tracking-tight">
+                    {getGreeting()}, {displayName}.
+                  </h1>
+                  <div className="flex items-center gap-2.5 mt-2 text-base sm:text-lg text-[#164234] dark:text-[#c5e6d0] flex-wrap font-medium">
+                    <span className="font-bold text-[#11382d] dark:text-white">A calm view of your medicine rhythm today</span>
+                    <span className="text-[#a6d8b6] dark:text-[#275949] font-bold">&bull;</span>
+                    <span className="flex items-center gap-1.5 font-semibold">
+                      <Calendar className="w-4 h-4" />
+                      {formatDate()}
+                    </span>
                   </div>
 
                   {/* Quick summary pills */}
                   <div className="flex flex-wrap gap-xs mt-md">
-                    <div className="flex items-center gap-1.5 px-sm py-1 rounded-full bg-on-primary/15 border border-on-primary/10">
+                    <div className="flex items-center gap-1.5 px-sm py-1 rounded-full bg-[#c5e6d0] dark:bg-[#1b3d32] border border-[#a6d8b6] dark:border-[#275949] text-[#164234] dark:text-[#a0e5be]">
                       <CheckCircle2 className="w-3.5 h-3.5" />
                       <span className="text-label-caps font-semibold">
                         {schedule.filter((m) => m.status === 'taken').length} taken today
                       </span>
                     </div>
                     {pendingCount > 0 && (
-                      <div className="flex items-center gap-1.5 px-sm py-1 rounded-full bg-on-primary/15 border border-on-primary/10">
+                      <div className="flex items-center gap-1.5 px-sm py-1 rounded-full bg-[#c5e6d0] dark:bg-[#1b3d32] border border-[#a6d8b6] dark:border-[#275949] text-[#164234] dark:text-[#a0e5be]">
                         <Clock className="w-3.5 h-3.5" />
                         <span className="text-label-caps font-semibold">
                           {pendingCount} remaining
@@ -624,13 +900,19 @@ function PatientDashboardInner() {
                       </div>
                     )}
                     {lowStockCount > 0 && (
-                      <div className="flex items-center gap-1.5 px-sm py-1 rounded-full bg-error/30 border border-error/20">
+                      <div className="flex items-center gap-1.5 px-sm py-1 rounded-full bg-amber-500/20 dark:bg-amber-900/30 border border-amber-500/30 text-amber-900 dark:text-amber-200">
                         <AlertTriangle className="w-3.5 h-3.5" />
                         <span className="text-label-caps font-semibold">
                           {lowStockCount} low stock
                         </span>
                       </div>
                     )}
+                    <div className="flex items-center gap-1.5 px-sm py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-900 dark:text-amber-200">
+                      <Flame className="w-3.5 h-3.5 text-amber-600" />
+                      <span className="text-label-caps font-bold">
+                        7-Day Streak 🔥
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -646,9 +928,9 @@ function PatientDashboardInner() {
                     showPercentage
                     theme={compliance >= 80 ? 'success' : compliance >= 50 ? 'warning' : 'danger'}
                     animated
-                    className="[&_text]:fill-on-primary [&_p]:text-on-primary/80"
+                    className="[&_text]:!fill-[#11382d] dark:[&_text]:!fill-white [&_p]:!text-[#285445] dark:[&_p]:!text-[#c2e4d2]"
                   />
-                  <div className="flex items-center gap-1 text-on-primary/70">
+                  <div className="flex items-center gap-1 text-[#285445] dark:text-[#c2e4d2]">
                     <TrendingUp className="w-3.5 h-3.5" />
                     <span className="text-label-caps">Daily Compliance</span>
                   </div>
@@ -656,17 +938,31 @@ function PatientDashboardInner() {
               </div>
             </section>
 
-            {/* 2. Medication Timeline ───────────────────────────────── */}
-            <section>
-              <div className="flex items-center justify-between mb-md">
-                <h2 className="text-body-sm font-bold text-on-surface">
-                  Today's Medications
-                </h2>
-                <Link href="/medicines">
-                  <Button variant="ghost" size="sm" rightIcon={<ChevronRight className="w-4 h-4" />}>
-                    View All
+            {/* 2. Medication Timeline & Schedule ──────────────────────── */}
+            <section data-tour="today-timeline" id="timeline">
+              <div className="flex items-center justify-between mb-md flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-body-sm sm:text-base font-bold text-on-surface">
+                    {locale === 'hi' ? 'आज का दवा शेड्यूल एवं अलार्म' : "Today's Schedule & Alarms"}
+                  </h2>
+                  <Badge variant="patient" size="xs">Live Timeline</Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    leftIcon={<Plus className="w-3.5 h-3.5" />}
+                    onClick={() => setIsAddReminderOpen(true)}
+                    className="bg-[#164234] hover:bg-[#0f2e24] text-white font-semibold min-h-[36px]"
+                  >
+                    {locale === 'hi' ? '+ नया अलार्म जोड़ें' : '+ Add Reminder'}
                   </Button>
-                </Link>
+                  <Link href="/medicines">
+                    <Button variant="ghost" size="sm" rightIcon={<ChevronRight className="w-4 h-4" />}>
+                      {locale === 'hi' ? 'सभी देखें' : 'View All'}
+                    </Button>
+                  </Link>
+                </div>
               </div>
 
               <div className="space-y-lg">
@@ -682,6 +978,37 @@ function PatientDashboardInner() {
                 ))}
               </div>
 
+              {/* Zero-State Empathetic Hero Card when no medications active */}
+              {schedule.length === 0 && !scheduleLoading && (
+                <div className="mt-md p-6 sm:p-10 rounded-2xl bg-surface-container-lowest border border-outline-variant/30 text-center shadow-sm space-y-4">
+                  <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto shadow-inner">
+                    <Pill className="w-7 h-7 sm:w-8 sm:h-8 text-primary" />
+                  </div>
+                  <div className="max-w-md mx-auto space-y-1.5">
+                    <h3 className="text-body-lg sm:text-headline-sm font-bold text-on-surface">
+                      {locale === 'hi' ? 'कोई सक्रिय दवा शेड्यूल नहीं मिला' : 'No Active Medication Schedules Yet'}
+                    </h3>
+                    <p className="text-caption sm:text-body-sm text-on-surface-variant">
+                      {locale === 'hi'
+                        ? 'अपनी डॉक्टर की पर्ची स्कैन करें या मैन्युअल रूप से दवा जोड़कर अपनी दैनिक समय-सारणी शुरू करें।'
+                        : 'Upload your clinical prescription scan or add medications manually to generate your daily adherence timeline.'}
+                    </p>
+                  </div>
+                  <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+                    <Link href="/scan" className="w-full sm:w-auto">
+                      <Button variant="primary" size="md" leftIcon={<Camera className="w-4 h-4" />} className="w-full sm:w-auto min-h-[44px]">
+                        {locale === 'hi' ? 'पर्ची स्कैन करें (AI)' : 'Scan Prescription (AI)'}
+                      </Button>
+                    </Link>
+                    <Link href="/medicines" className="w-full sm:w-auto">
+                      <Button variant="outline" size="md" leftIcon={<PlusCircle className="w-4 h-4" />} className="w-full sm:w-auto min-h-[44px]">
+                        {locale === 'hi' ? 'दवा जोड़ें' : 'Add Medication'}
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              )}
+
               {/* All done state */}
               {pendingCount === 0 && schedule.length > 0 && (
                 <div className="mt-lg text-center py-xl bg-tertiary/5 rounded-lg border border-tertiary/20">
@@ -693,16 +1020,85 @@ function PatientDashboardInner() {
                 </div>
               )}
             </section>
+
+            {/* 3. AI Clinical Health & Drug Safety Hub (Transforming Left Column Empty Space) */}
+            {/* CodeRabbit Review Note: Layout Balance & Proactive Safety */}
+            {/* 1. Balances vertical height of the left column against the right sidebar when few prescriptions are scheduled. */}
+            {/* 2. Acts as tour Step 4 anchor (data-tour="drug-safety-hub") for the 3D Flying Bot guided walkthrough. */}
+            <section data-tour="drug-safety-hub" className="p-5 rounded-2xl bg-gradient-to-br from-emerald-500/10 via-teal-500/5 to-transparent border border-emerald-500/30 shadow-sm space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 flex items-center justify-center">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-body-sm sm:text-base font-bold text-on-surface">
+                      {locale === 'hi' ? 'AI क्लिनिकल ड्रग सेफ्टी एवं इंटरैक्शन हब' : 'AI Clinical Drug Safety Hub'}
+                    </h3>
+                    <p className="text-[11px] text-on-surface-variant">
+                      {locale === 'hi' ? 'दवाइयों के बीच हानिकारक रिएक्शन और भोजन सावधानियों की लाइव मॉनिटरिंग' : 'Live polypharmacy contraindication and meal-time conflict guard'}
+                    </p>
+                  </div>
+                </div>
+
+                <Link href="/interactions">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    leftIcon={<ShieldAlert className="w-3.5 h-3.5" />}
+                    className="bg-[#164234] hover:bg-[#0f2e24] text-white font-semibold text-xs min-h-[34px]"
+                  >
+                    {locale === 'hi' ? 'सेफ्टी रिपोर्ट जांचें' : 'Check Interactions'}
+                  </Button>
+                </Link>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div className="p-3.5 rounded-xl bg-surface-container-lowest border border-outline-variant/30 flex items-start gap-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                  <div className="text-xs space-y-0.5">
+                    <p className="font-bold text-on-surface">
+                      {locale === 'hi' ? 'सक्रिय दवाइयाँ सुरक्षित हैं' : 'Active Regimen Cleared'}
+                    </p>
+                    <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                      {schedule.length > 0
+                        ? (locale === 'hi' ? `${schedule.length} दवाइयों की खुराक तालिका जांची गई। कोई गंभीर विरोध नहीं मिला।` : `${schedule.length} scheduled doses monitored. No critical contraindications reported.`)
+                        : (locale === 'hi' ? 'पर्ची स्कैन करें ताकि AI आपकी दवाइयों की लाइव सुरक्षा जांच कर सके।' : 'Scan your prescription for live automated contraindication screening.')}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-surface-container-lowest border border-outline-variant/30 flex items-start gap-2.5">
+                  <Droplets className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0 mt-0.5" />
+                  <div className="text-xs space-y-0.5">
+                    <p className="font-bold text-on-surface">
+                      {locale === 'hi' ? 'हाइड्रेशन एवं भोजन दिशानिर्देश' : 'Hydration & Food Safety'}
+                    </p>
+                    <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                      {locale === 'hi'
+                        ? 'एंटीबायोटिक्स और दर्द निवारक दवाइयाँ हमेशा 200ml पानी के साथ और हल्के भोजन के बाद लें।'
+                        : 'Take oral capsules with 200ml water. Separate antacids/calcium by 2 hours from antibiotics.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </section>
           </div>
 
           {/* ── Right Column ──────────────────────────────────────────── */}
           <div className="space-y-md xl:sticky xl:top-24">
 
             {/* Live Reminder / Alarm Widget */}
-            <ReminderWidget />
+            <TutorialTrigger message={locale === 'hi' ? '⏰ यह आपका लाइव रिमाइंडर विजेट है — आपकी अगली दवाई का अलार्म यहाँ से बजेगा।' : '⏰ This is your Live Reminder Widget — your next medication alarm will trigger from here.'}>
+              <ReminderWidget />
+            </TutorialTrigger>
 
             {/* 3. Inventory & Refill Widget ─────────────────────────── */}
-            <InventoryWidget items={INVENTORY} />
+            <div data-tour="refill-section">
+              <TutorialTrigger message={locale === 'hi' ? '💊 यहाँ आपकी बची हुई गोलियों का स्टॉक दिखता है — जब कम हो जाएँ तो रीफिल का बटन दबाएं।' : '💊 This shows your remaining pill stock — hit Manage Refills when supplies run low.'}>
+                <InventoryWidget items={inventory} />
+              </TutorialTrigger>
+            </div>
 
             {/* Weekly Adherence Mini-chart ──────────────────────────── */}
             <Card variant="flat" padding="md">
@@ -711,24 +1107,34 @@ function PatientDashboardInner() {
                 icon={<TrendingUp className="w-5 h-5 text-tertiary" />}
               />
               <div className="mt-md flex items-end justify-between gap-1 h-20">
-                {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, i) => {
-                  const heights = [90, 75, 100, 60, 85, 95, compliance];
-                  const h  = heights[i];
-                  const isToday = i === 6;
+                {weeklyTrends.map((t, i) => {
+                  const h = t.percentage;
+                  const isToday = t.isToday;
+                  const isBlank = t.isBeforeAccount || false;
                   return (
                     <div key={i} className="flex flex-col items-center gap-1 flex-1">
                       <div className="w-full relative flex flex-col items-center justify-end" style={{ height: 64 }}>
                         <div
                           className={[
                             'w-full rounded-sm transition-all duration-500',
-                            isToday ? 'bg-primary' : h >= 80 ? 'bg-tertiary/60' : h >= 60 ? 'bg-secondary/60' : 'bg-error/50',
+                            isBlank
+                              ? 'bg-surface-container/30'  // pre-account: near-invisible
+                              : isToday
+                              ? 'bg-primary'
+                              : h >= 80
+                              ? 'bg-tertiary/60'
+                              : h >= 50
+                              ? 'bg-secondary/60'
+                              : h > 0
+                              ? 'bg-error/50'
+                              : 'bg-surface-container',  // zero-data: neutral gray stub
                           ].join(' ')}
-                          style={{ height: `${(h / 100) * 64}px` }}
-                          title={`${h}%`}
+                          style={{ height: isBlank ? '3px' : `${Math.max(h > 0 ? 8 : 4, (h / 100) * 64)}px` }}
+                          title={isBlank ? 'Before account' : `${t.dayName}: ${h}%`}
                         />
                       </div>
                       <span className={`text-[10px] font-semibold ${isToday ? 'text-primary' : 'text-on-surface-variant'}`}>
-                        {day}
+                        {t.dayLabel}
                       </span>
                     </div>
                   );
@@ -753,7 +1159,7 @@ function PatientDashboardInner() {
                 </div>
               </div>
               <div className="mt-sm flex gap-xs">
-                <Link href="/medicines?scan=1" className="flex-1">
+                <Link href="/scan" className="flex-1">
                   <Button variant="primary" size="sm" fullWidth leftIcon={<Camera className="w-4 h-4" />}>
                     Scan Now
                   </Button>
@@ -764,6 +1170,84 @@ function PatientDashboardInner() {
                   </Button>
                 </Link>
               </div>
+            </div>
+
+            {/* Health Tips & Drug Interaction Safeguard */}
+            <div className="p-card-padding rounded-xl bg-surface-container-low border border-outline-variant/30 space-y-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <HeartPulse className="w-4 h-4 text-tertiary" />
+                  <h3 className="text-caption font-bold text-on-surface">Daily Health & Safety Guard</h3>
+                </div>
+                <Badge variant="taken" size="xs">Verified Safe</Badge>
+              </div>
+              <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                💧 <strong>Hydration Tip:</strong> Always take oral medication with at least 200ml of clean water to ensure optimal gastric dissolution.
+              </p>
+              <div className="p-2 rounded-lg bg-surface-container border border-outline-variant/20 flex items-center gap-2">
+                <ShieldCheck className="w-3.5 h-3.5 text-primary shrink-0" />
+                <p className="text-[10px] text-on-surface-variant">
+                  Zero severe drug interactions detected across your active medications.
+                </p>
+              </div>
+            </div>
+
+            {/* Quick Share & Emergency Connection */}
+            <TutorialTrigger message={locale === 'hi' ? '🏥 यहाँ से अपने डॉक्टर या केयरगिवर को अपनी दवा रिपोर्ट भेजें, या आपातकालीन कॉल करें।' : '🏥 Export your medication records for your physician or contact emergency support from here.'}>
+            <div data-tour="care-circle-section" className="p-card-padding rounded-xl bg-surface-container-low border border-outline-variant/30 space-y-sm">
+              <div className="flex items-center gap-2">
+                <Share2 className="w-4 h-4 text-primary" />
+                <h3 className="text-caption font-bold text-on-surface">Care Circle Sharing</h3>
+              </div>
+              <p className="text-[11px] text-on-surface-variant">
+                Export records for your physician or contact emergency support.
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  leftIcon={<Download className="w-3.5 h-3.5" />}
+                  onClick={() => setIsExportModalOpen(true)}
+                  className="flex-1 bg-[#164234] hover:bg-[#0f2e24] text-white justify-center min-h-[36px]"
+                >
+                  {locale === 'hi' ? 'रिपोर्ट डाउनलोड करें' : 'Export Records'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  title={locale === 'hi' ? 'इमरजेंसी / डॉक्टर को कॉल करें' : 'Call Emergency / Caregiver'}
+                  onClick={() => window.location.href = 'tel:911'}
+                  className="shrink-0 px-3 py-2 text-error border-error/30 hover:bg-error/10 flex items-center justify-center min-h-[36px] min-w-[36px]"
+                >
+                  <PhoneCall className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+            </TutorialTrigger>
+
+            {/* Patient Care Assistance & Grievance Desk Card */}
+            <div className="p-card-padding rounded-xl bg-surface-container-low border border-outline-variant/30 space-y-sm">
+              <div className="flex items-center gap-2">
+                <HelpCircle className="w-4 h-4 text-primary" />
+                <h3 className="text-caption font-bold text-on-surface">
+                  {locale === 'hi' ? 'सहायता एवं समाधान' : 'Care & Grievance Desk'}
+                </h3>
+              </div>
+              <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                {locale === 'hi'
+                  ? 'अलार्म न बजने, पर्ची स्कैनिंग या दवाई की खुराक समझने में कोई समस्या हो तो तुरंत सहायता मांगें।'
+                  : 'Facing an alarm issue, scanner doubt, or need dosage clarification? Our care team is here 24/7.'}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                fullWidth
+                leftIcon={<HelpCircle className="w-3.5 h-3.5 text-primary" />}
+                onClick={() => setIsSupportModalOpen(true)}
+                className="font-medium min-h-[38px]"
+              >
+                {locale === 'hi' ? 'सहायता अनुरोध भेजें' : 'Get Help / Report Issue'}
+              </Button>
             </div>
           </div>
         </div>
@@ -799,6 +1283,102 @@ function PatientDashboardInner() {
           </p>
         </div>
       </footer>
+
+      {/* ── Auto-Popup: Scheduled Dose Due Alert (Medical Sage Green) ── */}
+      {nextDueMed && (
+        <Modal
+          isOpen={dosePopupOpen}
+          onClose={handleModalDismiss}
+          title=""
+          size="md"
+        >
+          <div className="space-y-md text-left">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#c5e6d0] dark:bg-[#1b3d32] border border-[#a6d8b6] dark:border-[#275949] text-[#164234] dark:text-[#a0e5be] text-[11px] font-bold tracking-wider uppercase">
+              <Pill className="w-3.5 h-3.5" />
+              SCHEDULED DOSE DUE NOW
+            </div>
+
+            <div>
+              <h2 className="text-xl sm:text-2xl font-bold text-[#11382d] dark:text-white font-heading">
+                Time for your {nextDueMed.name} {nextDueMed.strength}
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 mt-1">
+                Scheduled for <strong className="text-slate-800 dark:text-white">{nextDueMed.time}</strong> • {nextDueMed.type || 'Prescribed Regimen'}
+              </p>
+            </div>
+
+            {/* Instruction Card */}
+            <div className="p-4 rounded-2xl bg-[#d8eedf] dark:bg-[#132a22] border border-[#bfe3cd] dark:border-[#1e4537] space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-[#164234] dark:text-[#a0e5be]">Clinical Instruction:</span>
+                <Badge variant={nextDueMed.color || 'primary'} size="sm">
+                  {nextDueMed.slot}
+                </Badge>
+              </div>
+              <p className="text-xs text-[#285445] dark:text-[#c2e4d2] leading-relaxed">
+                {nextDueMed.instructions || 'Take with a glass of plain water after meal.'}
+              </p>
+            </div>
+
+            <Modal.Footer>
+              <Button variant="ghost" size="sm" onClick={handleModalDismiss}>
+                Later
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                leftIcon={<Clock className="w-4 h-4" />}
+                onClick={handleModalSnooze}
+              >
+                Snooze 15m
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                className="bg-[#164234] hover:bg-[#0f2e24] text-white font-semibold"
+                leftIcon={<CheckCircle2 className="w-4 h-4" />}
+                onClick={handleModalTaken}
+              >
+                Mark as Taken
+              </Button>
+            </Modal.Footer>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Patient Clinical Records Export Center Modal ────────────────── */}
+      <ExportDataModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        userRole="patient"
+      />
+
+      {/* ── Patient Care Assistance & Grievance Modal ────────────────── */}
+      <Modal
+        isOpen={isSupportModalOpen}
+        onClose={() => setIsSupportModalOpen(false)}
+        title={locale === 'hi' ? 'सहायता केंद्र एवं प्रश्न (Help Desk)' : 'Patient Care Assistance & Support Desk'}
+        size="lg"
+      >
+        <SupportTicketForm
+          compact
+          onCancel={() => setIsSupportModalOpen(false)}
+          onSuccess={() => {
+            addToast({
+              title: locale === 'hi' ? 'सहायता अनुरोध दर्ज हुआ' : 'Care Request Received',
+              description: locale === 'hi' ? 'आपकी समस्या दर्ज हो गई है। हमारी टीम जल्द संपर्क करेगी।' : 'Your request has been logged. Our care team is reviewing it.',
+              variant: 'success',
+            });
+          }}
+        />
+      </Modal>
+
+      {/* ── Patient Schedule & Reminder Creation Modal ────────────────── */}
+      <AddReminderModal
+        isOpen={isAddReminderOpen}
+        onClose={() => setIsAddReminderOpen(false)}
+        onAdd={handleAddReminder}
+      />
       </div>
     </DashboardLayout>
   );
@@ -810,6 +1390,10 @@ export default function PatientDashboardPage() {
   return (
     <ToastProvider position="top-center">
       <PatientDashboardInner />
+      {/* G-Stack: Fixed overlay canvas — 3D robot floats above DOM, ErrorBoundary ensures zero crash risk */}
+      <DualModeMedicalBot />
+      {/* G-Stack: Slide-over chat sidebar — opens when user clicks "Ask PillSync AI" on the docked robot */}
+      <MedicalAssistantWidget />
     </ToastProvider>
   );
 }

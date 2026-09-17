@@ -1,61 +1,94 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 
 /**
  * AuthGuard — PillSync
  * Wrapper component that checks for valid JWT token before rendering children.
  * Redirects unauthenticated users to /login.
+ * Enforces role-based route guarding to prevent privilege escalation.
  */
 export default function AuthGuard({ children }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
     const token = localStorage.getItem('pillsync_access_token');
-    const user = localStorage.getItem('pillsync_user');
+    const userStr = localStorage.getItem('pillsync_user');
 
-    if (!token || !user) {
+    if (!token || !userStr) {
       router.replace('/login');
       return;
     }
 
-    // Handle demo/mock tokens gracefully
-    if (token.startsWith('demo_') || token.startsWith('google_') || token.startsWith('apple_')) {
-      setIsAuthenticated(true);
-      setChecking(false);
+    // Parse stored user safely
+    let user = null;
+    try {
+      user = JSON.parse(userStr);
+    } catch {
+      // Corrupt localStorage — clear and redirect
+      localStorage.removeItem('pillsync_access_token');
+      localStorage.removeItem('pillsync_user');
+      router.replace('/login');
       return;
     }
 
-    // Basic JWT expiry check (decode without verification)
-    try {
-      const parts = token.split('.');
-      if (parts.length >= 2) {
-        const payload = JSON.parse(atob(parts[1]));
-        const exp = payload.exp;
-        if (exp && Date.now() / 1000 > exp) {
-          // Token expired
+    // Handle demo/mock tokens — they are valid for frontend navigation
+    // but API calls will gracefully fail with proper error states
+    const isDemoToken = token.startsWith('demo_') || token.startsWith('google_') || token.startsWith('apple_');
+
+    if (!isDemoToken) {
+      // Real JWT expiry check (decode without verification)
+      try {
+        const parts = token.split('.');
+        if (parts.length >= 2) {
+          const payload = JSON.parse(atob(parts[1]));
+          const exp = payload.exp;
+          if (exp && Date.now() / 1000 > exp) {
+            // Token expired — clear auth and redirect
+            localStorage.removeItem('pillsync_access_token');
+            localStorage.removeItem('pillsync_user');
+            router.replace('/login');
+            return;
+          }
+        }
+      } catch {
+        // Token malformed but user data exists — allow fallback for demo flow
+        if (!user) {
           localStorage.removeItem('pillsync_access_token');
           localStorage.removeItem('pillsync_user');
           router.replace('/login');
           return;
         }
       }
-    } catch {
-      // Graceful fallback: do not immediately wipe if user object exists
-      if (!user) {
-        localStorage.removeItem('pillsync_access_token');
-        localStorage.removeItem('pillsync_user');
-        router.replace('/login');
+    }
+
+    // ── Role-Based Route Guarding (Issue #5) ─────────────────────────
+    // Prevent non-admin users from accessing /dashboard/admin or /admin/*
+    // Prevent non-caregiver/non-admin from accessing /dashboard/caregiver
+    const userRole = user?.role || 'patient';
+
+    if (pathname) {
+      const isAdminRoute = pathname.startsWith('/dashboard/admin') || pathname.startsWith('/admin');
+      const isCaregiverRoute = pathname.startsWith('/dashboard/caregiver');
+
+      if (isAdminRoute && userRole !== 'admin') {
+        router.replace(`/dashboard/${userRole}`);
+        return;
+      }
+
+      if (isCaregiverRoute && userRole !== 'caregiver' && userRole !== 'admin') {
+        router.replace(`/dashboard/${userRole}`);
         return;
       }
     }
 
     setIsAuthenticated(true);
     setChecking(false);
-  }, [router]);
+  }, [router, pathname]);
 
   if (checking || !isAuthenticated) {
     return (

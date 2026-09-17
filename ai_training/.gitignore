@@ -1,0 +1,9 @@
+# AI Training - Isolated ML Workspace
+# This directory is never committed to Git (large datasets & model weights)
+ai_training/datasets/
+ai_training/models/
+*.onnx
+*.joblib
+*.safetensors
+*.pt
+*.bin

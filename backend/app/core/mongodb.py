@@ -99,6 +99,26 @@ class InMemoryMongoCollection:
             return dict(matched[0])
         return None
 
+    async def delete_one(self, query: dict):
+        matched = self._match(query)
+        if matched:
+            self._docs.remove(matched[0])
+            class DeleteResult:
+                deleted_count = 1
+            return DeleteResult()
+        class DeleteResult:
+            deleted_count = 0
+        return DeleteResult()
+
+    async def delete_many(self, query: dict):
+        matched = self._match(query)
+        cnt = len(matched)
+        for m in matched:
+            self._docs.remove(m)
+        class DeleteResult:
+            deleted_count = cnt
+        return DeleteResult()
+
     async def update_one(self, filter_q: dict, update_q: dict, upsert: bool = False):
         matched = self._match(filter_q)
         set_vals = update_q.get("$set", {})

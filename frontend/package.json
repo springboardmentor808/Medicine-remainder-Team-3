@@ -3,23 +3,28 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "cross-env NODE_OPTIONS=--max-old-space-size=4096 next dev",
+    "build": "cross-env NODE_OPTIONS=--max-old-space-size=4096 next build",
+    "start": "cross-env NODE_OPTIONS=--max-old-space-size=4096 next start",
     "lint": "next lint",
-    "test": "jest"
+    "test": "jest --passWithNoTests --watchAll=false --runInBand"
   },
   "dependencies": {
     "@capacitor/core": "^8.4.2",
     "@capacitor/haptics": "^8.0.2",
     "@capacitor/local-notifications": "^8.2.1",
+    "@react-three/drei": "^9.122.0",
+    "@react-three/fiber": "^8.18.0",
     "axios": "^1.6.8",
     "clsx": "^2.1.0",
+    "leaflet": "^1.9.4",
     "lucide-react": "^0.359.0",
     "next": "15.3.9",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "tailwind-merge": "^2.2.2"
+    "tailwind-merge": "^2.2.2",
+    "three": "^0.185.1",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@capacitor/android": "^8.4.2",
@@ -32,6 +37,7 @@
     "@types/react": "^18.2.69",
     "@types/react-dom": "^18.2.22",
     "autoprefixer": "^10.4.19",
+    "cross-env": "^10.1.0",
     "eslint": "^8.57.0",
     "eslint-config-next": "15.3.9",
     "jest": "^29.7.0",

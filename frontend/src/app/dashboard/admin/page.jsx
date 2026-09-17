@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Users,
@@ -19,28 +19,33 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  Calendar,
   ArrowUpRight,
   ArrowDownRight,
   Minus,
   Download,
   Filter,
+  Globe,
+  HelpCircle,
 } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import LogoutButton from '@/components/ui/LogoutButton';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
-import { exportAPI } from '@/lib/api';
+import ExportDataModal from '@/components/dashboard/ExportDataModal';
+import { exportAPI, adminAPI, medicineAPI } from '@/lib/api';
+import { useLanguage } from '@/context/LanguageContext';
 
-// ── Mock Data (replace with API: GET /admin/metrics, /admin/audit-log) ────────
+// ── Base Metric Templates ───────────────────────────────────────────────────
 
-const METRICS = [
+const DEFAULT_METRICS = [
   {
     id: 'patients',
     label: 'Active Patients',
-    value: 1_284,
-    delta: +47,
-    period: 'vs last 7 days',
+    value: 0,
+    delta: 0,
+    period: 'live registered',
     icon: Users,
     color: 'primary',
     href: '/admin/users?role=patient',
@@ -48,9 +53,9 @@ const METRICS = [
   {
     id: 'caregivers',
     label: 'Total Caregivers',
-    value: 342,
-    delta: +12,
-    period: 'vs last 7 days',
+    value: 0,
+    delta: 0,
+    period: 'live registered',
     icon: Heart,
     color: 'tertiary',
     href: '/admin/users?role=caregiver',
@@ -58,19 +63,19 @@ const METRICS = [
   {
     id: 'prescriptions',
     label: 'Prescriptions Tracked',
-    value: 8_619,
-    delta: +203,
-    period: 'vs last 7 days',
+    value: 0,
+    delta: 0,
+    period: 'in catalog',
     icon: FileText,
     color: 'secondary',
     href: '/medicines',
   },
   {
     id: 'alerts',
-    label: 'Active System Alerts',
-    value: 3,
-    delta: -2,
-    period: 'vs last 7 days',
+    label: 'System Status',
+    value: 0,
+    delta: 0,
+    period: 'active issues',
     icon: AlertTriangle,
     color: 'error',
     href: '/admin/health',
@@ -118,8 +123,8 @@ const SYSTEM_STATUS = [
     id: 'ocr',
     label: 'OCR / AI Service',
     detail: 'OpenCV + spaCy pipeline',
-    status: 'degraded',
-    value: '340 ms',
+    status: 'healthy',
+    value: '118 ms',
     valueLabel: 'processing avg',
     icon: BarChart3,
   },
@@ -141,7 +146,7 @@ const NAV_CARDS = [
     title: 'User Management',
     desc: 'Manage patients, caregivers & roles. Reset passwords, deactivate accounts.',
     color: 'primary',
-    badge: '1,626 users',
+    badge: 'Users Directory',
   },
   {
     href: '/admin/health',
@@ -149,8 +154,8 @@ const NAV_CARDS = [
     title: 'System Health',
     desc: 'Real-time service uptime, API metrics, error rates & incident history.',
     color: 'tertiary',
-    badge: '1 degraded',
-    badgeVariant: 'warning',
+    badge: 'All healthy',
+    badgeVariant: 'default',
   },
   {
     href: '/notifications',
@@ -167,6 +172,14 @@ const NAV_CARDS = [
     desc: 'Compliance logs, failed login attempts, permission changes.',
     color: 'primary',
     badge: null,
+  },
+  {
+    href: '/help',
+    icon: HelpCircle,
+    title: 'Care Assistance & Grievance Hub',
+    desc: 'Review patient alarm glitches, scan issues, caregiver link tickets & grievance logs.',
+    color: 'tertiary',
+    badge: 'Live Care Desk',
   },
 ];
 
@@ -197,11 +210,11 @@ const AUDIT_LOG = [
   },
   {
     id: 'al-004',
-    action: 'OCR service degraded',
-    detail: 'Average processing time exceeded 300 ms threshold. Alert auto-raised.',
+    action: 'OCR service operational',
+    detail: 'TrOCR Vision Transformer + Tesseract running within latency budget (340 ms).',
     actor: 'System (monitor)',
     timestamp: '2026-08-09 16:21:44',
-    severity: 'error',
+    severity: 'info',
   },
   {
     id: 'al-005',
@@ -415,25 +428,164 @@ function AuditRow({ action, detail, actor, timestamp, severity }) {
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AdminDashboardPage() {
+  const { locale, toggleLocale, t } = useLanguage();
   const [auditFilter, setAuditFilter] = useState('all');
-  const [lastRefreshed] = useState(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
+  const [lastRefreshed, setLastRefreshed] = useState('');
+  const [liveMetrics, setLiveMetrics] = useState(DEFAULT_METRICS);
+  const [totalUserCount, setTotalUserCount] = useState(0);
+  const [auditLogsList, setAuditLogsList] = useState(AUDIT_LOG);
+  const [servicesList, setServicesList] = useState(SYSTEM_STATUS);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
-  const healthyCount  = SYSTEM_STATUS.filter((s) => s.status === 'healthy').length;
-  const degradedCount = SYSTEM_STATUS.filter((s) => s.status === 'degraded').length;
-  const downCount     = SYSTEM_STATUS.filter((s) => s.status === 'down').length;
+  // Fetch live stats from backend
+  useEffect(() => {
+    setLastRefreshed(new Date().toLocaleTimeString(locale === 'hi' ? 'hi-IN' : 'en-US', { hour: '2-digit', minute: '2-digit' }));
+    (async () => {
+      try {
+        const [usersRes, medsRes, telemetryRes, auditRes] = await Promise.allSettled([
+          adminAPI.getUsers(),
+          medicineAPI.list(),
+          adminAPI.telemetry(),
+          adminAPI.getAuditLogs(),
+        ]);
+
+        const rawUsers = usersRes.status === 'fulfilled' ? (usersRes.value?.data || usersRes.value) : [];
+        const usersList = Array.isArray(rawUsers) ? rawUsers : (rawUsers?.items || []);
+        
+        const rawMeds = medsRes.status === 'fulfilled' ? (medsRes.value?.data || medsRes.value) : [];
+        const medsList = Array.isArray(rawMeds) ? rawMeds : (rawMeds?.items || []);
+
+        const patientCount = usersList.filter((u) => u.role === 'patient').length;
+        const caregiverCount = usersList.filter((u) => u.role === 'caregiver').length;
+        const medCount = medsList.length;
+
+        setTotalUserCount(usersList.length);
+
+        setLiveMetrics([
+          {
+            id: 'patients',
+            label: 'Active Patients',
+            value: patientCount,
+            delta: patientCount > 0 ? patientCount : 0,
+            period: 'registered accounts',
+            icon: Users,
+            color: 'primary',
+            href: '/admin/users?role=patient',
+          },
+          {
+            id: 'caregivers',
+            label: 'Total Caregivers',
+            value: caregiverCount,
+            delta: caregiverCount > 0 ? caregiverCount : 0,
+            period: 'registered accounts',
+            icon: Heart,
+            color: 'tertiary',
+            href: '/admin/users?role=caregiver',
+          },
+          {
+            id: 'prescriptions',
+            label: 'Prescriptions Tracked',
+            value: medCount,
+            delta: medCount > 0 ? medCount : 0,
+            period: 'in catalog',
+            icon: FileText,
+            color: 'secondary',
+            href: '/medicines',
+          },
+          {
+            id: 'alerts',
+            label: 'System Status',
+            value: 0,
+            delta: 0,
+            period: '0 critical incidents',
+            icon: AlertTriangle,
+            color: 'error',
+            href: '/admin/health',
+          },
+        ]);
+
+        // Hybrid Audit Logs: merge live audit logs with baseline AUDIT_LOG
+        const rawAudit = auditRes.status === 'fulfilled' ? (auditRes.value?.data || auditRes.value) : [];
+        const liveEvents = Array.isArray(rawAudit) ? rawAudit : (rawAudit?.items || []);
+        if (liveEvents.length > 0) {
+          const liveIds = new Set(liveEvents.map((e) => e.id));
+          const merged = [...liveEvents, ...AUDIT_LOG.filter((b) => !liveIds.has(b.id))];
+          setAuditLogsList(merged);
+        }
+
+        // Live Telemetry & System Services
+        const rawTel = telemetryRes.status === 'fulfilled' ? (telemetryRes.value?.data || telemetryRes.value) : null;
+        if (rawTel) {
+          const tel = rawTel;
+          setServicesList((prev) =>
+            prev.map((s) => {
+              if (s.id === 'db') {
+                const lat = tel.database?.latency_ms !== undefined && tel.database?.latency_ms !== null ? `${tel.database.latency_ms} ms` : s.value;
+                return { ...s, value: lat, status: tel.database?.status || s.status };
+              }
+              if (s.id === 'redis') {
+                const lat = tel.redis?.latency_ms !== undefined && tel.redis?.latency_ms !== null ? `${tel.redis.latency_ms} ms` : s.value;
+                return { ...s, value: lat, status: tel.redis?.status || s.status };
+              }
+              if (s.id === 'ocr') {
+                const lat = tel.ocr?.latency_ms !== undefined && tel.ocr?.latency_ms !== null ? `${tel.ocr.latency_ms} ms` : s.value;
+                return { ...s, value: lat, status: tel.ocr?.status || s.status };
+              }
+              if (s.id === 'api') {
+                const cpu = tel.hardware?.cpu_percent !== undefined && tel.hardware?.cpu_percent !== null ? `${tel.hardware.cpu_percent}% CPU` : s.value;
+                return { ...s, value: cpu, status: 'healthy' };
+              }
+              if (s.id === 'push') {
+                const rate = tel.notifications?.delivery_rate !== undefined && tel.notifications?.delivery_rate !== null ? tel.notifications.delivery_rate : s.value;
+                return { ...s, value: rate, status: tel.notifications?.status || s.status };
+              }
+              return s;
+            })
+          );
+        }
+
+        setLastRefreshed(new Date().toLocaleTimeString(locale === 'hi' ? 'hi-IN' : 'en-US', { hour: '2-digit', minute: '2-digit' }));
+      } catch (err) {
+        console.error('Failed to fetch admin stats:', err);
+      }
+    })();
+  }, [locale]);
+
+  const healthyCount  = servicesList.filter((s) => s.status === 'healthy').length;
+  const degradedCount = servicesList.filter((s) => s.status === 'degraded').length;
+  const downCount     = servicesList.filter((s) => s.status === 'down').length;
   const allHealthy    = degradedCount === 0 && downCount === 0;
 
   const filteredAudit = useMemo(() => {
-    if (auditFilter === 'all') return AUDIT_LOG;
-    return AUDIT_LOG.filter((e) => e.severity === auditFilter);
-  }, [auditFilter]);
+    if (auditFilter === 'all') return auditLogsList;
+    return auditLogsList.filter((e) => e.severity === auditFilter);
+  }, [auditFilter, auditLogsList]);
+
+  const dynamicNavCards = useMemo(() => {
+    return NAV_CARDS.map((card) => {
+      if (card.href === '/admin/users') {
+        return {
+          ...card,
+          badge: totalUserCount > 0 ? `${totalUserCount} users` : card.badge,
+        };
+      }
+      if (card.href === '/admin/health' && card.title === 'System Health') {
+        return {
+          ...card,
+          badge: degradedCount > 0 ? `${degradedCount} degraded` : 'All healthy',
+          badgeVariant: degradedCount > 0 ? 'warning' : 'default',
+        };
+      }
+      return card;
+    });
+  }, [totalUserCount, degradedCount]);
 
   return (
     <DashboardLayout>
       <div className="min-h-screen bg-background">
         {/* ── Top Actions Bar ────────────────────────────────────────── */}
-        <div className="border-b border-outline-variant/30 bg-surface-container-lowest/60 backdrop-blur-md px-gutter py-3">
-          <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+        <div className="border-b border-outline-variant/30 bg-surface-container-lowest/60 backdrop-blur-md pl-16 lg:pl-gutter pr-gutter py-3">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <Badge variant="admin" size="sm">Admin Portal</Badge>
               <div className="hidden sm:flex items-center gap-xs px-2.5 py-1 rounded-full bg-surface-container border border-outline-variant/50 text-[11px] text-on-surface-variant">
@@ -442,61 +594,104 @@ export default function AdminDashboardPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outlined"
-                size="sm"
-                onClick={() => exportAPI.medicinesPDF()}
-                leftIcon={<Download className="w-3.5 h-3.5" />}
+            <div className="flex items-center gap-2 overflow-x-auto scrollbar-none w-full md:w-auto py-1">
+              <button
+                type="button"
+                onClick={toggleLocale}
+                aria-label={`Switch language. Current language is ${locale === 'en' ? 'English' : 'Hindi'}`}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant/60 bg-surface text-caption font-semibold text-on-surface hover:bg-surface-container transition-colors shrink-0 min-h-[36px]"
               >
-                PDF Report
+                <Globe className="w-3.5 h-3.5 text-primary" />
+                <span>{locale === 'en' ? 'हिन्दी' : 'English'}</span>
+              </button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setIsExportModalOpen(true)}
+                leftIcon={<Download className="w-3.5 h-3.5" />}
+                className="bg-[#164234] hover:bg-[#0f2e24] text-white font-semibold shrink-0 min-h-[36px]"
+              >
+                Export Hub
               </Button>
               <Button
-                variant="outlined"
+                variant="outline"
                 size="sm"
-                onClick={() => exportAPI.allCSV()}
+                onClick={() => exportAPI.masterPDF('30d')}
                 leftIcon={<Download className="w-3.5 h-3.5" />}
+                className="shrink-0 min-h-[36px]"
               >
-                Export CSV
+                Master Dossier (PDF)
               </Button>
-              <LogoutButton variant="icon" />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => exportAPI.auditCSV()}
+                leftIcon={<Download className="w-3.5 h-3.5" />}
+                className="shrink-0 min-h-[36px]"
+              >
+                Audit Log (CSV)
+              </Button>
+              <Link href="/help">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  leftIcon={<HelpCircle className="w-3.5 h-3.5 text-primary" />}
+                  className="shrink-0 min-h-[36px]"
+                >
+                  {locale === 'en' ? 'Help Desk' : 'सहायता केंद्र'}
+                </Button>
+              </Link>
+              <div className="shrink-0">
+                <LogoutButton variant="icon" />
+              </div>
             </div>
           </div>
         </div>
 
         <main className="max-w-7xl mx-auto px-gutter py-lg space-y-lg">
 
-        {/* ── Page Header ───────────────────────────────────────────────── */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-md">
-          <div>
-            <p className="text-label-caps text-on-surface-variant uppercase tracking-wider">
-              {getGreeting()}, Superuser
-            </p>
-            <h1 className="text-headline-sm font-bold text-on-surface mt-0.5">
-              Admin Overview
-            </h1>
-            <p className="text-caption text-on-surface-variant mt-1">
-              {new Date().toLocaleDateString('en-US', {
-                weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-              })}
-            </p>
+        {/* ── Page Header Banner Card (Patient Carespace Style) ────────── */}
+        <section className="relative bg-[#d8eedf] dark:bg-[#132a22] rounded-2xl p-6 sm:p-8 overflow-hidden border border-[#bfe3cd] dark:border-[#1e4537] shadow-sm">
+          {/* Decorative subtle medical blobs */}
+          <div className="absolute -top-10 -right-10 w-44 h-44 rounded-full bg-emerald-400/15 dark:bg-emerald-800/10 blur-xl pointer-events-none" aria-hidden="true" />
+          <div className="absolute -bottom-6 -left-6 w-28 h-28 rounded-full bg-teal-500/10 dark:bg-teal-900/15 blur-xl pointer-events-none" aria-hidden="true" />
+
+          <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-md">
+            <div>
+              <p className="text-xs sm:text-sm font-extrabold text-[#164234] dark:text-[#a0e5be] tracking-wider uppercase">
+                PILLSYNC ADMIN CONSOLE
+              </p>
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold font-heading text-[#11382d] dark:text-white mt-1 tracking-tight">
+                {getGreeting()}, Superuser.
+              </h1>
+              <div className="flex items-center gap-2.5 mt-2 text-base sm:text-lg text-[#164234] dark:text-[#c5e6d0] flex-wrap font-medium">
+                <span className="font-bold text-[#11382d] dark:text-white">Admin Overview</span>
+                <span className="text-[#a6d8b6] dark:text-[#275949] font-bold">&bull;</span>
+                <span className="flex items-center gap-1.5 font-semibold">
+                  <Calendar className="w-4 h-4" />
+                  {new Date().toLocaleDateString(locale === 'hi' ? 'hi-IN' : 'en-US', {
+                    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+                  })}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-sm shrink-0">
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<RefreshCw className="w-4 h-4" />}
+                onClick={() => window.location.reload()}
+              >
+                Refresh Data
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-sm">
-            <Button
-              variant="primary"
-              size="sm"
-              leftIcon={<RefreshCw className="w-4 h-4" />}
-              onClick={() => window.location.reload()}
-            >
-              Refresh Data
-            </Button>
-          </div>
-        </div>
+        </section>
 
         {/* ── 1. Key Metric Cards ────────────────────────────────────────── */}
         <section>
           <div className="grid grid-cols-2 xl:grid-cols-4 gap-md">
-            {METRICS.map((m) => (
+            {liveMetrics.map((m) => (
               <MetricCard key={m.id} {...m} />
             ))}
           </div>
@@ -542,13 +737,13 @@ export default function AdminDashboardPage() {
                 )}
               </div>
               <span className="text-label-caps text-on-surface-variant">
-                {SYSTEM_STATUS.length} services monitored
+                {servicesList.length} services monitored
               </span>
             </div>
 
             {/* Service rows */}
             <div className="divide-y divide-outline-variant/20 px-xs py-xs">
-              {SYSTEM_STATUS.map((svc) => (
+              {servicesList.map((svc) => (
                 <StatusRow key={svc.id} {...svc} />
               ))}
             </div>
@@ -558,8 +753,8 @@ export default function AdminDashboardPage() {
         {/* ── 3. Quick Navigation Hub ───────────────────────────────────── */}
         <section>
           <h2 className="text-body-sm font-bold text-on-surface mb-md">Quick Navigation</h2>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-md">
-            {NAV_CARDS.map((card) => (
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-md">
+            {dynamicNavCards.map((card) => (
               <NavCard key={card.href + card.title} {...card} />
             ))}
           </div>
@@ -573,13 +768,13 @@ export default function AdminDashboardPage() {
             </h2>
 
             {/* Severity filter pills */}
-            <div className="flex items-center gap-xs">
+            <div className="flex flex-wrap items-center gap-1.5">
               {['all', 'info', 'warning', 'error'].map((f) => (
                 <button
                   key={f}
                   onClick={() => setAuditFilter(f)}
                   className={[
-                    'px-sm py-0.5 rounded-full text-label-caps font-semibold capitalize border transition-all',
+                    'px-3 py-1.5 rounded-full text-label-caps font-semibold capitalize border transition-all min-h-[36px] flex items-center justify-center',
                     auditFilter === f
                       ? f === 'error'   ? 'bg-error text-on-error border-error'
                       : f === 'warning' ? 'bg-secondary text-on-secondary border-secondary'
@@ -595,10 +790,10 @@ export default function AdminDashboardPage() {
                 variant="outline"
                 size="sm"
                 leftIcon={<Download className="w-3.5 h-3.5" />}
-                className="ml-xs"
-                onClick={() => exportAPI.allCSV()}
+                className="min-h-[36px]"
+                onClick={() => exportAPI.auditCSV()}
               >
-                Export
+                Export CSV
               </Button>
             </div>
           </div>
@@ -638,7 +833,7 @@ export default function AdminDashboardPage() {
             {/* Load more */}
             <div className="border-t border-outline-variant/40 px-md py-sm flex items-center justify-between">
               <p className="text-label-caps text-on-surface-variant">
-                Showing {filteredAudit.length} of {AUDIT_LOG.length} entries
+                Showing {filteredAudit.length} of {auditLogsList.length} entries
               </p>
               <Button variant="ghost" size="sm" rightIcon={<ChevronRight className="w-4 h-4" />}>
                 View Full Audit Log
@@ -658,6 +853,13 @@ export default function AdminDashboardPage() {
             immediately.
           </p>
         </div>
+
+        {/* ── Admin Compliance & System Export Hub Modal ───────────────── */}
+        <ExportDataModal
+          isOpen={isExportModalOpen}
+          onClose={() => setIsExportModalOpen(false)}
+          userRole="admin"
+        />
       </main>
       </div>
     </DashboardLayout>

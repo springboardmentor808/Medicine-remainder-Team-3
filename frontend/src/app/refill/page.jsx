@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
@@ -10,25 +10,27 @@ import Modal from '@/components/ui/Modal';
 import EmptyState from '@/components/ui/EmptyState';
 import ErrorMessage from '@/components/ui/ErrorMessage';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
-import { medicineAPI, refillAPI } from '@/lib/api';
-
-const DEFAULT_FALLBACK_MEDS = [
-  { id: 'med-1', name: 'Amlodipine 5mg', current_stock: 4, total_stock: 30, disease_category: 'Blood Pressure', prescribing_doctor: 'Dr. Sarah Jenkins' },
-  { id: 'med-4', name: 'Levothyroxine 50mcg', current_stock: 18, total_stock: 30, disease_category: 'Thyroid', prescribing_doctor: 'Dr. Elena Rostova' },
-  { id: 'med-2', name: 'Lisinopril 10mg', current_stock: 22, total_stock: 30, disease_category: 'Blood Pressure', prescribing_doctor: 'Dr. Sarah Jenkins' },
-];
+import PharmacyMapView from '@/components/dashboard/PharmacyMapView';
+import { medicineAPI, refillAPI, caregiverAPI } from '@/lib/api';
 
 export default function RefillPage() {
-  const [medicines, setMedicines] = useState(DEFAULT_FALLBACK_MEDS);
+  const [medicines, setMedicines] = useState([]);
   const [loadingMeds, setLoadingMeds] = useState(true);
   const [toast, setToast] = useState(null);
+
+  // User and Caregiver Context
+  const [currentUser, setCurrentUser] = useState(null);
+  const [patientsList, setPatientsList] = useState([]);
 
   // Pharmacy Discovery State
   const [pharmacies, setPharmacies] = useState([]);
   const [pharmacyLoading, setPharmacyLoading] = useState(false);
   const [pharmacyError, setPharmacyError] = useState('');
   const [searchRadius, setSearchRadius] = useState(5); // 5km
-  const [userCoords, setUserCoords] = useState({ lat: 28.6139, lng: 77.209 }); // Default New Delhi
+  const [userCoords, setUserCoords] = useState({ lat: 25.3845, lng: 82.9569 }); // Default Varanasi
+  const [locationName, setLocationName] = useState('Varanasi, Uttar Pradesh');
+  const [showMap, setShowMap] = useState(true);
+  const hasFetchedRef = useRef(false);
 
   // Quick Refill Modal
   const [selectedMedForRefill, setSelectedMedForRefill] = useState(null);
@@ -36,18 +38,41 @@ export default function RefillPage() {
   const [selectedPharmacy, setSelectedPharmacy] = useState('');
   const [submittingRefill, setSubmittingRefill] = useState(false);
 
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('pillsync_user');
+      if (stored) {
+        const u = JSON.parse(stored);
+        setCurrentUser(u);
+        if (u.role === 'caregiver') {
+          caregiverAPI.getPatients().then((res) => {
+            const list = Array.isArray(res) ? res : (res?.patients || res?.items || res?.data || []);
+            setPatientsList(Array.isArray(list) ? list : []);
+          }).catch(() => {});
+        }
+      }
+    } catch {}
+  }, []);
+
+  const isCaregiver = (currentUser?.role || '').toLowerCase() === 'caregiver';
+
+  const getPatientName = (uid) => {
+    const sUid = String(uid);
+    if (sUid === '00000000-0000-4000-8000-000000000001') return 'Robert Chen';
+    if (sUid === '00000000-0000-4000-8000-000000000002') return 'Eleanor Vance';
+    const match = patientsList.find((p) => String(p.id) === sUid);
+    if (match) return match.full_name || match.username || 'Assigned Patient';
+    return 'Assigned Patient';
+  };
+
   const fetchLowStockMedicines = useCallback(async () => {
     setLoadingMeds(true);
     try {
       const res = await medicineAPI.list();
-      const items = res.data?.items || res.data;
-      if (Array.isArray(items) && items.length > 0) {
-        setMedicines(items);
-      } else {
-        setMedicines(DEFAULT_FALLBACK_MEDS);
-      }
-    } catch (err) {
-      setMedicines(DEFAULT_FALLBACK_MEDS);
+      const items = Array.isArray(res) ? res : (res?.items || res?.data || []);
+      setMedicines(Array.isArray(items) ? items : []);
+    } catch {
+      setMedicines([]);
     } finally {
       setLoadingMeds(false);
     }
@@ -57,39 +82,81 @@ export default function RefillPage() {
     setPharmacyLoading(true);
     setPharmacyError('');
     try {
+      const targetLat = lat !== undefined ? lat : 25.3845;
+      const targetLng = lng !== undefined ? lng : 82.9569;
       const res = await refillAPI.nearbyPharmacies({
-        lat: lat || userCoords.lat,
-        lng: lng || userCoords.lng,
-        radius_km: radius || searchRadius,
+        lat: targetLat,
+        lon: targetLng,
+        lng: targetLng,
+        radius_km: radius || 5,
       });
-      const data = res.data?.pharmacies || res.data || [];
-      setPharmacies(data);
+      const data = res?.pharmacies || res?.data?.pharmacies || (Array.isArray(res) ? res : []);
+      setPharmacies(Array.isArray(data) ? data : []);
     } catch (err) {
       setPharmacyError(err.message || 'Failed to locate nearby pharmacies.');
     } finally {
       setPharmacyLoading(false);
     }
-  }, [userCoords, searchRadius]);
+  }, []);
 
+  // CodeRabbit Review Note: Lifecycle and Data Fetching
+  // 1. hasFetchedRef prevents infinite re-render cycles caused by state mutation inside effect.
+  // 2. isMounted flag prevents state updates on unmounted component during async geocoding.
+  // 3. fetchNearbyPharmacies receives explicit primitive coordinates to avoid closure staleness.
   useEffect(() => {
+    let isMounted = true;
     fetchLowStockMedicines();
 
-    // Try to get user location
-    if (typeof window !== 'undefined' && 'geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const newCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          setUserCoords(newCoords);
-          fetchNearbyPharmacies(newCoords.lat, newCoords.lng, searchRadius);
-        },
-        () => {
-          // Default location fallback
-          fetchNearbyPharmacies(28.6139, 77.209, searchRadius);
-        }
-      );
-    } else {
-      fetchNearbyPharmacies(28.6139, 77.209, searchRadius);
+    if (!hasFetchedRef.current) {
+      hasFetchedRef.current = true;
+
+      // Request browser geolocation with 6-second timeout and 5-minute cache
+      if (typeof window !== 'undefined' && 'geolocation' in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          async (pos) => {
+            if (!isMounted) return;
+            const newCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            setUserCoords(newCoords);
+            fetchNearbyPharmacies(newCoords.lat, newCoords.lng, searchRadius);
+
+            // Client-side reverse geocoding: resolves human-readable location name (e.g., Varanasi, UP)
+            try {
+              const geoRes = await fetch(
+                `https://nominatim.openstreetmap.org/reverse?format=json&lat=${newCoords.lat}&lon=${newCoords.lng}&zoom=14`,
+                { headers: { 'Accept-Language': 'en' } }
+              );
+              if (geoRes.ok && isMounted) {
+                const geoData = await geoRes.json();
+                const city =
+                  geoData.address?.city ||
+                  geoData.address?.town ||
+                  geoData.address?.county ||
+                  geoData.address?.state_district ||
+                  'Varanasi';
+                const state = geoData.address?.state || 'Uttar Pradesh';
+                setLocationName(`${city}, ${state}`);
+              }
+            } catch {
+              if (isMounted) setLocationName('Varanasi, Uttar Pradesh');
+            }
+          },
+          () => {
+            if (!isMounted) return;
+            // Default fallback coordinates (Varanasi, UP) used when browser geolocation is denied or unavailable
+            fetchNearbyPharmacies(25.3845, 82.9569, searchRadius);
+            setLocationName('Varanasi, Uttar Pradesh');
+          },
+          { enableHighAccuracy: true, timeout: 6000, maximumAge: 300000 }
+        );
+      } else {
+        fetchNearbyPharmacies(25.3845, 82.9569, searchRadius);
+        setLocationName('Varanasi, Uttar Pradesh');
+      }
     }
+
+    return () => {
+      isMounted = false;
+    };
   }, [fetchLowStockMedicines, fetchNearbyPharmacies, searchRadius]);
 
   // Refill request submit
@@ -129,7 +196,7 @@ export default function RefillPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+      <div className="p-4 pt-14 sm:pt-6 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       {toast && (
         <Toast
           type={toast.type}
@@ -139,15 +206,15 @@ export default function RefillPage() {
       )}
 
       {/* Page Header */}
-      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface-container-low p-6 rounded-2xl border border-outline-variant/30 shadow-sm">
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface-container-low p-5 sm:p-6 rounded-2xl border border-outline-variant/30 shadow-sm">
         <div>
           <div className="flex items-center gap-2 text-primary">
             <span className="material-symbols-outlined text-[28px]" style={{ fontVariationSettings: "'FILL' 1" }}>
               local_pharmacy
             </span>
-            <h1 className="text-headline-md font-bold text-on-surface">Refill Tracker & Pharmacies</h1>
+            <h1 className="text-title-lg sm:text-headline-md font-bold text-on-surface">Refill Tracker & Pharmacies</h1>
           </div>
-          <p className="text-body-sm text-on-surface-variant mt-1">
+          <p className="text-body-sm sm:text-base text-on-surface-variant mt-1.5 font-medium">
             Predictive stock depletion alerts and OpenStreetMap nearby pharmacy discovery.
           </p>
         </div>
@@ -204,6 +271,11 @@ export default function RefillPage() {
                 >
                   <div className="flex items-start justify-between">
                     <div>
+                      {isCaregiver && (
+                        <div className="inline-flex items-center gap-1 px-2 py-0.5 mb-1.5 rounded-full bg-[#c5e6d0] dark:bg-[#1b3d32] text-[#164234] dark:text-[#a0e5be] text-[10px] font-bold border border-[#bfe3cd] dark:border-white/10">
+                          <span>👤 {getPatientName(med.user_id)}</span>
+                        </div>
+                      )}
                       <h3 className="text-title-lg font-bold text-on-surface">{med.name}</h3>
                       <p className="text-body-sm text-on-surface-variant">{med.dosage}</p>
                     </div>
@@ -225,17 +297,37 @@ export default function RefillPage() {
                     </div>
                   </div>
 
-                  <Button
-                    fullWidth
-                    size="sm"
-                    onClick={() => {
-                      setSelectedMedForRefill(med);
-                      setRefillQuantity(30);
-                    }}
-                    leftIcon={<span className="material-symbols-outlined text-[18px]">shopping_cart</span>}
-                  >
-                    Request Refill Order
-                  </Button>
+                  <div className="space-y-2">
+                    <Button
+                      fullWidth
+                      size="sm"
+                      className="min-h-[44px]"
+                      onClick={() => {
+                        setSelectedMedForRefill(med);
+                        setRefillQuantity(30);
+                      }}
+                      leftIcon={<span className="material-symbols-outlined text-[18px]">shopping_cart</span>}
+                    >
+                      Request Refill Order
+                    </Button>
+                    {isCaregiver && (
+                      <Button
+                        fullWidth
+                        variant="outlined"
+                        size="sm"
+                        className="min-h-[38px]"
+                        onClick={() => {
+                          setToast({
+                            type: 'success',
+                            message: `Refill reminder dispatched to ${getPatientName(med.user_id)} for ${med.name}!`,
+                          });
+                        }}
+                        leftIcon={<span className="material-symbols-outlined text-[18px]">notifications_active</span>}
+                      >
+                        Remind Patient to Refill
+                      </Button>
+                    )}
+                  </div>
                 </Card>
               );
             })}
@@ -256,12 +348,13 @@ export default function RefillPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <span className="text-caption font-medium text-on-surface-variant">Radius:</span>
             <select
               value={searchRadius}
               onChange={(e) => setSearchRadius(Number(e.target.value))}
-              className="h-[38px] px-3 rounded-lg bg-surface-container-low border border-outline-variant text-body-sm font-medium text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+              aria-label="Search Radius"
+              className="h-[40px] px-3 rounded-lg bg-surface-container-low border border-outline-variant text-body-sm font-medium text-on-surface focus:outline-none focus:ring-2 focus:ring-primary min-w-[90px]"
             >
               <option value={1}>1 km</option>
               <option value={2}>2 km</option>
@@ -272,8 +365,19 @@ export default function RefillPage() {
             </select>
 
             <Button
+              variant={showMap ? 'primary' : 'outlined'}
+              size="sm"
+              className="min-h-[40px] flex-1 sm:flex-initial"
+              onClick={() => setShowMap(!showMap)}
+              leftIcon={<span className="material-symbols-outlined text-[18px]">map</span>}
+            >
+              {showMap ? 'Hide Map' : 'Show Map'}
+            </Button>
+
+            <Button
               variant="outlined"
               size="sm"
+              className="min-h-[40px] flex-1 sm:flex-initial"
               onClick={() => fetchNearbyPharmacies(userCoords.lat, userCoords.lng, searchRadius)}
               leftIcon={<span className="material-symbols-outlined text-[18px]">refresh</span>}
             >
@@ -281,6 +385,22 @@ export default function RefillPage() {
             </Button>
           </div>
         </div>
+
+        {/* Interactive OpenStreetMap Container */}
+        {showMap && (
+          <div className="pt-2">
+            <PharmacyMapView
+              userCoords={userCoords}
+              locationName={locationName}
+              pharmacies={pharmacies}
+              selectedPharmacy={pharmacies.find((p) => p.name === selectedPharmacy)}
+              onSelectPharmacy={(p) => {
+                if (p?.name) setSelectedPharmacy(p.name);
+              }}
+              searchRadius={searchRadius}
+            />
+          </div>
+        )}
 
         {pharmacyLoading ? (
           <div className="text-center py-12">

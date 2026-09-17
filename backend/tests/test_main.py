@@ -55,6 +55,12 @@ class TestHealthAndRoot:
         assert "/api/v1/auth/login" in schema["paths"]
         assert "/api/v1/auth/me" in schema["paths"]
         assert "/api/v1/users/profile" in schema["paths"]
+        # Verify Swagger UI direct HTTPBearer authorization scheme
+        assert "components" in schema
+        assert "securitySchemes" in schema["components"]
+        assert "HTTPBearer" in schema["components"]["securitySchemes"]
+        assert schema["components"]["securitySchemes"]["HTTPBearer"]["type"] == "http"
+        assert schema["components"]["securitySchemes"]["HTTPBearer"]["scheme"] == "bearer"
 
 
 # ===================================================================
@@ -99,6 +105,21 @@ class TestAuthValidation:
             "role": "superadmin",
         })
         assert response.status_code == 422
+
+    def test_register_schema_normalization(self):
+        """Test RegisterRequest schema normalization for role, phone, and username."""
+        from app.schemas.auth_schema import RegisterRequest
+        req = RegisterRequest(
+            email="  NEWUSER@EXAMPLE.COM  ",
+            password="StrongPassword123!",
+            full_name="New User",
+            phone="   ",
+            role="PATIENT",
+        )
+        assert req.email == "newuser@example.com"
+        assert req.role == "patient"
+        assert req.phone is None
+        assert req.username is None
 
     def test_login_missing_fields(self):
         """POST /login with empty body should return 422."""

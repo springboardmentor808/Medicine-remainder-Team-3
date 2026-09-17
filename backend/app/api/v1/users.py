@@ -1,23 +1,28 @@
-"""
-PillSync User Management Router.
+"""PillSync User Management Router.
 
 Handles user profile CRUD, admin user listing, and caregiver-patient
 assignment. All endpoints are RBAC-protected.
 """
 
 import uuid
+from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, insert
+from pydantic import BaseModel
+from sqlalchemy import select, insert, func, or_, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import get_current_user
-from app.core.rbac import allow_admin, allow_any_authenticated
+from app.core.security import get_current_user, hash_password
+from app.core.rbac import allow_admin, allow_caregiver, allow_any_authenticated
 from app.models.user import User, UserRole
 from app.models.caregiver_patient import caregiver_patients
+from app.services.user_service import UserService
 from app.schemas.auth_schema import (
     AssignPatientRequest,
+    LinkPatientRequest,
+    AdminUserUpdateRequest,
+    UserStatusUpdateRequest,
     MessageResponse,
     UserResponse,
     UserUpdateRequest,
@@ -28,7 +33,7 @@ router = APIRouter(prefix="/users", tags=["Users"])
 
 
 # ===================================================================
-# GET /api/v1/users/profile — Any authenticated user
+# 1. GET /api/v1/users/profile — Any authenticated user
 # ===================================================================
 @router.get(
     "/profile",
@@ -46,14 +51,14 @@ async def get_profile(
         email=current_user.email,
         full_name=current_user.full_name,
         phone=current_user.phone,
-        role=current_user.role,
+        role=current_user.role if isinstance(current_user.role, str) else current_user.role.value,
         is_active=current_user.is_active,
         created_at=current_user.created_at.isoformat(),
     )
 
 
 # ===================================================================
-# PUT /api/v1/users/profile — Any authenticated user
+# 2. PUT /api/v1/users/profile — Any authenticated user
 # ===================================================================
 @router.put(
     "/profile",
@@ -67,46 +72,184 @@ async def update_profile(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Update the current user's profile.
+    Update the current user's profile via UserService.
     Only provided (non-None) fields are updated.
     """
-    if payload.full_name is not None:
-        current_user.full_name = payload.full_name
-    if payload.phone is not None:
-        current_user.phone = payload.phone
-    if payload.email is not None:
-        # Check email uniqueness
-        existing = await db.execute(
-            select(User).where(
-                User.email == payload.email,
-                User.id != current_user.id,
-            )
-        )
-        if existing.scalar_one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Email already in use by another account.",
-            )
-        current_user.email = payload.email
-
-    db.add(current_user)
-    await db.flush()
-    await db.refresh(current_user)
+    updated_user = await UserService.update_profile(current_user, payload, db)
 
     return UserResponse(
-        id=current_user.id,
-        username=current_user.username,
-        email=current_user.email,
-        full_name=current_user.full_name,
-        phone=current_user.phone,
-        role=current_user.role,
-        is_active=current_user.is_active,
-        created_at=current_user.created_at.isoformat(),
+        id=updated_user.id,
+        username=updated_user.username,
+        email=updated_user.email,
+        full_name=updated_user.full_name,
+        phone=updated_user.phone,
+        role=updated_user.role if isinstance(updated_user.role, str) else updated_user.role.value,
+        is_active=updated_user.is_active,
+        created_at=updated_user.created_at.isoformat(),
     )
 
 
 # ===================================================================
-# GET /api/v1/users/ — Admin only
+# 3. GET /api/v1/users/patients — Caregivers & Admins
+# ===================================================================
+@router.get(
+    "/patients",
+    response_model=List[UserResponse],
+    summary="Get caregiver's linked patients",
+    description="Retrieve patients assigned to the authenticated caregiver (or all patients).",
+)
+async def get_caregiver_patients(
+    current_user: User = Depends(allow_caregiver),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetch patients connected to this caregiver."""
+    is_caregiver = current_user.role == UserRole.CAREGIVER or str(getattr(current_user.role, "value", current_user.role)).lower() == "caregiver"
+    if is_caregiver:
+        linked_subquery = select(caregiver_patients.c.patient_id).where(
+            caregiver_patients.c.caregiver_id == current_user.id
+        )
+        result = await db.execute(
+            select(User).where(User.id.in_(linked_subquery), User.is_active.is_(True))
+        )
+        patients = list(result.scalars().all())
+        if not patients:
+            # When newly registered caregiver has zero linked patients yet,
+            # return 2 curated sample demo patients so the dashboard is not blank,
+            # while strictly avoiding data leaks of unassigned real platform users.
+            return [
+                UserResponse(
+                    id=uuid.UUID("00000000-0000-4000-8000-000000000001"),
+                    username="robert_chen_demo",
+                    email="robert.chen.demo@pillsync.health",
+                    full_name="Robert Chen (Sample Patient)",
+                    phone="+1 (555) 019-2834",
+                    role="patient",
+                    is_active=True,
+                    created_at="2026-01-01T08:00:00",
+                ),
+                UserResponse(
+                    id=uuid.UUID("00000000-0000-4000-8000-000000000002"),
+                    username="eleanor_vance_demo",
+                    email="eleanor.vance.demo@pillsync.health",
+                    full_name="Eleanor Vance (Sample Patient)",
+                    phone="+1 (555) 014-9821",
+                    role="patient",
+                    is_active=True,
+                    created_at="2026-01-01T08:00:00",
+                ),
+            ]
+    else:
+        # Admin viewing patient list
+        result = await db.execute(
+            select(User).where(User.role == UserRole.PATIENT, User.is_active.is_(True))
+        )
+        patients = list(result.scalars().all())
+
+    return [
+        UserResponse(
+            id=u.id,
+            username=u.username,
+            email=u.email,
+            full_name=u.full_name,
+            phone=u.phone,
+            role=u.role if isinstance(u.role, str) else u.role.value,
+            is_active=u.is_active,
+            created_at=u.created_at.isoformat() if u.created_at else "",
+        )
+        for u in patients
+    ]
+
+
+# ===================================================================
+# 4. POST /api/v1/users/link-patient — Caregiver links patient dynamically
+# ===================================================================
+@router.post(
+    "/link-patient",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+    summary="Link patient to caregiver",
+    description="Link a patient to the authenticated caregiver via pairing code, email, phone, or username.",
+)
+async def link_patient_endpoint(
+    payload: LinkPatientRequest,
+    current_user: User = Depends(allow_any_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    return await UserService.link_patient_to_caregiver(current_user, payload, db)
+
+
+# ===================================================================
+# 5. POST /api/v1/users/assign-patient — Admin only
+# ===================================================================
+@router.post(
+    "/assign-patient",
+    response_model=MessageResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Assign patient to caregiver (Admin only)",
+    description="Create a caregiver-patient relationship. Admin access only.",
+)
+async def assign_patient_to_caregiver(
+    payload: AssignPatientRequest,
+    current_user: User = Depends(allow_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Assign a patient to a caregiver.
+    Validates caregiver and patient roles and avoids duplicate assignments.
+    """
+    # Validate caregiver
+    cg_result = await db.execute(
+        select(User).where(User.id == payload.caregiver_id)
+    )
+    caregiver = cg_result.scalar_one_or_none()
+    if caregiver is None or (caregiver.role != UserRole.CAREGIVER and str(caregiver.role).lower() != "caregiver"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid caregiver ID or user is not a caregiver.",
+        )
+
+    # Validate patient
+    pt_result = await db.execute(
+        select(User).where(User.id == payload.patient_id)
+    )
+    patient = pt_result.scalar_one_or_none()
+    if patient is None or (patient.role != UserRole.PATIENT and str(patient.role).lower() != "patient"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid patient ID or user is not a patient.",
+        )
+
+    # Check duplicate assignment
+    existing = await db.execute(
+        select(caregiver_patients).where(
+            caregiver_patients.c.caregiver_id == payload.caregiver_id,
+            caregiver_patients.c.patient_id == payload.patient_id,
+        )
+    )
+    if existing.first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Patient is already assigned to this caregiver.",
+        )
+
+    # Create assignment
+    await db.execute(
+        insert(caregiver_patients).values(
+            caregiver_id=payload.caregiver_id,
+            patient_id=payload.patient_id,
+        )
+    )
+    await db.flush()
+    await db.commit()
+
+    return MessageResponse(
+        message=f"Patient '{patient.username}' assigned to caregiver '{caregiver.username}'.",
+        detail=f"Caregiver: {caregiver.id}, Patient: {patient.id}",
+    )
+
+
+# ===================================================================
+# 6. GET /api/v1/users/ — Admin only
 # ===================================================================
 @router.get(
     "/",
@@ -131,22 +274,108 @@ async def list_users(
             email=u.email,
             full_name=u.full_name,
             phone=u.phone,
-            role=u.role,
+            role=u.role if isinstance(u.role, str) else u.role.value,
             is_active=u.is_active,
-            created_at=u.created_at.isoformat(),
+            created_at=u.created_at.isoformat() if u.created_at else "",
         )
         for u in users
     ]
 
 
 # ===================================================================
-# GET /api/v1/users/{user_id} — Admin / Caregiver
+# 7. PATCH /api/v1/users/{user_id}/status — Admin only
+# ===================================================================
+@router.patch(
+    "/{user_id}/status",
+    response_model=UserResponse,
+    summary="Toggle user active/suspended status (Admin only)",
+)
+async def update_user_status_endpoint(
+    user_id: uuid.UUID,
+    payload: UserStatusUpdateRequest,
+    current_user: User = Depends(allow_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    user.is_active = payload.is_active
+    db.add(user)
+    await db.flush()
+    await db.commit()
+    await db.refresh(user)
+
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        full_name=user.full_name,
+        phone=user.phone,
+        role=user.role if isinstance(user.role, str) else user.role.value,
+        is_active=user.is_active,
+        created_at=user.created_at.isoformat() if user.created_at else "",
+    )
+
+
+# ===================================================================
+# 8. PATCH /api/v1/users/{user_id} — Admin only
+# ===================================================================
+@router.patch(
+    "/{user_id}",
+    response_model=UserResponse,
+    summary="Update user details and role (Admin only)",
+)
+async def update_user_by_admin(
+    user_id: uuid.UUID,
+    payload: AdminUserUpdateRequest,
+    current_user: User = Depends(allow_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    if payload.role is not None:
+        r_str = payload.role.strip().lower()
+        if r_str in ["patient", "caregiver", "admin"]:
+            user.role = r_str
+    if payload.is_active is not None:
+        user.is_active = payload.is_active
+    if payload.full_name is not None:
+        user.full_name = payload.full_name
+    if payload.phone is not None:
+        user.phone = payload.phone
+    if payload.email is not None:
+        user.email = payload.email
+
+    db.add(user)
+    await db.flush()
+    await db.commit()
+    await db.refresh(user)
+
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        full_name=user.full_name,
+        phone=user.phone,
+        role=user.role if isinstance(user.role, str) else user.role.value,
+        is_active=user.is_active,
+        created_at=user.created_at.isoformat() if user.created_at else "",
+    )
+
+
+# ===================================================================
+# 9. GET /api/v1/users/{user_id} — Admin only
 # ===================================================================
 @router.get(
     "/{user_id}",
     response_model=UserResponse,
     summary="Get user by ID",
-    description="Retrieve a specific user's profile. Admin and caregivers only.",
+    description="Retrieve a specific user's profile. Admin access only.",
 )
 async def get_user_by_id(
     user_id: uuid.UUID,
@@ -171,14 +400,14 @@ async def get_user_by_id(
         email=user.email,
         full_name=user.full_name,
         phone=user.phone,
-        role=user.role,
+        role=user.role if isinstance(user.role, str) else user.role.value,
         is_active=user.is_active,
-        created_at=user.created_at.isoformat(),
+        created_at=user.created_at.isoformat() if user.created_at else "",
     )
 
 
 # ===================================================================
-# DELETE /api/v1/users/{user_id} — Admin only (soft delete)
+# 10. DELETE /api/v1/users/{user_id} — Admin only (soft delete)
 # ===================================================================
 @router.delete(
     "/{user_id}",
@@ -215,6 +444,7 @@ async def deactivate_user(
     user.is_active = False
     db.add(user)
     await db.flush()
+    await db.commit()
 
     return MessageResponse(
         message=f"User '{user.username}' has been deactivated.",
@@ -223,73 +453,41 @@ async def deactivate_user(
 
 
 # ===================================================================
-# POST /api/v1/users/assign-patient — Admin only
+# 11. POST /api/v1/users/{user_id}/reset-password — Admin only
 # ===================================================================
+class AdminResetPasswordRequest(BaseModel):
+    temp_password: Optional[str] = None
+
+
 @router.post(
-    "/assign-patient",
+    "/{user_id}/reset-password",
     response_model=MessageResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Assign patient to caregiver (Admin only)",
-    description="Create a caregiver-patient relationship. Admin access only.",
+    summary="Admin reset user password",
+    description="Resets the target user's password to a secure temporary password. Admin access only.",
 )
-async def assign_patient_to_caregiver(
-    payload: AssignPatientRequest,
+async def admin_reset_user_password_endpoint(
+    user_id: uuid.UUID,
+    payload: Optional[AdminResetPasswordRequest] = None,
     current_user: User = Depends(allow_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Assign a patient to a caregiver.
+    """Reset target user password and invalidate previous credentials."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
 
-    Validates:
-    - Caregiver exists and has 'caregiver' role.
-    - Patient exists and has 'patient' role.
-    - Assignment doesn't already exist.
-    """
-    # Validate caregiver
-    cg_result = await db.execute(
-        select(User).where(User.id == payload.caregiver_id)
-    )
-    caregiver = cg_result.scalar_one_or_none()
-    if caregiver is None or caregiver.role != UserRole.CAREGIVER:
+    if user is None:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid caregiver ID or user is not a caregiver.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found.",
         )
 
-    # Validate patient
-    pt_result = await db.execute(
-        select(User).where(User.id == payload.patient_id)
-    )
-    patient = pt_result.scalar_one_or_none()
-    if patient is None or patient.role != UserRole.PATIENT:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid patient ID or user is not a patient.",
-        )
-
-    # Check duplicate assignment
-    existing = await db.execute(
-        select(caregiver_patients).where(
-            caregiver_patients.c.caregiver_id == payload.caregiver_id,
-            caregiver_patients.c.patient_id == payload.patient_id,
-        )
-    )
-    if existing.first():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Patient is already assigned to this caregiver.",
-        )
-
-    # Create assignment
-    await db.execute(
-        insert(caregiver_patients).values(
-            caregiver_id=payload.caregiver_id,
-            patient_id=payload.patient_id,
-        )
-    )
+    temp_pw = (payload.temp_password if payload and payload.temp_password else None) or f"PillSync#{uuid.uuid4().hex[:6].upper()}"
+    user.hashed_password = hash_password(temp_pw)
+    db.add(user)
     await db.flush()
+    await db.commit()
 
     return MessageResponse(
-        message=f"Patient '{patient.username}' assigned to caregiver '{caregiver.username}'.",
-        detail=f"Caregiver: {caregiver.id}, Patient: {patient.id}",
+        message=f"Password for user '{user.username}' has been reset.",
+        detail=temp_pw,
     )

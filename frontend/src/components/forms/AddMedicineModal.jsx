@@ -46,13 +46,62 @@ export default function AddMedicineModal({ isOpen, onClose, onSuccess, initialDa
   });
 
   React.useEffect(() => {
-    if (initialData) {
+    if (initialData && isOpen) {
+      let freq = 1;
+      const f = String(initialData.frequency || initialData.extracted_frequency || '').trim().toLowerCase();
+      if (f.includes('1-1-1') || f.includes('thrice') || f.includes('3 times') || f.includes('3x') || f === '3') {
+        freq = 3;
+      } else if (f.includes('1-0-1') || f.includes('0-1-1') || f.includes('twice') || f.includes('2 times') || f.includes('2x') || f === '2') {
+        freq = 2;
+      } else if (f.includes('4 times') || f.includes('4x') || f === '4') {
+        freq = 4;
+      } else if (typeof initialData.daily_frequency === 'number') {
+        freq = initialData.daily_frequency;
+      }
+
+      const initialQty = initialData.extracted_quantity || initialData.initial_quantity || 30;
+
+      const medName =
+        initialData.matched_medicine ||
+        initialData.medicine_name ||
+        initialData.extracted_medicine_name ||
+        initialData.name ||
+        '';
+
+      const dosageForm =
+        initialData.dosage_form ||
+        (medName.toLowerCase().includes('syrup')
+          ? 'Syrup'
+          : medName.toLowerCase().includes('capsule') || medName.toLowerCase().includes('cap')
+          ? 'Capsule'
+          : medName.toLowerCase().includes('injection')
+          ? 'Injection'
+          : medName.toLowerCase().includes('drops')
+          ? 'Drops'
+          : 'Tablet');
+
+      const qtyPerDose = Number(initialData.quantity_per_dose) || 1;
+
+      // Construct clean clinical notes including instructions and generic salt
+      let clinicalNotes = initialData.instructions || '';
+      if (initialData.generic_salt && !clinicalNotes.includes(initialData.generic_salt)) {
+        clinicalNotes = clinicalNotes
+          ? `${clinicalNotes} (Generic: ${initialData.generic_salt})`
+          : `Generic: ${initialData.generic_salt}`;
+      }
+      if (!clinicalNotes && initialData.raw_text) {
+        clinicalNotes = `Prescription text: ${initialData.raw_text.slice(0, 150)}`;
+      }
+
       setFormData((prev) => ({
         ...prev,
-        name: initialData.medicine_name || initialData.name || '',
-        dosage: initialData.dosage || '',
-        daily_frequency: initialData.frequency === '1-1-1' ? 3 : initialData.frequency === '1-0-1' ? 2 : 1,
-        notes: initialData.raw_text ? `OCR Scanned: ${initialData.raw_text}` : (initialData.notes || ''),
+        name: medName,
+        dosage: initialData.dosage || initialData.extracted_dosage || '',
+        dosage_form: dosageForm,
+        daily_frequency: freq,
+        quantity_per_dose: qtyPerDose,
+        initial_quantity: Number(initialQty) || 30,
+        notes: clinicalNotes || initialData.notes || '',
         disease_category: initialData.disease_category || 'General Healthcare',
       }));
     }
@@ -87,20 +136,6 @@ export default function AddMedicineModal({ isOpen, onClose, onSuccess, initialDa
     setLoading(true);
     setError('');
 
-    const newMedObj = {
-      id: 'med-' + Date.now(),
-      name: formData.name.trim(),
-      disease_category: formData.disease_category,
-      dosage: formData.dosage.trim(),
-      dosage_form: formData.dosage_form || 'Tablet',
-      current_stock: Number(formData.initial_quantity) || 30,
-      total_stock: Number(formData.initial_quantity) || 30,
-      daily_frequency: Number(formData.daily_frequency) || 1,
-      quantity_per_dose: Number(formData.quantity_per_dose) || 1,
-      status: 'normal',
-      notes: formData.notes ? formData.notes.trim() : null,
-    };
-
     try {
       const res = await medicineAPI.create({
         name: formData.name.trim(),
@@ -113,7 +148,7 @@ export default function AddMedicineModal({ isOpen, onClose, onSuccess, initialDa
         notes: formData.notes ? formData.notes.trim() : null,
       });
 
-      // Reset form
+      // Reset form only on success
       setFormData({
         name: '',
         disease_category: 'General Healthcare',
@@ -125,12 +160,11 @@ export default function AddMedicineModal({ isOpen, onClose, onSuccess, initialDa
         notes: '',
       });
 
-      onSuccess?.(res?.data || newMedObj);
+      onSuccess?.(res?.data || res);
       onClose?.();
     } catch (err) {
-      console.log('Backend sync offline/fallback, adding locally:', err.message);
-      onSuccess?.(newMedObj);
-      onClose?.();
+      // Show error to the user — do NOT silently add locally
+      setError(err.message || 'Failed to save medicine. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
